@@ -59,12 +59,12 @@ struct LyricFrameSource: NSViewRepresentable {
         for name in WindowRenderActivity.notifications {
             NotificationCenter.default.addObserver(self, selector: #selector(updateActivity(_:)), name: name, object: window)
         }
-        NotificationCenter.default.addObserver(self, selector: #selector(updateFrameRate),
+        NotificationCenter.default.addObserver(self, selector: #selector(frameRateEnvironmentDidChange),
             name: NSWindow.didChangeScreenNotification, object: window)
-        NotificationCenter.default.addObserver(self, selector: #selector(updateFrameRate),
+        NotificationCenter.default.addObserver(self, selector: #selector(frameRateEnvironmentDidChange),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
         for name in [Notification.Name.NSProcessInfoPowerStateDidChange, ProcessInfo.thermalStateDidChangeNotification] {
-            NotificationCenter.default.addObserver(self, selector: #selector(updateFrameRate), name: name, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(frameRateEnvironmentDidChange), name: name, object: nil)
         }
         updateActivity(nil)
         // Attachment often precedes the window's first orderFront. Read again
@@ -88,7 +88,14 @@ struct LyricFrameSource: NSViewRepresentable {
         }
         link?.isPaused = !deliveringFrames
     }
-    @objc private func updateFrameRate() {
+    // ProcessInfo notifications arrive on the posting thread, including system
+    // worker queues. The Objective-C entry point must itself be nonisolated:
+    // an actor-isolated selector traps before its body can dispatch to main.
+    @objc private nonisolated func frameRateEnvironmentDidChange() {
+        Task { @MainActor [weak self] in self?.updateFrameRate() }
+    }
+
+    private func updateFrameRate() {
         guard let link else { return }
         let screenMaximum = max(1, window?.screen?.maximumFramesPerSecond ?? NSScreen.main?.maximumFramesPerSecond ?? 60)
         let constrained = ProcessInfo.processInfo.isLowPowerModeEnabled || ProcessInfo.processInfo.thermalState == .serious || ProcessInfo.processInfo.thermalState == .critical

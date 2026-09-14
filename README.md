@@ -75,7 +75,7 @@
 
 ## 安装
 
-从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载最新的 `LyricsX-Next-2.0.25.zip`，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
+从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载最新的 `LyricsX-Next-2.0.26.zip`，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
 
 本次包使用本机 ad-hoc 签名，没有 Developer ID 公证票据。首次打开时如果 macOS 提示无法验证开发者：
 
@@ -87,7 +87,7 @@
    xattr -dr com.apple.quarantine "/Applications/LyricsX Next.app"
    ```
 
-完整的安装、签名和版本说明见 [`docs/releases/v2.0.25.md`](docs/releases/v2.0.25.md)。
+完整的安装、签名和版本说明见 [`docs/releases/v2.0.26.md`](docs/releases/v2.0.26.md)。
 
 ## 播放器权限
 
