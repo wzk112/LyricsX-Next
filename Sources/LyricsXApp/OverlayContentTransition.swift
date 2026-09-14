@@ -83,6 +83,14 @@ struct OverlayContentTransition: ViewModifier {
             }
         }
         .onChange(of: visible) { _, value in if !value { clock.cancel() } }
+        .task(id: clock.startedAt) {
+            // Finish independently of display callbacks (occlusion/minimizing
+            // can suspend them before the final sharp frame is delivered).
+            guard let token = clock.startedAt else { return }
+            let remaining = max(0, token + clock.duration - ProcessInfo.processInfo.systemUptime)
+            do { try await Task.sleep(for: .seconds(remaining)) } catch { return }
+            clock.finish(token)
+        }
         .onDisappear { clock.cancel() }
     }
 }

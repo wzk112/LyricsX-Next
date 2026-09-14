@@ -72,6 +72,7 @@ struct OverlayLyricsContent: View {
     var animationTime: () -> Double = { ProcessInfo.processInfo.systemUptime }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State var transition = OverlayCueTransition()
+    @State private var settledCue: OverlayCueSnapshot?
 
     private var prefs: Preferences { preferences }
     private func secondary(at index: Int) -> OverlaySecondaryMode.Content {
@@ -115,6 +116,7 @@ struct OverlayLyricsContent: View {
                 font: prefs.translationFontSize, canvasWidth: adaptiveCanvasWidth ?? 0), nextHeight: nextHeight,
                 primarySpacing: prefs.overlayPrimarySpacing, secondarySpacing: prefs.overlaySecondarySpacing)
         let height = primaryHeight + auxiliaryHeight
+        let _ = settledCue
         let sampledTime = lyricTime()
         GeometryReader { geometry in
             let translationHeight = OverlayTextMeasure.translationHeight(content.translation, font: prefs.translationFontSize, canvasWidth: geometry.size.width)
@@ -189,6 +191,13 @@ struct OverlayLyricsContent: View {
             }
             .onChange(of: cue, initial: true) { _, value in
                 transition = transition.updating(to: value, lyricTime: sampledTime, at: now, animated: !reduced && visible)
+            }
+            .task(id: cue) {
+                guard !reduced, visible else { return }
+                // A terminal update is required even if native display delivery
+                // was interrupted while the arrival was blurred.
+                do { try await Task.sleep(for: .seconds(OverlayMotionFrame.durationLimit)) } catch { return }
+                settledCue = cue
             }
             .onChange(of: visible) { _, shown in if !shown { transition = .init() } }
             .onChange(of: reduced) { _, value in if value { transition = .init() } }

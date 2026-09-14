@@ -1,9 +1,11 @@
-# LyricsX
+# LyricsX Next
+
+**LyricsX Next** 是基于 [LyricsX](https://github.com/MxIris-LyricsX-Project/LyricsX) 发展、由本仓库独立维护的版本，保留原项目历史、作者署名和 MPL-2.0 协议。此前 2.0.0–2.0.24 的发布保留原名称；从 2.0.25 起使用 LyricsX Next。
 
 > 面向 macOS 26/27 的原生 Swift 歌词播放器。保留 LyricsX 的菜单栏、搜索、导入导出和播放器控制，同时重做播放同步、缓存、悬浮窗和设置界面。
 
 <p>
-  <img src="docs/img/icon.png" width="128" alt="LyricsX 图标">
+  <img src="docs/img/icon.png" width="128" alt="LyricsX Next 图标">
 </p>
 
 ## 功能
@@ -73,23 +75,23 @@
 
 ## 安装
 
-从 [Releases](https://github.com/wzk112/LyricsX/releases) 下载最新的 `LyricsX-2.0.24.zip`，解压后将 `LyricsX.app` 拖到 `/Applications`。
+从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载最新的 `LyricsX-Next-2.0.25.zip`，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
 
 本次包使用本机 ad-hoc 签名，没有 Developer ID 公证票据。首次打开时如果 macOS 提示无法验证开发者：
 
-1. 在 Finder 中双击一次 LyricsX。
+1. 在 Finder 中双击一次 LyricsX Next。
 2. 打开“系统设置 → 隐私与安全性”，点击“仍要打开”。
 3. 如果系统仍提示应用已损坏，重新下载并解压；必要时执行：
 
    ```sh
-   xattr -dr com.apple.quarantine /Applications/LyricsX.app
+   xattr -dr com.apple.quarantine "/Applications/LyricsX Next.app"
    ```
 
-完整的安装、签名和版本说明见 [`docs/releases/v2.0.24.md`](docs/releases/v2.0.24.md)。
+完整的安装、签名和版本说明见 [`docs/releases/v2.0.25.md`](docs/releases/v2.0.25.md)。
 
 ## 播放器权限
 
-第一次读取 Apple Music 或 Spotify 时，macOS 可能要求允许 LyricsX 自动化控制播放器。允许后重启 LyricsX 即可。也可以在“系统设置 → 隐私与安全性 → 自动化”中检查权限。
+第一次读取 Apple Music 或 Spotify 时，macOS 可能要求允许 LyricsX Next 自动化控制播放器。允许后重启 LyricsX Next 即可。也可以在“系统设置 → 隐私与安全性 → 自动化”中检查权限。
 
 如果自动模式没有找到正在播放的歌曲，可在“设置”中选择 Apple Music 或 Spotify。Apple Music 的本地歌曲还会读取文件位置和内嵌歌词；没有内嵌歌词时会继续使用联网搜索。
 
@@ -111,7 +113,7 @@
 swift test --no-parallel
 LYRICSX_WINDOW_QA=1 swift test --filter WindowFrameTests
 ./scripts/build.sh release
-open build/LyricsX.app
+open "build/LyricsX Next.app"
 ```
 
 `scripts/build.sh release` 会构建 App、复制 MediaRemote 组件、生成图标、使用 ad-hoc 签名并执行严格签名校验。默认签名身份为 `-`；正式公开分发应在本机配置 Developer ID、Hardened Runtime 和 notarization。

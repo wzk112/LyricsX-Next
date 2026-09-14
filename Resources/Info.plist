@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_CN</string>
 	<key>CFBundleDisplayName</key>
-	<string>LyricsX</string>
+	<string>LyricsX Next</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -29,19 +29,19 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.lyricsx.modern</string>
 	<key>CFBundleName</key>
-	<string>LyricsX</string>
+	<string>LyricsX Next</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.0.24</string>
+	<string>2.0.25</string>
 	<key>CFBundleVersion</key>
-	<string>237</string>
+	<string>238</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>LyricsX 读取当前歌曲和播放进度，以显示同步歌词，并响应你的播放控制。</string>
+	<string>LyricsX Next 读取当前歌曲和播放进度，以显示同步歌词，并响应你的播放控制。</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>

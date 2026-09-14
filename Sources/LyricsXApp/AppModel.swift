@@ -203,15 +203,15 @@ final class AppModel {
         Task {
             defer { checkingUpdates = false }
             do {
-                var request = URLRequest(url: URL(string: "https://api.github.com/repos/MxIris-LyricsX-Project/LyricsX/releases/latest")!)
+                var request = URLRequest(url: URL(string: "https://api.github.com/repos/wzk112/LyricsX-Next/releases/latest")!)
                 request.timeoutInterval = 10
                 let (data, response) = try await URLSession.shared.data(for: request)
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
                 struct Release: Decodable { let tag_name: String; let html_url: URL }
                 let release = try JSONDecoder().decode(Release.self, from: data)
                 let alert = NSAlert()
-                alert.messageText = "上游最新版本：\(release.tag_name)"
-                alert.informativeText = "当前使用 Swift 重构版。上游发布与此构建分开维护，可打开发布页查看详情。"
+                alert.messageText = "LyricsX Next 最新版本：\(release.tag_name)"
+                alert.informativeText = "当前版本：\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知")。打开项目发布页查看更新说明与下载。"
                 alert.addButton(withTitle: "打开发布页"); alert.addButton(withTitle: "关闭")
                 NSApp.activate()
                 if alert.runModal() == .alertFirstButtonReturn, release.html_url.host == "github.com" { NSWorkspace.shared.open(release.html_url) }

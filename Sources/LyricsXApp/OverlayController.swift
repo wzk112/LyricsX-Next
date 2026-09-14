@@ -112,6 +112,8 @@ final class OverlayController: NSObject, NSWindowDelegate {
         content.sizingOptions = []
         content.wantsLayer = true
         content.layer?.backgroundColor = NSColor.clear.cgColor
+        root.wantsLayer = true
+        root.layer?.masksToBounds = true
         root.addSubview(background)
         root.addSubview(content)
         panel.contentView = root
@@ -347,7 +349,8 @@ final class OverlayController: NSObject, NSWindowDelegate {
         }
         lastSizingConfiguration = configuration
         let size = desiredSize
-        let canvas = NSSize(width: maximum, height: max(OverlaySongCardLayout(width: maximum).height, OverlayLayoutMetrics.height(preferences: p)))
+        let canvas = NSSize(width: maximum, height: max(size.height,
+            max(OverlaySongCardLayout(width: maximum).height, OverlayLayoutMetrics.height(preferences: p))))
         if content.frame.size != canvas { content.setFrameSize(canvas) }
         positionContent()
         guard size != lastSize else { return }
@@ -471,7 +474,7 @@ struct OverlayView: View {
                         }
                     }.frame(width: card.artwork, height: card.artwork).clipShape(.rect(cornerRadius: 9))
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(display.track?.title ?? "LyricsX")
+                        Text(display.track?.title ?? "LyricsX Next")
                             .font(.system(size: card.title, weight: .semibold)).lineLimit(2).minimumScaleFactor(0.85)
                         if let artist = display.track?.artist, !artist.isEmpty {
                             Text(artist).font(.system(size: card.artist, weight: .medium)).lineLimit(1).opacity(0.8)
@@ -507,7 +510,7 @@ struct OverlayView: View {
     }
     private func songHeader(display: OverlayDisplaySnapshot) -> some View {
         HStack(spacing: 6) {
-            Text(display.track?.title ?? "LyricsX").lineLimit(1)
+            Text(display.track?.title ?? "LyricsX Next").lineLimit(1)
             if let artist = display.track?.artist, !artist.isEmpty { Text("· " + artist).lineLimit(1).opacity(0.85) }
             Spacer(minLength: 4)
             Color.clear.frame(width: 126, height: 30)

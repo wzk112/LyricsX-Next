@@ -6,7 +6,7 @@ struct LyricsXApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model = AppModel()
     var body: some Scene {
-        Window("LyricsX", id: "main") {
+        Window("LyricsX Next", id: "main") {
             MainView(model: model).hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR).onAppear { delegate.configure(model) }
         }
         .defaultSize(width: 1040, height: 720)
@@ -57,7 +57,7 @@ private struct LyricsXCommands: Commands {
             Divider()
             Toggle("显示菜单栏图标", isOn: $model.preferences.showMenuBarIcon)
             Toggle("显示菜单栏歌词", isOn: $model.preferences.showMenubarLyrics)
-            Button("打开 LyricsX") { openWindow(id: "main"); NSApp.activate() }
+            Button("打开 LyricsX Next") { openWindow(id: "main"); NSApp.activate() }
         }
     }
 }
@@ -68,10 +68,10 @@ private struct MenuBarContent: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        Text(model.session.track?.title ?? "LyricsX").font(.headline)
+        Text(model.session.track?.title ?? "LyricsX Next").font(.headline)
         if let artist = model.session.track?.artist { Text(artist) }
         Divider()
-        Button("打开 LyricsX") { openWindow(id: "main"); NSApp.activate() }
+        Button("打开 LyricsX Next") { openWindow(id: "main"); NSApp.activate() }
         Toggle("悬浮歌词", isOn: Binding(get: { model.preferences.overlayVisible }, set: { model.setOverlayVisible($0) }))
         Toggle("锁定位置", isOn: Binding(get: { model.preferences.overlayLocked }, set: { model.setOverlayLocked($0) }))
         Toggle("歌词区域点击穿透", isOn: Binding(get: { model.preferences.overlayClickThrough }, set: { model.setOverlayClickThrough($0) }))
@@ -104,9 +104,9 @@ private struct MenuBarContent: View {
         Button("歌词资料库…") { openWindow(id: "main"); NSApp.activate(); model.showLibrary = true }
         Button("设置…") { openSettings(); NSApp.activate() }
         Divider()
-        Button("关于 LyricsX") { NSApp.orderFrontStandardAboutPanel(nil); NSApp.activate() }
+        Button("关于 LyricsX Next") { NSApp.orderFrontStandardAboutPanel(nil); NSApp.activate() }
         Button("检查更新…") { model.checkForUpdates() }
-        Button("退出 LyricsX") { NSApp.terminate(nil) }.keyboardShortcut("q")
+        Button("退出 LyricsX Next") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 }
 
@@ -117,7 +117,7 @@ private struct MenuBarLyricLabel: View {
            let index = model.session.currentLineIndex, doc.lines.indices.contains(index) {
             Text(String(model.preferences.text(doc.lines[index].text).prefix(36)))
                 .help(model.preferences.text(doc.lines[index].text))
-        } else { Text(model.session.track?.title ?? "LyricsX") }
+        } else { Text(model.session.track?.title ?? "LyricsX Next") }
     }
 }
 

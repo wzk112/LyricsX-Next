@@ -137,10 +137,10 @@ private struct LyricsScrollContent: View {
     }
     private var trackTitlePlaceholder: some View {
         VStack(spacing: 18) {
-            Text(model.session.track?.title ?? "LyricsX")
+            Text(model.session.track?.title ?? "LyricsX Next")
                 .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9)).lineLimit(2).multilineTextAlignment(.center)
-                .accessibilityLabel("当前歌曲：\(model.session.track?.title ?? "LyricsX")")
+                .accessibilityLabel("当前歌曲：\(model.session.track?.title ?? "LyricsX Next")")
             if model.session.isSearching {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)

@@ -96,7 +96,7 @@ struct PreferencesView: View {
         @Bindable var p = model.preferences
         return Group {
             SettingsCard(title: "应用入口") {
-                SettingToggle(title: "在 Dock 中显示", detail: "显示屏幕底部的 LyricsX 图标。关闭后仍可用 ⌥⌘O 打开主窗口。", value: $p.showDockIcon)
+                SettingToggle(title: "在 Dock 中显示", detail: "显示屏幕底部的 LyricsX Next 图标。关闭后仍可用 ⌥⌘O 打开主窗口。", value: $p.showDockIcon)
                 Divider().padding(.horizontal, 16)
                 SettingToggle(title: "菜单栏图标", detail: "在屏幕顶部保留播放器、歌词搜索和设置入口。", value: $p.showMenuBarIcon)
                 SettingToggle(title: "菜单栏歌词", detail: "在屏幕顶部显示当前一句；长句会截短，完整歌词不受影响。", value: $p.showMenubarLyrics)
@@ -104,7 +104,7 @@ struct PreferencesView: View {
                     .disabled(!p.showMenuBarIcon || !p.showMenubarLyrics)
             }
             SettingsCard(title: "启动") {
-                SettingToggle(title: "登录时启动", detail: "登录 macOS 后自动运行 LyricsX。", impact: "会在后台读取播放状态；可随时关闭。", value: Binding(
+                SettingToggle(title: "登录时启动", detail: "登录 macOS 后自动运行 LyricsX Next。", impact: "会在后台读取播放状态；可随时关闭。", value: Binding(
                     get: { p.launchAtLogin }, set: { enabled in
                         Task {
                             do {
@@ -118,7 +118,7 @@ struct PreferencesView: View {
             SettingsCard(title: "快捷键") {
                 SettingRow(title: "悬浮歌词", detail: "显示或隐藏桌面上的悬浮窗。") { Text("⌥⌘L").monospaced() }
                 SettingRow(title: "主窗口", detail: "隐藏 Dock 或菜单栏后也可使用。") { Text("⌥⌘O").monospaced() }
-                SettingRow(title: "搜索歌词", detail: "在 LyricsX 内打开当前歌曲的版本搜索。") { Text("⌘F").monospaced() }
+                SettingRow(title: "搜索歌词", detail: "在 LyricsX Next 内打开当前歌曲的版本搜索。") { Text("⌘F").monospaced() }
             }
         }
     }
@@ -322,7 +322,7 @@ struct PreferencesView: View {
     }
 
     private var aboutSettings: some View {
-        SettingsCard(title: "LyricsX") {
+        SettingsCard(title: "LyricsX Next") {
             SettingRow(title: "Swift 重构版", detail: "版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版本") · Zikai Wang") {
                 Image(systemName: "quote.bubble.fill").font(.largeTitle).foregroundStyle(.pink)
             }

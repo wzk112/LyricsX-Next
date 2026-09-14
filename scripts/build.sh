@@ -9,7 +9,7 @@ if [[ "$CONFIGURATION" != "release" && "$CONFIGURATION" != "debug" ]]; then
 fi
 swift build --configuration "$CONFIGURATION"
 BIN_DIR="$(swift build --configuration "$CONFIGURATION" --show-bin-path)"
-APP="$PROJECT_ROOT/build/LyricsX.app"
+APP="$PROJECT_ROOT/build/LyricsX Next.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN_DIR/LyricsX" "$APP/Contents/MacOS/LyricsX"
 cp Resources/Info.plist "$APP/Contents/Info.plist"

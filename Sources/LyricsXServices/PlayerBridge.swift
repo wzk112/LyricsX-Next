@@ -470,8 +470,8 @@ public final class PlayerBridge {
             switch self {
             case .excludedSource: "当前来源不是音乐播放器。"
             case .unavailable: "暂时无法读取系统播放状态。可在设置中切换到 Apple Music 或 Spotify。"
-            case .automation: "请在系统设置 → 隐私与安全性 → 自动化中允许 LyricsX 控制播放器。"
-            case .bundle: "播放器组件未就绪，请使用打包后的 LyricsX.app。"
+            case .automation: "请在系统设置 → 隐私与安全性 → 自动化中允许 LyricsX Next 控制播放器。"
+            case .bundle: "播放器组件未就绪，请使用打包后的 LyricsX Next.app。"
             case .wrongTrack: "只有当前 Apple Music 歌曲支持写入歌词。"
             case .lyricsWrite: "歌词未能写入。请确认歌曲未切换、已加入音乐资料库，并已允许自动化控制。"
             }

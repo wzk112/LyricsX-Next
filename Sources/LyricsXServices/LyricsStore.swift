@@ -247,7 +247,7 @@ struct SecureLyricsHTTPClient: HTTPClient {
         if scheme == "http", var components = URLComponents(url: original, resolvingAgainstBaseURL: false) {
             components.scheme = "https"; request.url = components.url
         }
-        request.setValue("LyricsX/2.0 (https://github.com/MxIris-LyricsX-Project/LyricsX)", forHTTPHeaderField: "X-Client")
+        request.setValue("LyricsX-Next/2.0 (https://github.com/wzk112/LyricsX-Next)", forHTTPHeaderField: "X-Client")
         for attempt in 0..<2 {
             do {
                 try Task.checkCancellation()
