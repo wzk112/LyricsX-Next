@@ -50,6 +50,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
     private var anchorTop: NSPoint?
     private var lastSizingConfiguration: [Double] = []
     private var resizeGeneration = 0
+    private var resizeSettlement: Task<Void, Never>?
     private var sizingDocument: UUID?
     private var sizingDocumentRevision: UInt64?
     private var sizingIndex: Int?
@@ -85,6 +86,10 @@ final class OverlayController: NSObject, NSWindowDelegate {
         content = NSHostingView(rootView: OverlayView(model: model, viewport: viewport, presentation: presentation))
         controls = NSHostingView(rootView: OverlayControlStrip(model: model))
         super.init()
+        viewport.contentSizeChanged = { [weak self] size in
+            guard let self, !self.stopped, !self.dragging else { return }
+            self.applySize(size)
+        }
         for window in [panel as NSPanel, controlPanel] {
             window.isFloatingPanel = true
             window.level = .floating
@@ -174,6 +179,8 @@ final class OverlayController: NSObject, NSWindowDelegate {
         presentation.stop()
         cancelResize()
         stopped = true
+        viewport.contentSizeChanged = nil
+        resizeSettlement?.cancel()
         resizeGeneration += 1
         stopPointerTracking()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
@@ -348,7 +355,12 @@ final class OverlayController: NSObject, NSWindowDelegate {
             sizingDocument = document?.id; sizingIndex = index; sizingConversion = p.conversion
         }
         lastSizingConfiguration = configuration
-        let size = desiredSize
+        applySize(desiredSize)
+    }
+
+    private func applySize(_ size: NSSize) {
+        let p = model.preferences
+        let maximum = size.width
         let canvas = NSSize(width: maximum, height: max(size.height,
             max(OverlaySongCardLayout(width: maximum).height, OverlayLayoutMetrics.height(preferences: p))))
         if content.frame.size != canvas { content.setFrameSize(canvas) }
@@ -360,6 +372,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         let target = anchoredFrame(size: size)
         resizeGeneration += 1
         let generation = resizeGeneration
+        resizeSettlement?.cancel()
         resizing = true
         let animate = !restoring && panel.isVisible && !p.reduceMotion && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         NSAnimationContext.runAnimationGroup { context in
@@ -377,6 +390,17 @@ final class OverlayController: NSObject, NSWindowDelegate {
         }
         if !animate { resizing = false }
         positionContent(); positionControlPanel()
+        if animate {
+            // Native animation completion can be delayed when a window is
+            // occluded. A single cancellable deadline also settles that case.
+            resizeSettlement = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: .milliseconds(550)) } catch { return }
+                guard let self, !self.stopped, self.resizeGeneration == generation else { return }
+                if self.panel.frame != target { self.panel.setFrame(target, display: true) }
+                self.resizing = false
+                self.positionContent(); self.positionControlPanel()
+            }
+        }
     }
 
     private func anchoredFrame(size: NSSize) -> NSRect {
@@ -386,6 +410,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
     }
 
     private func cancelResize() {
+        resizeSettlement?.cancel(); resizeSettlement = nil
         guard resizing else { return }
         resizeGeneration += 1
         NSAnimationContext.runAnimationGroup { context in
@@ -459,6 +484,8 @@ struct OverlayView: View {
         let compact = display.compact
         let card = OverlaySongCardLayout(width: maximum)
         let height = presentationHeight(maximum: maximum, display: display)
+        let renderedSize = NSSize(width: maximum, height: display.mode == .waiting
+            ? OverlayPresentationMode.waitingHeight : compact ? card.height : height)
         let transition = contentTransition(display: display)
         VStack(spacing: 0) {
             if display.mode == .waiting {
@@ -511,6 +538,13 @@ struct OverlayView: View {
             .hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR)
             .environment(\.lyricFrameRateLimit, model.preferences.overlayFrameRate.limit)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            // SwiftUI and the controller observe the session independently.
+            // Commit the height of the content that actually rendered as well
+            // as the controller's prediction, including first appearance.
+            .task(id: renderedSize) { @MainActor in
+                guard !Task.isCancelled else { return }
+                viewport.contentSizeChanged?(renderedSize)
+            }
             .background(WindowVisibilityReader { windowVisible = $0 }.frame(width: 0, height: 0))
     }
     private func songHeader(display: OverlayDisplaySnapshot) -> some View {

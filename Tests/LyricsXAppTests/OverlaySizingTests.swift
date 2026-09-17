@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 import LyricsXCore
 @testable import LyricsXApp
@@ -43,6 +44,43 @@ import LyricsXCore
 private struct SizingRepository: LyricsRepository {
     func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> { .init { $0.finish() } }
     func save(_ document: LyricsDocument, for track: Track) async throws {}
+}
+
+@MainActor @Test func renderedLyricsReportTheirHeightWithoutControllerObservationOrHover() async throws {
+    _ = NSApplication.shared
+    let suite = "LyricsXTests-" + UUID().uuidString
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let prefs = Preferences(defaults: defaults)
+    prefs.overlayWidth = 620; prefs.overlayAdaptiveSize = true
+    prefs.overlaySecondaryMode = .translation
+    let model = AppModel(repository: SizingRepository(), preferences: prefs)
+    let viewport = OverlayViewport(width: 620)
+    var reported: NSSize?
+    viewport.contentSizeChanged = { reported = $0 }
+    model.session.accept(.init(track: .init(playerID: "test", playerName: "Test", title: "Wildfire"),
+                               position: 0, isPlaying: false), shouldSearch: false)
+    let doc = LyricsDocument(lines: [
+        .init(id: 0, time: 0, text: "•••"),
+        .init(id: 1, time: 1, text: "Pain will wake up the despondent crowd in this dormant world somehow",
+              translation: "伤痛会唤醒沉睡的世界中绝望的人们")])
+    model.session.use(doc, persist: false)
+    let window = NSPanel(contentRect: .init(x: 0, y: 0, width: 620, height: 400),
+                         styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = NSHostingView(rootView: OverlayView(model: model, viewport: viewport))
+    window.orderFrontRegardless()
+    defer { window.orderOut(nil); window.contentView = nil; model.stop() }
+    for position in [0.0, 1, 0, 1] {
+        model.session.seek(to: position)
+        let expected = position == 0 ? OverlayPresentationMode.waitingHeight :
+            OverlayTextMeasure.height(document: doc, index: 1, preferences: prefs, maximumWidth: 620)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while reported?.height != CGFloat(expected), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(reported == NSSize(width: 620, height: expected))
+    }
 }
 
 @MainActor @Test func glassMasksFollowResizesWithoutWaitingForDisplayOrHover() throws {

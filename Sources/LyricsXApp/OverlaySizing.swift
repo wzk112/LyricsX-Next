@@ -6,6 +6,7 @@ import LyricsXCore
 final class OverlayViewport {
     var width: Double
     var rendering = true
+    @ObservationIgnored var contentSizeChanged: (@MainActor (NSSize) -> Void)?
     init(width: Double) { self.width = width }
 }
 
