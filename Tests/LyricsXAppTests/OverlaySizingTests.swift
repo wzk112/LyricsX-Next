@@ -45,6 +45,23 @@ private struct SizingRepository: LyricsRepository {
     func save(_ document: LyricsDocument, for track: Track) async throws {}
 }
 
+@MainActor @Test func glassMasksFollowResizesWithoutWaitingForDisplayOrHover() throws {
+    let background = OverlayGlassBackground(frame: .init(x: 0, y: 0, width: 608, height: 84))
+    background.configure(appearance: .glass, transparency: 0.26, frostAmount: 0.8,
+                         reduceTransparency: false, reduceMotion: false)
+    let glass = try #require(background.subviews.first as? NSGlassEffectView)
+    let scrim = try #require(glass.contentView)
+    for height in [260.0, 84, 180, 84, 320, 120] {
+        background.setFrameSize(.init(width: 608, height: height))
+        // No layoutIfNeeded, redraw, visibility toggle, or run-loop delay.
+        #expect(glass.frame == background.bounds)
+        #expect(scrim.frame == glass.bounds)
+        #expect(glass.layer?.mask?.frame == glass.bounds)
+        #expect(glass.layer?.mask?.sublayers?.first?.frame == glass.bounds)
+        #expect(scrim.layer?.mask?.frame == scrim.bounds)
+    }
+}
+
 @MainActor @Test func overlayFrameRatePreferencePreservesTheUsersChoice() throws {
     let suite = "LyricsXTests-" + UUID().uuidString
     let defaults = try #require(UserDefaults(suiteName: suite))
@@ -90,6 +107,17 @@ private struct SizingRepository: LyricsRepository {
     let lyricHeight = OverlayTextMeasure.height(document: doc, index: 2, preferences: prefs, maximumWidth: 620)
     #expect(abs(overlay.panel.frame.height - lyricHeight) < 1)
     #expect(abs(overlay.panel.frame.maxY - top) < 1)
+    // Retarget while both expansion and contraction are still in flight.
+    // The pointer stays outside; recovery must not depend on a hover refresh.
+    for position in [5.0, 8, 0, 5, 8] {
+        model.session.seek(to: position)
+        try await Task.sleep(for: .milliseconds(190))
+    }
+    try await Task.sleep(for: .milliseconds(600))
+    #expect(abs(overlay.panel.frame.height - lyricHeight) < 1)
+    let material = try #require(overlay.panel.contentView?.subviews.first as? OverlayGlassBackground)
+    let glass = try #require(material.subviews.first as? NSGlassEffectView)
+    #expect(glass.layer?.mask?.frame == glass.bounds)
 }
 
 @MainActor @Test func nativeHeightResizeKeepsWidthHostingBoundsAndTopEdge() async throws {
@@ -125,6 +153,14 @@ private struct SizingRepository: LyricsRepository {
     for _ in 0..<28 {
         try await Task.sleep(for: .milliseconds(20))
         let frame = overlay.panel.frame
+        let root = try #require(overlay.panel.contentView)
+        let material = try #require(root.subviews.first as? OverlayGlassBackground)
+        let glass = try #require(material.subviews.first as? NSGlassEffectView)
+        #expect(material.frame == root.bounds.insetBy(dx: 6, dy: 6))
+        #expect(glass.frame == material.bounds)
+        #expect(glass.layer?.mask?.frame == glass.bounds)
+        let scrim = try #require(glass.contentView)
+        #expect(scrim.layer?.mask?.frame == scrim.bounds)
         #expect(abs(frame.maxY - top) <= 1 && abs(frame.midX - center) <= 1)
         #expect(overlay.lyricHostingView === host && host.bounds == bounds)
         #expect(abs(host.frame.maxY - (overlay.panel.contentView?.bounds.maxY ?? 0)) <= 1)

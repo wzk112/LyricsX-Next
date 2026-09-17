@@ -40,6 +40,29 @@ final class OverlayGlassBackground: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        synchronizeGeometry()
+    }
+
+    override func layout() {
+        super.layout()
+        synchronizeGeometry()
+    }
+
+    // Window animation can resize native glass without scheduling layout for
+    // its mask layers. Commit every dependent frame in the same transaction.
+    func synchronizeGeometry() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if glass.frame != bounds { glass.frame = bounds }
+        if scrim.frame != glass.bounds { scrim.frame = glass.bounds }
+        if opticalMask.frame != glass.bounds { opticalMask.frame = glass.bounds }
+        if opticalEdge.frame != glass.bounds { opticalEdge.frame = glass.bounds }
+        if shadeMask.frame != scrim.bounds { shadeMask.frame = scrim.bounds }
+        CATransaction.commit()
+    }
+
     func configure(appearance: OverlayAppearance, transparency: Double, frostAmount: Double,
                    reduceTransparency: Bool, reduceMotion: Bool) {
         let next = Configuration(appearance: appearance,

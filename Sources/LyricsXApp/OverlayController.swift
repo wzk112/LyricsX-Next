@@ -353,7 +353,8 @@ final class OverlayController: NSObject, NSWindowDelegate {
             max(OverlaySongCardLayout(width: maximum).height, OverlayLayoutMetrics.height(preferences: p))))
         if content.frame.size != canvas { content.setFrameSize(canvas) }
         positionContent()
-        guard size != lastSize else { return }
+        // A requested size is not evidence that the native animation arrived.
+        guard size != lastSize || (!resizing && panel.frame.size != size) else { return }
         lastSize = size
         viewport.width = size.width
         let target = anchoredFrame(size: size)
@@ -369,6 +370,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         } completionHandler: { [weak self] in
             Task { @MainActor in
                 guard let self, self.resizeGeneration == generation, !self.stopped else { return }
+                if self.panel.frame != target { self.panel.setFrame(target, display: true) }
                 self.resizing = false
                 self.positionContent(); self.positionControlPanel()
             }
@@ -408,6 +410,9 @@ final class OverlayController: NSObject, NSWindowDelegate {
     }
 
     private func positionContent() {
+        let backgroundFrame = root.bounds.insetBy(dx: 6, dy: 6)
+        if background.frame != backgroundFrame { background.frame = backgroundFrame }
+        background.synchronizeGeometry()
         // Move the persistent maximum-size canvas; never resize its bounds for
         // animated window frames. SwiftUI typography and HDR surfaces survive.
         let origin = NSPoint(x: (root.bounds.width - content.frame.width) / 2,
