@@ -31,7 +31,11 @@ final class Preferences {
     var lyricFontName: String { didSet { save("lyricFontName", lyricFontName) } }
     var lyricPrimaryColor: String { didSet { save("lyricPrimaryColor", lyricPrimaryColor) } }
     var lyricSecondaryColor: String { didSet { save("lyricSecondaryColor", lyricSecondaryColor) } }
-    var typography: LyricTypography { .init(fontName: lyricFontName, primaryHex: lyricPrimaryColor, secondaryHex: lyricSecondaryColor) }
+    var separateWordColors: Bool { didSet { save("separateWordColors", separateWordColors) } }
+    var sungWordColor: String { didSet { save("sungWordColor", sungWordColor) } }
+    var unsungWordColor: String { didSet { save("unsungWordColor", unsungWordColor) } }
+    var typography: LyricTypography { .init(fontName: lyricFontName, primaryHex: lyricPrimaryColor, secondaryHex: lyricSecondaryColor,
+        wordColors: separateWordColors ? .init(sung: LyricTypography.color(sungWordColor), unsung: LyricTypography.color(unsungWordColor), plain: LyricTypography.color(lyricPrimaryColor)) : nil) }
     var translationFontSize: Double { didSet { save("translationFontSize", translationFontSize) } }
     var nextLineFontSize: Double { didSet { save("nextLineFontSize", nextLineFontSize) } }
     var overlaySecondaryMode: OverlaySecondaryMode { didSet { save("overlaySecondaryMode", overlaySecondaryMode.rawValue) } }
@@ -99,6 +103,9 @@ final class Preferences {
         lyricFontName = d.string(forKey: "lyricFontName") ?? ""
         lyricPrimaryColor = LyricTypography.normalizedHex(d.string(forKey: "lyricPrimaryColor") ?? "FFFFFF")
         lyricSecondaryColor = LyricTypography.normalizedHex(d.string(forKey: "lyricSecondaryColor") ?? "FFFFFF")
+        separateWordColors = d.object(forKey: "separateWordColors") as? Bool ?? false
+        sungWordColor = LyricTypography.normalizedHex(d.string(forKey: "sungWordColor") ?? d.string(forKey: "lyricPrimaryColor") ?? "FFFFFF")
+        unsungWordColor = LyricTypography.normalizedHex(d.string(forKey: "unsungWordColor") ?? "757575")
         translationFontSize = d.object(forKey: "translationFontSize") as? Double ?? 13
         nextLineFontSize = d.object(forKey: "nextLineFontSize") as? Double ?? 12
         overlaySecondaryMode = OverlaySecondaryMode(rawValue: d.string(forKey: "overlaySecondaryMode") ?? "translation") ?? .translation

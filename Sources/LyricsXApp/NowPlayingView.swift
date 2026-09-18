@@ -212,6 +212,7 @@ private struct LyricsScrollContent: View {
             VStack(alignment: .leading, spacing: 9) {
                 LiveLyricText(session: model.session, line: line, document: doc, active: active, rendering: { model.mainWindowVisible },
                               text: line.text.isEmpty ? "•••" : model.preferences.text(line.text), effects: model.preferences.lyricEmphasis)
+                    .environment(\.lyricWordColors, model.preferences.typography.wordColors)
                     .font(model.preferences.typography.font(size: model.preferences.mainLyricFontSize * min(1, max(0.8, width / 480)), weight: .bold)).tracking(-0.4).fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(model.preferences.typography.primary.opacity(active ? 1 : browsing ? 0.55 : distance <= 1 ? 0.25 : 0.15))
                 if model.preferences.showTranslation, let translation = line.translation {

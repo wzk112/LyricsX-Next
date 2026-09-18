@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Foundation
 import Testing
 import LyricsXCore
@@ -10,6 +11,41 @@ private struct CustomizationRepository: LyricsRepository {
 }
 
 @Suite @MainActor struct CustomizationTests {
+    @Test func wordColorsPersistAndRemainOptIn() throws {
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        #expect(prefs.typography.wordColors == nil)
+        prefs.separateWordColors = true; prefs.sungWordColor = "FF0000"; prefs.unsungWordColor = "0000FF"
+        let restored = Preferences(defaults: defaults)
+        #expect(restored.separateWordColors && restored.sungWordColor == "FF0000" && restored.unsungWordColor == "0000FF")
+        restored.separateWordColors = false
+        #expect(restored.typography.wordColors == nil && restored.unsungWordColor == "0000FF")
+    }
+
+    @Test func actualRendererSeparatesSungAndUnsungInk() throws {
+        let line = LyricLine(id: 0, time: 0, text: "MMMMMMMM", words: [.init(text: "MMMMMMMM", start: 0, end: 4)])
+        for (time, redExpected, blueExpected) in [(0.0, false, true), (2.0, true, true), (4.0, true, false)] {
+            let view = WordHighlight(line: line, time: time, active: true, text: line.text,
+                effects: .init(lift: false, glow: false, hdr: false))
+                .environment(\.lyricWordColors, .init(sung: LyricTypography.color("FF0000"), unsung: LyricTypography.color("0000FF"), plain: .white))
+                .foregroundStyle(.green).font(.system(size: 30)).padding(20).background(.black)
+            let renderer = ImageRenderer(content: view)
+            let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+            var red = 0, blue = 0
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    if c.redComponent > 0.5 && c.blueComponent < 0.2 { red += 1 }
+                    if c.blueComponent > 0.5 && c.redComponent < 0.2 { blue += 1 }
+                }
+            }
+            #expect((red > 30) == redExpected, "time=\(time), red=\(red), blue=\(blue)")
+            #expect((blue > 30) == blueExpected)
+        }
+    }
+
     @Test func mainWindowLifecycleDoesNotPauseFloatingLyricFrames() async throws {
         _ = NSApplication.shared
         let main = NSWindow(contentRect: .init(x: 100, y: 100, width: 300, height: 200),

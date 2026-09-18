@@ -220,6 +220,7 @@ private struct OverlayLyricSurface: View, Equatable {
     var secondary = false
     var body: some View {
         WordHighlight(line: line, time: time, active: true, text: text, effects: effects, arrival: arrival)
+            .environment(\.lyricWordColors, secondary ? nil : typography.wordColors)
             .font(typography.font(size: fontSize))
             .tracking(-0.4).multilineTextAlignment(.center).foregroundStyle(secondary ? typography.secondary : typography.primary)
             .lineLimit(2).fixedSize(horizontal: false, vertical: true)

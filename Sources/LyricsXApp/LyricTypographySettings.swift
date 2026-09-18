@@ -34,6 +34,22 @@ struct LyricTypographySettings: View {
                     preferences.lyricSecondaryColor = LyricTypography.hex($0)
                 }), supportsOpacity: false).labelsHidden()
             }
+            SettingRow(title: "逐字独立配色", detail: "分别设置已唱到和未唱到部分的颜色，同时用于主窗口和悬浮窗。", impact: "只对带逐字时间的当前歌词生效；关闭后恢复原来的明暗高亮。") {
+                Toggle("逐字独立配色", isOn: $preferences.separateWordColors).labelsHidden()
+            }
+            if preferences.separateWordColors {
+                SettingRow(title: "已唱到的颜色", detail: "进度经过的文字，以及正在唱的文字中已高亮的部分。") {
+                    ColorPicker("已唱到的颜色", selection: Binding(get: { LyricTypography.color(preferences.sungWordColor) }, set: {
+                        preferences.sungWordColor = LyricTypography.hex($0)
+                    }), supportsOpacity: false).labelsHidden()
+                }
+                SettingRow(title: "未唱到的颜色", detail: "当前句中尚未唱到的文字，不会再额外调暗。") {
+                    ColorPicker("未唱到的颜色", selection: Binding(get: { LyricTypography.color(preferences.unsungWordColor) }, set: {
+                        preferences.unsungWordColor = LyricTypography.hex($0)
+                    }), supportsOpacity: false).labelsHidden()
+                }
+                WordColorPreview(preferences: preferences).padding(16)
+            }
             GeometryReader { geometry in
                 let width = max(200, geometry.size.width - 32)
                 OverlayLyricsContent(preferences: preferences, document: Self.sample, index: 0,
@@ -52,8 +68,37 @@ struct LyricTypographySettings: View {
                     preferences.lyricFontName = ""
                     preferences.lyricPrimaryColor = "FFFFFF"
                     preferences.lyricSecondaryColor = "FFFFFF"
+                    preferences.separateWordColors = false
+                    preferences.sungWordColor = "FFFFFF"
+                    preferences.unsungWordColor = "757575"
                 }
             }.padding(16)
         }
+    }
+}
+
+private struct WordColorPreview: View {
+    let preferences: Preferences
+    @State private var visible = false
+    @State private var anchor = ProcessInfo.processInfo.systemUptime
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let line = LyricLine(id: 0, time: 0, text: "逐字颜色 · Color preview", words: [
+        .init(text: "逐字", start: 0, end: 1.5), .init(text: "颜色 · ", start: 1.5, end: 3),
+        .init(text: "Color ", start: 3, end: 4.5), .init(text: "preview", start: 4.5, end: 6)])
+    var body: some View {
+        LyricRenderTimeline(running: visible && !reduceMotion && !preferences.reduceMotion, sampledTime: 2.2,
+            preciseTime: { (ProcessInfo.processInfo.systemUptime - anchor).truncatingRemainder(dividingBy: 7) }) { time in
+            WordHighlight(line: Self.line, time: time, active: true, text: Self.line.text,
+                effects: .init(lift: false, glow: false, hdr: false))
+                .environment(\.lyricWordColors, preferences.typography.wordColors)
+                .font(preferences.typography.font(size: 26))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 90).padding(16)
+                .background(.black.opacity(0.85), in: .rect(cornerRadius: 18))
+        }
+        .environment(\.lyricFrameRateLimit, 30)
+        .onScrollVisibilityChange(threshold: 0.1) { visible = $0 }
+        .onDisappear { visible = false }
+        .accessibilityLabel("逐字配色动态预览")
     }
 }

@@ -5,6 +5,7 @@ struct LyricTypography: Equatable {
     var fontName = ""
     var primaryHex = "FFFFFF"
     var secondaryHex = "FFFFFF"
+    var wordColors: LyricWordColors?
 
     static func normalizedHex(_ value: String) -> String {
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
@@ -27,4 +28,17 @@ struct LyricTypography: Equatable {
     func font(size: Double, weight: NSFont.Weight = .semibold) -> Font { Font(nativeFont(size: size, weight: weight)) }
     var primary: Color { Self.color(primaryHex) }
     var secondary: Color { Self.color(secondaryHex) }
+}
+
+struct LyricWordColors: Equatable {
+    var sung: Color
+    var unsung: Color
+    var plain: Color
+}
+private struct LyricWordColorsKey: EnvironmentKey { static let defaultValue: LyricWordColors? = nil }
+extension EnvironmentValues {
+    var lyricWordColors: LyricWordColors? {
+        get { self[LyricWordColorsKey.self] }
+        set { self[LyricWordColorsKey.self] = newValue }
+    }
 }

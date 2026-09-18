@@ -82,6 +82,7 @@ private struct TimedLyricLabel: View, Equatable {
     let line: LyricLine
     let text: String
     var arrival: LyricLinePresentation?
+    var ink: Color?
     var body: some View {
         var cursor = 0
         var result = Text("")
@@ -100,6 +101,7 @@ private struct TimedLyricLabel: View, Equatable {
         if let tail = arrival?.layoutTail, !tail.isEmpty {
             result = Text("\(result)\(Text(verbatim: tail).customAttribute(HiddenLyricAttribute()))")
         }
+        if let ink { return result.foregroundColor(ink).accessibilityLabel(text) }
         return result.accessibilityLabel(text)
     }
 }
@@ -115,6 +117,7 @@ struct WordHighlight: View {
     @Environment(\.multilineTextAlignment) private var alignment
     @Environment(\.layoutDirection) private var direction
     @Environment(\.lyricHDRSupported) private var hdrSupported
+    @Environment(\.lyricWordColors) private var wordColors
     @Environment(\.lyricHDRHeadroom) private var hdrHeadroom
 
     var body: some View {
@@ -123,9 +126,9 @@ struct WordHighlight: View {
         options.hdr = options.hdr && hdrSupported && hdrHeadroom.isFinite && hdrHeadroom > 1
         if options.hdr { options.hdrBrightness = min(options.hdrBrightness, hdrHeadroom) }
         return LyricLayoutBoundary(text: text + (arrival?.layoutTail ?? "")) {
-            TimedLyricLabel(line: line, text: text, arrival: arrival).equatable()
+            TimedLyricLabel(line: line, text: text, arrival: arrival, ink: active && wordColors != nil ? .white : nil).equatable()
                 .textRenderer(HeldNoteRenderer(time: time, options: options, arrival: arrival,
-                    alignment: alignment, direction: direction, active: active))
+                    alignment: alignment, direction: direction, active: active, wordColors: wordColors))
                 .allowedDynamicRange(options.usesHDR ? .high : .standard)
         }
     }
@@ -138,6 +141,7 @@ struct HeldNoteRenderer: TextRenderer {
     var alignment: TextAlignment = .leading
     var direction: LayoutDirection = .leftToRight
     var active = true
+    var wordColors: LyricWordColors?
     // Extra drawing space doesn't affect measured text size or window position.
     var displayPadding: EdgeInsets { .init(top: 12, leading: 12, bottom: 12, trailing: 12) }
     static func hdrWhite(brightness: Double) -> Color {
@@ -167,7 +171,11 @@ struct HeldNoteRenderer: TextRenderer {
                     if groups[attribute.id] == nil { order.append(attribute.id) }
                     groups[attribute.id, default: []].append(run)
                 }
-                else { arrivalContext(context, run: run).draw(run) }
+                else {
+                    var plain = arrivalContext(context, run: run)
+                    if let wordColors { plain.addFilter(.colorMultiply(wordColors.plain)) }
+                    plain.draw(run)
+                }
             }
         }
         for id in order {
@@ -188,14 +196,18 @@ struct HeldNoteRenderer: TextRenderer {
                 drawing.scaleBy(x: frame.scale, y: frame.scale)
                 drawing.translateBy(x: -bounds.midX, y: -bounds.maxY)
                 if progress >= 1 {
-                    drawing.draw(run)
+                    var sung = drawing
+                    if let wordColors { sung.addFilter(.colorMultiply(wordColors.sung)) }
+                    sung.draw(run)
                 } else {
                     var dim = drawing
-                    dim.opacity *= 0.46
+                    if let wordColors { dim.addFilter(.colorMultiply(wordColors.unsung)) }
+                    else { dim.opacity *= 0.46 }
                     dim.draw(run)
                     if progress > 0 {
                         var sung = drawing
                         clipReveal(&sung, run: run, progress: progress)
+                        if let wordColors { sung.addFilter(.colorMultiply(wordColors.sung)) }
                         sung.draw(run)
                     }
                 }
@@ -209,6 +221,7 @@ struct HeldNoteRenderer: TextRenderer {
                         radius: min(9, bounds.height * (options.usesHDR ? 0.19 : 0.24))))
                     bloom.drawLayer { ink in
                         clipReveal(&ink, run: run, progress: progress)
+                        if let wordColors { ink.addFilter(.colorMultiply(wordColors.sung)) }
                         if options.usesHDR { ink.addFilter(.colorMultiply(white)) }
                         ink.draw(run)
                     }
