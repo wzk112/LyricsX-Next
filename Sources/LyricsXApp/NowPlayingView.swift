@@ -113,7 +113,7 @@ private struct LyricsScrollContent: View {
                 } else if doc.isSynced {
                     syncedLyrics(doc)
                 } else {
-                    ScrollView { Text(doc.plainText ?? "").font(.system(size: 26, weight: .semibold)).lineSpacing(16).frame(maxWidth: .infinity, alignment: .leading).padding(45).textSelection(.enabled) }
+                    ScrollView { Text(doc.plainText ?? "").font(model.preferences.typography.font(size: 26)).foregroundStyle(model.preferences.typography.primary).lineSpacing(16).frame(maxWidth: .infinity, alignment: .leading).padding(45).textSelection(.enabled) }
                         .scrollPosition($position)
                         .safeAreaInset(edge: .top) { Text("此歌词暂无时间轴").font(.caption).foregroundStyle(.secondary).padding(12) }
                 }
@@ -212,10 +212,10 @@ private struct LyricsScrollContent: View {
             VStack(alignment: .leading, spacing: 9) {
                 LiveLyricText(session: model.session, line: line, document: doc, active: active, rendering: { model.mainWindowVisible },
                               text: line.text.isEmpty ? "•••" : model.preferences.text(line.text), effects: model.preferences.lyricEmphasis)
-                    .font(.system(size: model.preferences.mainLyricFontSize * min(1, max(0.8, width / 480)), weight: .bold)).tracking(-0.4).fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(active ? .white : .white.opacity(browsing ? 0.55 : distance <= 1 ? 0.25 : 0.15))
+                    .font(model.preferences.typography.font(size: model.preferences.mainLyricFontSize * min(1, max(0.8, width / 480)), weight: .bold)).tracking(-0.4).fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(model.preferences.typography.primary.opacity(active ? 1 : browsing ? 0.55 : distance <= 1 ? 0.25 : 0.15))
                 if model.preferences.showTranslation, let translation = line.translation {
-                    Text(model.preferences.text(translation)).font(.system(size: model.preferences.mainTranslationFontSize, weight: .medium)).foregroundStyle(.white.opacity(active ? 0.65 : 0.25)).fixedSize(horizontal: false, vertical: true)
+                    Text(model.preferences.text(translation)).font(model.preferences.typography.font(size: model.preferences.mainTranslationFontSize, weight: .medium)).foregroundStyle(model.preferences.typography.secondary.opacity(active ? 0.65 : 0.25)).fixedSize(horizontal: false, vertical: true)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
                 .scaleEffect(active ? 1 : 0.96, anchor: .leading)

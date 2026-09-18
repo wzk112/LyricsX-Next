@@ -55,6 +55,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
     private var sizingDocumentRevision: UInt64?
     private var sizingIndex: Int?
     private var sizingConversion = ""
+    private var sizingFont = ""
     private var desiredSize = NSSize.zero
     private var localPointerMonitor: Any?
     private var globalPointerMonitor: Any?
@@ -86,9 +87,12 @@ final class OverlayController: NSObject, NSWindowDelegate {
         content = NSHostingView(rootView: OverlayView(model: model, viewport: viewport, presentation: presentation))
         controls = NSHostingView(rootView: OverlayControlStrip(model: model))
         super.init()
-        viewport.contentSizeChanged = { [weak self] size in
+        viewport.contentSizeChanged = { [weak self] _ in
             guard let self, !self.stopped, !self.dragging else { return }
-            self.applySize(size)
+            // A SwiftUI task may arrive after the session has already moved to
+            // another cue. Reconcile against the latest snapshot, never replay
+            // an old view's height over a newer controller request.
+            self.updateSizing()
         }
         for window in [panel as NSPanel, controlPanel] {
             window.isFloatingPanel = true
@@ -200,10 +204,11 @@ final class OverlayController: NSObject, NSWindowDelegate {
         wasPlaying = model.session.isPlaying
         let autoHidden = prefs.hideWhenPaused && !model.session.isPlaying && !explicitShowWhilePaused
         let visible = prefs.overlayVisible && !autoHidden && model.session.track != nil
+        let showing = visible && !lastVisible
         if visible != lastVisible {
             if !visible { cancelResize() }
             lastVisible = visible
-            if visible { panel.orderFrontRegardless() } else { panel.orderOut(nil) }
+            if !visible { panel.orderOut(nil) }
         }
         panel.contentDragEnabled = !prefs.overlayLocked && !prefs.overlayClickThrough
         if panel.ignoresMouseEvents != prefs.overlayClickThrough { panel.ignoresMouseEvents = prefs.overlayClickThrough }
@@ -213,6 +218,8 @@ final class OverlayController: NSObject, NSWindowDelegate {
                              reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
                              reduceMotion: prefs.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         updateSizing()
+        // Finish geometry while still hidden, then expose one coherent frame.
+        if showing { panel.orderFrontRegardless() }
         if visible { startPointerTracking() } else { stopPointerTracking() }
         refreshAppearance()
     }
@@ -345,7 +352,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         let changed = configuration != lastSizingConfiguration
         let replaced = display.documentRevision != sizingDocumentRevision
         if replaced, let document { OverlayTextMeasure.invalidateLayoutText(for: document.id) }
-        if changed || replaced || document?.id != sizingDocument || index != sizingIndex || p.conversion != sizingConversion {
+        if changed || replaced || document?.id != sizingDocument || index != sizingIndex || p.conversion != sizingConversion || p.lyricFontName != sizingFont {
             if mode == .waiting { desiredSize = NSSize(width: maximum, height: OverlayPresentationMode.waitingHeight) }
             else if mode == .song { desiredSize = NSSize(width: maximum, height: OverlaySongCardLayout(width: maximum).height) }
             else if p.overlayAdaptiveSize, let document, let index {
@@ -353,6 +360,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
             } else { desiredSize = NSSize(width: maximum, height: OverlayLayoutMetrics.height(preferences: p)) }
             sizingDocumentRevision = display.documentRevision
             sizingDocument = document?.id; sizingIndex = index; sizingConversion = p.conversion
+            sizingFont = p.lyricFontName
         }
         lastSizingConfiguration = configuration
         applySize(desiredSize)
@@ -374,7 +382,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         let generation = resizeGeneration
         resizeSettlement?.cancel()
         resizing = true
-        let animate = !restoring && panel.isVisible && !p.reduceMotion && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let animate = !restoring && panel.isVisible && panel.screen != nil && !hoverHidden && !p.reduceMotion && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         NSAnimationContext.runAnimationGroup { context in
             context.duration = animate ? (size.width > panel.frame.width || size.height > panel.frame.height ? 0.34 : 0.48) : 0
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0, 0.18, 1)
@@ -406,7 +414,12 @@ final class OverlayController: NSObject, NSWindowDelegate {
     private func anchoredFrame(size: NSSize) -> NSRect {
         let top = anchorTop ?? NSPoint(x: panel.frame.midX, y: panel.frame.maxY)
         let screen = NSScreen.screens.first { $0.frame.contains(top) } ?? NSScreen.main
-        return OverlayAnchor(topCenter: top).frame(size: size, in: screen?.visibleFrame ?? panel.frame)
+        guard let screen else {
+            // Display reconfiguration can temporarily have no screen. The old
+            // panel frame is not a screen bound: clamping to it freezes growth.
+            return NSRect(x: top.x - size.width / 2, y: top.y - size.height, width: size.width, height: size.height)
+        }
+        return OverlayAnchor(topCenter: top).frame(size: size, in: screen.visibleFrame)
     }
 
     private func cancelResize() {

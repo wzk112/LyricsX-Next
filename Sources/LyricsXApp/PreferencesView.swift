@@ -167,6 +167,7 @@ struct PreferencesView: View {
     private var lyricSettings: some View {
         @Bindable var p = model.preferences
         return Group {
+            LyricTypographySettings(preferences: p)
             SettingsCard(title: "文字") {
                 SettingToggle(title: "显示翻译", detail: "在有翻译的歌词中显示译文，同时影响主窗口和悬浮窗。", value: $p.showTranslation)
                 SettingRow(title: "中文显示", detail: "只转换界面中的简繁体，不改写原歌词文件。") {

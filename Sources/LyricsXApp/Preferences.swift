@@ -28,6 +28,10 @@ final class Preferences {
     var overlayAdaptiveSize: Bool { didSet { save("overlayAdaptiveSize", overlayAdaptiveSize) } }
     var overlayFrameRate: OverlayFrameRate { didSet { save("overlayFrameRate", overlayFrameRate.rawValue) } }
     var fontSize: Double { didSet { save("fontSize", fontSize) } }
+    var lyricFontName: String { didSet { save("lyricFontName", lyricFontName) } }
+    var lyricPrimaryColor: String { didSet { save("lyricPrimaryColor", lyricPrimaryColor) } }
+    var lyricSecondaryColor: String { didSet { save("lyricSecondaryColor", lyricSecondaryColor) } }
+    var typography: LyricTypography { .init(fontName: lyricFontName, primaryHex: lyricPrimaryColor, secondaryHex: lyricSecondaryColor) }
     var translationFontSize: Double { didSet { save("translationFontSize", translationFontSize) } }
     var nextLineFontSize: Double { didSet { save("nextLineFontSize", nextLineFontSize) } }
     var overlaySecondaryMode: OverlaySecondaryMode { didSet { save("overlaySecondaryMode", overlaySecondaryMode.rawValue) } }
@@ -92,6 +96,9 @@ final class Preferences {
         overlayAdaptiveSize = d.object(forKey: "overlayAdaptiveSize") as? Bool ?? true
         overlayFrameRate = OverlayFrameRate(rawValue: d.string(forKey: "overlayFrameRate") ?? "display") ?? .display
         fontSize = d.object(forKey: "fontSize") as? Double ?? 26
+        lyricFontName = d.string(forKey: "lyricFontName") ?? ""
+        lyricPrimaryColor = LyricTypography.normalizedHex(d.string(forKey: "lyricPrimaryColor") ?? "FFFFFF")
+        lyricSecondaryColor = LyricTypography.normalizedHex(d.string(forKey: "lyricSecondaryColor") ?? "FFFFFF")
         translationFontSize = d.object(forKey: "translationFontSize") as? Double ?? 13
         nextLineFontSize = d.object(forKey: "nextLineFontSize") as? Double ?? 12
         overlaySecondaryMode = OverlaySecondaryMode(rawValue: d.string(forKey: "overlaySecondaryMode") ?? "translation") ?? .translation

@@ -4,10 +4,10 @@ import AppKit
 @main
 struct LyricsXApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var model = AppModel()
     var body: some Scene {
+        @Bindable var model = delegate.model
         Window("LyricsX Next", id: "main") {
-            MainView(model: model).hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR).onAppear { delegate.configure(model) }
+            MainView(model: model).hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR)
         }
         .defaultSize(width: 1040, height: 720)
         .windowStyle(.hiddenTitleBar)
@@ -19,18 +19,17 @@ struct LyricsXApp: App {
         Window("动效预览", id: "preview") { LyricsPreviewView(preferences: model.preferences) }
             .defaultSize(width: 760, height: 480)
         MenuBarExtra(isInserted: $model.preferences.showMenuBarIcon) { MenuBarContent(model: model) } label: {
-            HStack(spacing: 5) {
+            if model.preferences.showMenubarLyrics && model.preferences.combinedMenubarLyrics {
+                Text("♫ " + model.menubarText)
+            } else {
                 Image(systemName: "quote.bubble")
-                if model.preferences.showMenubarLyrics && model.preferences.combinedMenubarLyrics {
-                    MenuBarLyricLabel(model: model)
-                }
             }
         }
         MenuBarExtra(isInserted: Binding(get: {
             model.preferences.showMenubarLyrics && (!model.preferences.combinedMenubarLyrics || !model.preferences.showMenuBarIcon)
-        }, set: { if !$0 { model.preferences.showMenubarLyrics = false } })) {
+        }, set: { _ in })) {
             MenuBarContent(model: model)
-        } label: { MenuBarLyricLabel(model: model) }
+        } label: { Text(model.menubarText) }
     }
 }
 
@@ -110,20 +109,9 @@ private struct MenuBarContent: View {
     }
 }
 
-private struct MenuBarLyricLabel: View {
-    let model: AppModel
-    var body: some View {
-        if let doc = model.session.document, !model.session.documentIsPlaceholder,
-           let index = model.session.currentLineIndex, doc.lines.indices.contains(index) {
-            Text(String(model.preferences.text(doc.lines[index].text).prefix(36)))
-                .help(model.preferences.text(doc.lines[index].text))
-        } else { Text(model.session.track?.title ?? "LyricsX Next") }
-    }
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var model: AppModel?
+    let model = AppModel()
     private var hotkeys: GlobalHotkeys?
     func applicationWillFinishLaunching(_ notification: Notification) {
         // LSUIElement prevents a Dock flash during cold launch. Promote only
@@ -131,17 +119,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let show = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
         _ = NSApp.setActivationPolicy(show ? .regular : .accessory)
     }
-    func configure(_ model: AppModel) {
-        guard self.model == nil else { return }
-        self.model = model; model.start(); hotkeys = GlobalHotkeys(model: model)
-    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-    func applicationWillTerminate(_ notification: Notification) { hotkeys?.stop(); model?.stop() }
-    func applicationDidBecomeActive(_ notification: Notification) { model?.dockVisibility.applicationActivated() }
-    func applicationDidFinishLaunching(_ notification: Notification) { model?.dockVisibility.applicationActivated() }
+    func applicationWillTerminate(_ notification: Notification) { hotkeys?.stop(); model.stop() }
+    func applicationDidBecomeActive(_ notification: Notification) { model.dockVisibility.applicationActivated() }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        model.start()
+        if hotkeys == nil { hotkeys = GlobalHotkeys(model: model) }
+        model.dockVisibility.applicationActivated()
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        model?.dockVisibility.applicationActivated()
-        guard let show = model?.showMainWindow else { return true }
+        model.dockVisibility.applicationActivated()
+        guard let show = model.showMainWindow else { return true }
         show()
         return false // The main window has an explicit owner; skip default reopening.
     }

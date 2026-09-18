@@ -63,6 +63,16 @@ final class AppModel {
         return text.isEmpty || text.unicodeScalars.allSatisfy(Self.gapCharacters.contains) ? .waiting : .lyrics
     }
     var overlayUsesCompactPresentation: Bool { overlayPresentationMode != .lyrics }
+    var menubarText: String {
+        let fallback = session.track?.title ?? "LyricsX Next"
+        var text = fallback
+        if overlayPresentationMode == .lyrics, let doc = session.document,
+           let index = session.currentLineIndex, doc.lines.indices.contains(index) {
+            text = preferences.text(doc.lines[index].text)
+        }
+        let singleLine = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        return singleLine.isEmpty ? "LyricsX Next" : String(singleLine.prefix(36)) + (singleLine.count > 36 ? "…" : "")
+    }
     func updateMainLyricSelection() {
         guard mainWindowVisible else { return }
         if mainLyricIndex != session.currentLineIndex { mainLyricIndex = session.currentLineIndex }
@@ -96,7 +106,7 @@ final class AppModel {
             guard self.session.isPlaying else { return nil }
             self.session.tick()
             self.updateMainLyricSelection()
-            let visible = self.mainWindowVisible || self.overlay?.needsPreciseLyricTicks == true
+            let visible = self.mainWindowVisible || self.preferences.showMenubarLyrics || self.overlay?.needsPreciseLyricTicks == true
             return LyricTickCadence.milliseconds(playing: self.session.isPlaying, visible: visible,
                 document: self.session.document, position: self.session.position)
         }

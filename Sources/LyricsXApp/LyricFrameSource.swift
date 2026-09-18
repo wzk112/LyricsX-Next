@@ -76,8 +76,12 @@ struct LyricFrameSource: NSViewRepresentable {
         }
     }
     @objc private func updateActivity(_ notification: Notification?) {
+        // Transparent floating panels may receive transient occlusion changes
+        // during another window's minimize animation. Their own visibility and
+        // `running` (including hover hiding) own rendering, not that occlusion.
+        let floating = window is DraggableOverlayPanel
         let visible = activity.update(event: notification?.name, visible: window?.isVisible == true,
-            miniaturized: window?.isMiniaturized == true, exposed: window?.occlusionState.contains(.visible) == true)
+            miniaturized: window?.isMiniaturized == true, exposed: floating || window?.occlusionState.contains(.visible) == true)
         deliveringFrames = visible && running
         if deliveringFrames, link == nil, let window {
             let target = Target(); target.view = self

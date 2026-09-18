@@ -113,16 +113,16 @@ struct OverlayLyricsContent: View {
                 translationSize: prefs.translationFontSize, nextSize: prefs.nextLineFontSize,
                 primarySpacing: prefs.overlayPrimarySpacing, secondarySpacing: prefs.overlaySecondarySpacing)
             : content.height(translationHeight: OverlayTextMeasure.translationHeight(content.translation,
-                font: prefs.translationFontSize, canvasWidth: adaptiveCanvasWidth ?? 0), nextHeight: nextHeight,
+                font: prefs.translationFontSize, canvasWidth: adaptiveCanvasWidth ?? 0, typography: prefs.typography), nextHeight: nextHeight,
                 primarySpacing: prefs.overlayPrimarySpacing, secondarySpacing: prefs.overlaySecondarySpacing)
         let height = primaryHeight + auxiliaryHeight
         let _ = settledCue
         let sampledTime = lyricTime()
         GeometryReader { geometry in
-            let translationHeight = OverlayTextMeasure.translationHeight(content.translation, font: prefs.translationFontSize, canvasWidth: geometry.size.width)
+            let translationHeight = OverlayTextMeasure.translationHeight(content.translation, font: prefs.translationFontSize, canvasWidth: geometry.size.width, typography: prefs.typography)
             let translationFont = content.translation.map {
                 OverlayTextMeasure.layout($0, font: prefs.translationFontSize, canvasWidth: geometry.size.width,
-                    tracking: 0, weight: .medium, minimumScale: 0.75).fontSize
+                    tracking: 0, weight: .medium, minimumScale: 0.75, typography: prefs.typography).fontSize
             } ?? prefs.translationFontSize
             let nextY = nextCenter(translationHeight: translationHeight, primaryHeight: primaryHeight, nextHeight: nextHeight)
             let cue = OverlayCueSnapshot(document: document.id, index: index, line: line, text: text,
@@ -146,7 +146,7 @@ struct OverlayLyricsContent: View {
                         let old = departure.cue
                         OverlayLyricSurface(line: old.line, text: old.text, time: departure.time,
                             arrival: old.plan?.withoutEntry(text: old.text), fontSize: old.fontSize,
-                            effects: prefs.lyricEmphasis)
+                            effects: prefs.lyricEmphasis, typography: prefs.typography)
                             .equatable()
                             .frame(width: geometry.size.width, height: old.height, alignment: .bottom)
                             .scaleEffect(departure.pose.scale).blur(radius: departure.pose.blur + exit.blur)
@@ -160,14 +160,14 @@ struct OverlayLyricsContent: View {
                                         sampledTime: time, preciseTime: renderTime ?? lyricTime,
                                         continueFrames: { LyricRenderTimelineActivity.needsFrames(line: line, time: (renderTime ?? lyricTime)(), arrival: arrival) }) { wordTime in
                         OverlayLyricSurface(line: line, text: text, time: wordTime, arrival: arrival,
-                            fontSize: primaryFont, effects: prefs.lyricEmphasis)
+                            fontSize: primaryFont, effects: prefs.lyricEmphasis, typography: prefs.typography)
                     }
                         .frame(width: geometry.size.width, height: primaryHeight, alignment: .bottom)
                         .scaleEffect(motion.scale).blur(radius: motion.blur)
                         .opacity(motion.opacity)
                         .position(x: geometry.size.width / 2, y: primaryHeight / 2 + motion.offset)
                     if let translation = content.translation {
-                        OverlayTranslationSurface(text: translation, fontSize: translationFont).equatable()
+                        OverlayTranslationSurface(text: translation, fontSize: translationFont, typography: prefs.typography).equatable()
                             .frame(width: geometry.size.width, height: translationHeight)
                             .blur(radius: translationMotion.blur)
                             .opacity(translationMotion.opacity * motion.auxiliaryOpacity(top: translationTop, primaryHeight: primaryHeight, reduced: reduced))
@@ -177,7 +177,7 @@ struct OverlayLyricsContent: View {
                         // Preview and primary use identical wrapping. Transform
                         // the cached layout rather than re-typesetting each size.
                         OverlayLyricSurface(line: nextLine, text: next, time: nextLine.time, arrival: nextPlan,
-                            fontSize: nextFont, effects: .init(lift: prefs.lyricWordLift, glow: false, reduced: reduced))
+                            fontSize: nextFont, effects: .init(lift: prefs.lyricWordLift, glow: false, reduced: reduced), typography: prefs.typography, secondary: true)
                             .equatable()
                             .frame(width: geometry.size.width, height: nextPrimaryHeight, alignment: .bottom)
                             .scaleEffect(nextScale).blur(radius: reduced ? 0 : 0.45 + nextMotion.blur)
@@ -216,10 +216,12 @@ private struct OverlayLyricSurface: View, Equatable {
     let arrival: LyricLinePresentation?
     let fontSize: Double
     let effects: LyricEmphasisOptions
+    var typography = LyricTypography()
+    var secondary = false
     var body: some View {
         WordHighlight(line: line, time: time, active: true, text: text, effects: effects, arrival: arrival)
-            .font(.system(size: fontSize, weight: .semibold))
-            .tracking(-0.4).multilineTextAlignment(.center).foregroundStyle(.white)
+            .font(typography.font(size: fontSize))
+            .tracking(-0.4).multilineTextAlignment(.center).foregroundStyle(secondary ? typography.secondary : typography.primary)
             .lineLimit(2).fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -227,9 +229,10 @@ private struct OverlayLyricSurface: View, Equatable {
 private struct OverlayTranslationSurface: View, Equatable {
     let text: String
     let fontSize: Double
+    var typography = LyricTypography()
     var body: some View {
-        Text(text).font(.system(size: fontSize, weight: .medium))
-            .foregroundStyle(.white.opacity(0.95)).lineLimit(2).multilineTextAlignment(.center)
+        Text(text).font(typography.font(size: fontSize, weight: .medium))
+            .foregroundStyle(typography.secondary.opacity(0.95)).lineLimit(2).multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
     }
 }

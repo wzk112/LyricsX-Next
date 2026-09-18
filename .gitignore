@@ -1,5 +1,6 @@
 Product
 build/
+build.noindex/
 dist/
 Scripts/release/bin/
 .DS_Store
