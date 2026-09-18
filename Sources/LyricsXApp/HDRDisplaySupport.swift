@@ -78,8 +78,14 @@ private struct WindowHDRReader: NSViewRepresentable {
             super.viewDidMoveToWindow(); stop()
             guard let window else { return }
             NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: NSWindow.didChangeScreenNotification, object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: NSWindow.didChangeOcclusionStateNotification, object: window)
             NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: NSApplication.didChangeScreenParametersNotification, object: nil)
             refresh()
+            // Attachment can precede orderFront and screen assignment.
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window else { return }
+                self.refresh()
+            }
         }
         @objc private func refresh() {
             let value = window?.screen.map { HDRDisplayCapability(screen: $0) }

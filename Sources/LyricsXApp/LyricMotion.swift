@@ -51,18 +51,26 @@ private struct LyricArrival<Trigger: Equatable & Sendable>: ViewModifier {
     let distance: Double
     var visible: () -> Bool
     @State private var clock = LyricArrivalClock()
+    @State private var displayedTrigger: Trigger?
 
     func body(content: Content) -> some View {
         let visible = visible()
-        LyricRenderTimeline(running: clock.startedAt != nil && !reduced && visible,
+        var staged = clock
+        if displayedTrigger != nil, displayedTrigger != trigger, !reduced, visible {
+            staged.start(at: ProcessInfo.processInfo.systemUptime)
+        }
+        let presentation = staged
+        return LyricRenderTimeline(running: presentation.startedAt != nil && !reduced && visible,
                             sampledTime: ProcessInfo.processInfo.systemUptime,
                             preciseTime: { ProcessInfo.processInfo.systemUptime }) { now in
-            let frame = reduced ? LyricMotion.Frame() : clock.frame(at: now)
+            let frame = reduced ? LyricMotion.Frame() : presentation.frame(at: now)
             content.offset(y: frame.offset * distance / 10).blur(radius: frame.blur).opacity(frame.opacity)
                 .onChange(of: clock.finishedToken(at: now)) { _, token in clock.finish(token) }
         }
-        .onChange(of: trigger) { _, _ in
-            if reduced || !visible { clock.cancel() } else { clock.start(at: ProcessInfo.processInfo.systemUptime) }
+        .onChange(of: trigger, initial: true) { _, value in
+            let first = displayedTrigger == nil
+            displayedTrigger = value
+            if first || reduced || !visible { clock.cancel() } else { clock.start(at: ProcessInfo.processInfo.systemUptime) }
         }
         .onChange(of: visible) { _, value in if !value { clock.cancel() } }
         .onChange(of: reduced) { _, value in if value { clock.cancel() } }

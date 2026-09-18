@@ -57,6 +57,7 @@ final class OverlayViewport {
         let available = max(1, canvasWidth)
         let key = LayoutKey(text: text, font: font, width: available, tracking: tracking, weight: weight.rawValue, minimumScale: minimumScale, fontName: typography.fontName)
         if let value = layoutCache[key] { return value }
+        var measuredHeight = 0.0
         func rows(at size: Double) -> Int {
             let storage = NSTextStorage(string: text.isEmpty ? " " : text, attributes: [
                 .font: typography.nativeFont(size: size, weight: weight), .kern: tracking
@@ -66,6 +67,7 @@ final class OverlayViewport {
             container.lineFragmentPadding = 0
             storage.addLayoutManager(manager); manager.addTextContainer(container)
             manager.ensureLayout(for: container)
+            measuredHeight = manager.usedRect(for: container).height
             var count = 0
             manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, _, _, _, stop in
                 count += 1
@@ -83,9 +85,11 @@ final class OverlayViewport {
             }
             size = low; count = rows(at: size)
         }
-        let native = typography.nativeFont(size: size, weight: weight)
-        let lineHeight = max(size * 1.4, native.ascender - native.descender + native.leading)
-        let value = TextLayout(fontSize: size, height: ceil(lineHeight) * Double(min(2, count)), rows: min(2, count))
+        let nominalHeight = typography.lineHeight(size: size, weight: weight) * Double(min(2, count))
+        // NSTextStorage also measures fallback glyphs (e.g. Chinese text in a
+        // Latin font). The selected font's ascender alone cannot contain them.
+        let height = typography.fontName.isEmpty || count > 2 ? nominalHeight : max(nominalHeight, ceil(measuredHeight))
+        let value = TextLayout(fontSize: size, height: height, rows: min(2, count))
         if layoutCache.count >= 256 { layoutCache.removeAll(keepingCapacity: true) }
         layoutCache[key] = value
         return value

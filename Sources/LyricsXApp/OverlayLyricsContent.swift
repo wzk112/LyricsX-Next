@@ -5,8 +5,8 @@ enum OverlayLayoutMetrics {
     // Header and insets plus a real bottom gap, including room for text bloom.
     static let chromeHeight = 80.0
     @MainActor static func height(preferences: Preferences) -> Double {
-        chromeHeight + ceil(preferences.fontSize * 1.4) * 2 + preferences.overlaySecondaryMode.reservedHeight(
-            translationSize: preferences.translationFontSize, nextSize: preferences.nextLineFontSize,
+        chromeHeight + preferences.typography.lineHeight(size: preferences.fontSize) * 2 + preferences.overlaySecondaryMode.reservedHeight(
+            translationSize: preferences.typography.reservationSize(preferences.translationFontSize, weight: .medium), nextSize: preferences.typography.reservationSize(preferences.nextLineFontSize),
             primarySpacing: preferences.overlayPrimarySpacing, secondarySpacing: preferences.overlaySecondarySpacing)
     }
 }
@@ -87,7 +87,7 @@ struct OverlayLyricsContent: View {
     }
 
     private func primaryHeight(at index: Int) -> Double {
-        guard let width = adaptiveCanvasWidth else { return ceil(prefs.fontSize * 1.4) * 2 }
+        guard let width = adaptiveCanvasWidth else { return prefs.typography.lineHeight(size: prefs.fontSize) * 2 }
         return OverlayTextMeasure.primaryHeight(document: document, index: index, preferences: prefs, canvasWidth: width)
     }
 
@@ -110,7 +110,7 @@ struct OverlayLyricsContent: View {
         let translationTop = primaryHeight + prefs.overlayPrimarySpacing
         let auxiliaryHeight = adaptiveCanvasWidth == nil
             ? (secondaryMode ?? prefs.overlaySecondaryMode).reservedHeight(
-                translationSize: prefs.translationFontSize, nextSize: prefs.nextLineFontSize,
+                translationSize: prefs.typography.reservationSize(prefs.translationFontSize, weight: .medium), nextSize: prefs.typography.reservationSize(prefs.nextLineFontSize),
                 primarySpacing: prefs.overlayPrimarySpacing, secondarySpacing: prefs.overlaySecondarySpacing)
             : content.height(translationHeight: OverlayTextMeasure.translationHeight(content.translation,
                 font: prefs.translationFontSize, canvasWidth: adaptiveCanvasWidth ?? 0, typography: prefs.typography), nextHeight: nextHeight,
@@ -127,7 +127,7 @@ struct OverlayLyricsContent: View {
             let nextY = nextCenter(translationHeight: translationHeight, primaryHeight: primaryHeight, nextHeight: nextHeight)
             let cue = OverlayCueSnapshot(document: document.id, index: index, line: line, text: text,
                 plan: plan, height: primaryHeight, fontSize: primaryFont, previewText: content.next,
-                previewCenter: content.next == nil ? nil : nextY, previewScale: nextScale)
+                previewCenter: content.next == nil ? nil : nextY, previewScale: nextScale, fontName: prefs.lyricFontName)
             let now = animationTime()
             // Resolve before onChange so the first frame already contains the
             // right geometry and departure, without a one-frame flash.

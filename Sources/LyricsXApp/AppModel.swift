@@ -283,8 +283,9 @@ final class AppModel {
     private func updateArtwork(_ track: Track?) {
         let identity = (track?.id ?? "") + (track?.artworkURL?.absoluteString ?? "")
         guard identity != artworkIdentity || track?.artworkData != artworkBytes else { return }
-        artworkIdentity = identity; artworkBytes = track?.artworkData; artworkTask?.cancel(); artwork = nil
-        if let data = track?.artworkData { artwork = Self.decodeArtwork(data); return }
+        artworkIdentity = identity; artworkBytes = track?.artworkData; artworkTask?.cancel()
+        if let data = track?.artworkData, let decoded = Self.decodeArtwork(data) { artwork = decoded; return }
+        artwork = nil
         guard let originalURL = track?.artworkURL,
               let scheme = originalURL.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return }
         var url = originalURL

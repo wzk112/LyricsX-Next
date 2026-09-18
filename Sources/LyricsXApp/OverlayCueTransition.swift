@@ -14,6 +14,7 @@ struct OverlayCueSnapshot: Equatable {
     let previewText: String?
     let previewCenter: Double?
     let previewScale: Double
+    var fontName = ""
 }
 
 struct OverlayCueDeparture {
@@ -54,7 +55,9 @@ struct OverlayCueTransition {
         var result = self
         result.current = cue
         if let current, current.document == cue.document, current.index == cue.index, current.text == cue.text {
-            if !animated { result.promotionDistance = nil; result.departure = nil }
+            let reflowed = current.fontName != cue.fontName || current.height != cue.height || current.fontSize != cue.fontSize || current.previewCenter != cue.previewCenter
+            if !animated || reflowed { result.promotionDistance = nil; result.departure = nil }
+            if reflowed { result.arrivedAt = nil }
             return result
         }
         result.arrivedAt = now - max(0, lyricTime - cue.line.time)

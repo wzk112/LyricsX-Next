@@ -3,50 +3,71 @@ import LyricsXCore
 
 struct AmbientBackground: View {
     var artwork: NSImage?
+    var reduced = false
+    @Environment(\.accessibilityReduceMotion) private var systemReduced
     @State private var backdrop: CGImage?
     @State private var renderedArtwork: ObjectIdentifier?
     var body: some View {
         GeometryReader { geometry in
+            let key = artwork.map { AmbientArtworkKey(artwork: $0, size: geometry.size) }
             ZStack {
-                Color(red: 0.045, green: 0.035, blue: 0.075)
-                if let artwork {
-                    let key = AmbientArtworkKey(artwork: artwork, size: geometry.size)
-                    ZStack {
-                        Color.clear
-                        if let backdrop {
-                            Image(decorative: backdrop, scale: 1).resizable().opacity(0.32)
-                        }
-                    }.task(id: key) {
-                        // Coalesce resize events and discard obsolete work before
-                        // starting the CPU blur or committing its result.
-                        if renderedArtwork == ObjectIdentifier(artwork) {
-                            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-                        }
-                        guard !Task.isCancelled,
-                              let source = artwork.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
-                        let result = await AmbientArtworkRenderer.shared.render(source, key: key)
-                        guard !Task.isCancelled else { return }
-                        backdrop = result
-                        renderedArtwork = ObjectIdentifier(artwork)
-                    }
-                } else {
-                    LinearGradient(colors: [Color(white: 0.12), Color(white: 0.045)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [Color(white: 0.12), Color(white: 0.045)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                if let backdrop {
+                    Image(decorative: backdrop, scale: 1).resizable().opacity(0.32)
+                        .id(ObjectIdentifier(backdrop)).transition(.opacity)
                 }
                 LinearGradient(colors: [.black.opacity(0.02), .black.opacity(0.25)], startPoint: .top, endPoint: .bottom)
-            }.clipped()
+            }.clipped().task(id: key) {
+                // Keep the previous pixels while metadata is temporarily missing
+                // or the replacement blur is being prepared. Never flash a flat fill.
+                if let artwork, let key,
+                   let source = artwork.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    if renderedArtwork == ObjectIdentifier(artwork) {
+                        do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                    }
+                    let result = await AmbientArtworkRenderer.shared.render(source, key: key)
+                    guard !Task.isCancelled, let result else { return }
+                    withAnimation(reduced || systemReduced ? nil : .easeInOut(duration: 0.65)) { backdrop = result }
+                    renderedArtwork = ObjectIdentifier(artwork)
+                } else {
+                    do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+                    guard !Task.isCancelled else { return }
+                    withAnimation(reduced || systemReduced ? nil : .easeInOut(duration: 0.65)) { backdrop = nil }
+                    renderedArtwork = nil
+                }
+            }
         }.ignoresSafeArea().allowsHitTesting(false)
     }
 }
 
+struct ArtworkBlurTransition: ViewModifier {
+    var blur: Double
+    var opacity: Double
+    func body(content: Content) -> some View { content.blur(radius: blur).opacity(opacity) }
+}
+extension AnyTransition {
+    static var artworkBlur: AnyTransition {
+        .modifier(active: ArtworkBlurTransition(blur: 7, opacity: 0), identity: ArtworkBlurTransition(blur: 0, opacity: 1))
+    }
+}
+
+private struct CoverRequest: Equatable {
+    let image: ObjectIdentifier?
+    let animated: Bool
+}
 struct CoverArtwork: View {
     let artwork: NSImage?
     var demo = false
+    var animated = false
+    @Environment(\.accessibilityReduceMotion) private var systemReduced
+    @State private var displayed: NSImage?
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size.width
             ZStack {
-                if let artwork {
-                    Image(nsImage: artwork).resizable().scaledToFill()
+                if let image = animated ? displayed : artwork {
+                    Image(nsImage: image).resizable().scaledToFill()
+                        .id(ObjectIdentifier(image)).transition(animated && !systemReduced ? .artworkBlur : .identity)
                 } else if demo {
                     LinearGradient(colors: [Color(red: 0.19, green: 0.10, blue: 0.24), Color(red: 0.55, green: 0.20, blue: 0.24), Color(red: 0.1, green: 0.09, blue: 0.21)], startPoint: .topLeading, endPoint: .bottomTrailing)
                     Circle().fill(LinearGradient(colors: [Color(red: 1, green: 0.74, blue: 0.48), Color(red: 0.97, green: 0.37, blue: 0.42)], startPoint: .top, endPoint: .bottom))
@@ -75,6 +96,14 @@ struct CoverArtwork: View {
                 .clipShape(.rect(cornerRadius: 18))
                 .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.14), lineWidth: 0.7))
         }.aspectRatio(1, contentMode: .fit)
+            .task(id: CoverRequest(image: artwork.map(ObjectIdentifier.init), animated: animated)) {
+                guard animated else { displayed = artwork; return }
+                if artwork == nil, displayed != nil {
+                    do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+                }
+                guard !Task.isCancelled else { return }
+                withAnimation(systemReduced ? nil : .timingCurve(0.22, 0, 0.18, 1, duration: 0.55)) { displayed = artwork }
+            }
     }
 }
 

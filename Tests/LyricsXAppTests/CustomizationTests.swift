@@ -11,6 +11,45 @@ private struct CustomizationRepository: LyricsRepository {
 }
 
 @Suite @MainActor struct CustomizationTests {
+    @Test func customFontsKeepTranslationCenteredAndSeparated() throws {
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.overlaySecondaryMode = .translation; prefs.reduceMotion = true
+        prefs.lyricPrimaryColor = "FF0000"; prefs.lyricSecondaryColor = "0000FF"
+        let document = LyricsDocument(lines: [.init(id: 0, time: 0, text: "Mixed 中文 Lyrics", translation: "翻译 Translation")])
+        for name in ["Georgia", "Menlo-Regular", "HelveticaNeue", "PingFangSC-Regular", "PingFangSC-Semibold"] {
+            prefs.lyricFontName = name
+            let view = OverlayLyricsContent(preferences: prefs, document: document, index: 0,
+                lyricTime: { 2 }, adaptiveCanvasWidth: 400).frame(width: 400).padding(16).background(.black)
+            let renderer = ImageRenderer(content: view)
+            let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+            var main = CGRect.null, translation = CGRect.null
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    let pixel = CGRect(x: x, y: y, width: 1, height: 1)
+                    if color.redComponent > 0.4 && color.blueComponent < 0.2 { main = main.union(pixel) }
+                    if color.blueComponent > 0.4 && color.redComponent < 0.2 { translation = translation.union(pixel) }
+                }
+            }
+            #expect(!main.isNull && !translation.isNull)
+            #expect(abs(main.midX - translation.midX) < 7, "Font: \(name)")
+            #expect(translation.minY > main.maxY + 3, "Font: \(name), main=\(main), translation=\(translation)")
+            #expect(translation.maxY < Double(bitmap.pixelsHigh) - 5)
+        }
+    }
+
+    @Test func selectingAFontNeverSilentlyChangesTheRequestedPointSize() throws {
+        for name in ["PingFangSC-Regular", "PingFangSC-Semibold", "Georgia", "Menlo-Regular"] {
+            for size in [13.0, 26, 40] {
+                let font = LyricTypography(fontName: name).nativeFont(size: size, weight: .semibold)
+                #expect(abs(font.pointSize - size) < 0.01)
+            }
+        }
+    }
+
     @Test func wordColorsPersistAndRemainOptIn() throws {
         let suite = "LyricsXTests-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))

@@ -12,11 +12,12 @@ struct NowPlayingView: View {
                 if compact {
                     VStack(spacing: 12) {
                         HStack(spacing: 16) {
-                            CoverArtwork(artwork: model.artwork).frame(width: 64)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(model.session.track?.title ?? "未在播放").font(.headline).lineLimit(1)
-                                Text(model.session.track?.artist ?? "打开播放器并播放歌曲").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion).frame(width: 64)
+                            ZStack(alignment: .leading) {
+                                CompactTrackMetadata(track: model.session.track).id(model.session.track?.id)
+                                    .transition(reduceMotion || model.preferences.reduceMotion ? .identity : .artworkBlur)
                             }.frame(maxWidth: .infinity, alignment: .leading)
+                                .animation(reduceMotion || model.preferences.reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.track?.id)
                             playbackButtons(compact: true)
                         }
                         PlaybackProgressView(model: model)
@@ -24,28 +25,24 @@ struct NowPlayingView: View {
                     }.padding(.horizontal, 22).padding(.top, 8)
                 } else { expandedPlayer(geometry.size) }
             }
-            .lyricArrival(trigger: model.session.track?.id, reduced: reduceMotion || model.preferences.reduceMotion,
-                          distance: 8, visible: { model.mainWindowVisible })
+
         }
     }
     private func expandedPlayer(_ size: CGSize) -> some View {
         let columnWidth = min(330, max(220, size.width * 0.31))
         return HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                CoverArtwork(artwork: model.artwork)
+                CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion)
                     .frame(width: min(columnWidth, max(150, size.height - 230)))
                     .shadow(color: .black.opacity(0.35), radius: 30, y: 20)
                     .scaleEffect(model.session.isPlaying ? 1 : 0.94)
                     .animation(model.preferences.reduceMotion || reduceMotion ? nil : .spring(response: 0.65, dampingFraction: 0.8), value: model.session.isPlaying)
                     .padding(.bottom, 20)
-                Text(model.session.track?.title ?? "还没有音乐在播放")
-                    .font(.system(size: 24, weight: .bold)).lineLimit(2).textSelection(.enabled)
-                Text(model.session.track?.artist.isEmpty == false ? model.session.track!.artist : "打开播放器并播放歌曲")
-                    .font(.system(size: 15)).foregroundStyle(.white.opacity(0.55)).padding(.top, 6).lineLimit(2)
-                HStack(spacing: 5) {
-                    Image(systemName: "music.note")
-                    if let album = model.session.track?.album, !album.isEmpty { Text(album) }
-                }.font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.32)).lineLimit(1).padding(.top, 14)
+                ZStack(alignment: .topLeading) {
+                    TrackMetadata(track: model.session.track).id(model.session.track?.id)
+                        .transition(model.preferences.reduceMotion || reduceMotion ? .identity : .artworkBlur)
+                }
+                    .animation(model.preferences.reduceMotion || reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.track?.id)
                 Spacer(minLength: 18)
                 PlaybackProgressView(model: model)
                 playbackButtons(compact: false).frame(maxWidth: .infinity).padding(.top, 12)
@@ -85,7 +82,7 @@ private struct PlaybackProgressView: View {
 
 struct LyricsScrollView: View {
     let model: AppModel
-    private struct ContentID: Hashable {
+    private struct ContentID: Hashable, Sendable {
         var track: String?
         var document: UUID?
     }
@@ -94,6 +91,8 @@ struct LyricsScrollView: View {
         // this song/version. Line changes keep the same view and animation.
         LyricsScrollContent(model: model)
             .id(ContentID(track: model.session.track?.id, document: model.session.document?.id))
+            .lyricArrival(trigger: ContentID(track: model.session.track?.id, document: model.session.document?.id),
+                reduced: model.preferences.reduceMotion, distance: 5, visible: { model.mainWindowVisible })
     }
 }
 
@@ -225,5 +224,31 @@ private struct LyricsScrollContent: View {
                 .contentShape(.rect)
         }.buttonStyle(.plain).accessibilityLabel(line.text.isEmpty ? "间奏" : line.text)
             .accessibilityHint("跳转到 " + timeString(doc.seekPosition(for: line)))
+    }
+}
+
+private struct TrackMetadata: View {
+    let track: Track?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(track?.title ?? "还没有音乐在播放")
+                .font(.system(size: 24, weight: .bold)).lineLimit(2).textSelection(.enabled)
+            Text(track?.artist.isEmpty == false ? track!.artist : "打开播放器并播放歌曲")
+                .font(.system(size: 15)).foregroundStyle(.white.opacity(0.55)).padding(.top, 6).lineLimit(2)
+            HStack(spacing: 5) {
+                Image(systemName: "music.note")
+                if let album = track?.album, !album.isEmpty { Text(album) }
+            }.font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.32)).lineLimit(1).padding(.top, 14)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct CompactTrackMetadata: View {
+    let track: Track?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(track?.title ?? "未在播放").font(.headline).lineLimit(1)
+            Text(track?.artist ?? "打开播放器并播放歌曲").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
     }
 }

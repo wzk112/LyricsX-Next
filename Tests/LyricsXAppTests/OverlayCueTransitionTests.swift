@@ -5,6 +5,18 @@ import LyricsXCore
 
 @Suite struct OverlayCueTransitionTests {
     private let document = UUID()
+    @Test func changingFontCancelsGeometryFromThePreviousFont() {
+        let first = cue(0), second = cue(1)
+        let initial = OverlayCueTransition().updating(to: first, lyricTime: 2.9, at: 10, animated: true)
+        let moving = initial.updating(to: second, lyricTime: 3, at: 10.1, animated: true)
+        #expect(moving.departure != nil)
+        var replacement = second
+        replacement.fontName = "Georgia"
+        let changed = moving.updating(to: replacement, lyricTime: 3.05, at: 10.15, animated: true)
+        #expect(changed.departure == nil && changed.promotionDistance == nil)
+        #expect(!changed.needsFrames(at: 10.15, reduced: false))
+    }
+
     private func cue(_ index: Int, interval: Double = 3, prefix: Bool = false) -> OverlayCueSnapshot {
         let line = LyricLine(id: index, time: Double(index) * interval, text: "Line \(index)")
         return .init(document: document, index: index, line: line, text: line.text,

@@ -22,8 +22,17 @@ struct LyricTypography: Equatable {
         return String(format: "%02X%02X%02X", byte(rgb.redComponent), byte(rgb.greenComponent), byte(rgb.blueComponent))
     }
     func nativeFont(size: Double, weight: NSFont.Weight) -> NSFont {
-        if !fontName.isEmpty, let font = NSFont(name: fontName, size: size) { return font }
+        if !fontName.isEmpty, let font = NSFont(name: fontName, size: size) {
+            return font
+        }
         return .systemFont(ofSize: size, weight: weight)
+    }
+    func reservationSize(_ size: Double, weight: NSFont.Weight = .semibold) -> Double {
+        fontName.isEmpty ? size : lineHeight(size: size, weight: weight) / 1.4
+    }
+    func lineHeight(size: Double, weight: NSFont.Weight = .semibold) -> Double {
+        let font = nativeFont(size: size, weight: weight)
+        return ceil(max(size * 1.4, NSLayoutManager().defaultLineHeight(for: font)))
     }
     func font(size: Double, weight: NSFont.Weight = .semibold) -> Font { Font(nativeFont(size: size, weight: weight)) }
     var primary: Color { Self.color(primaryHex) }

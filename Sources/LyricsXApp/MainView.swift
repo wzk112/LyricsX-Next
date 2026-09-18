@@ -8,7 +8,7 @@ struct MainView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ZStack {
-            AmbientBackground(artwork: model.artwork)
+            AmbientBackground(artwork: model.artwork, reduced: model.preferences.reduceMotion || !model.mainWindowVisible)
             VStack(spacing: 0) {
                 header
                 NowPlayingView(model: model)

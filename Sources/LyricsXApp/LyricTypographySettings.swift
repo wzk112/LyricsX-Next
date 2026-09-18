@@ -13,7 +13,7 @@ struct LyricTypographySettings: View {
 
     var body: some View {
         SettingsCard(title: "字体与颜色 · 实时预览") {
-            SettingRow(title: "歌词字体", detail: "使用此 Mac 已安装的字体。原文、翻译和下一句共用字体，字号仍可分别设置。", impact: "缺少字符会使用系统后备字体；卸载所选字体后自动回退到系统字体。") {
+            SettingRow(title: "歌词字体", detail: "使用此 Mac 已安装的字体。保持设置字号，自动适配行高；原文、翻译和下一句的字号仍可分别设置。", impact: "缺少字符会使用系统后备字体；卸载所选字体后自动回退到系统字体。") {
                 Picker("歌词字体", selection: $preferences.lyricFontName) {
                     Text("系统字体").tag("")
                     if !preferences.lyricFontName.isEmpty && !Self.fonts.contains(preferences.lyricFontName) {

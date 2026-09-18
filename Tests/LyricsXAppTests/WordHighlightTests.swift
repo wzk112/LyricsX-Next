@@ -117,6 +117,17 @@ import LyricsXCore
             }
             return stride(from: 0, to: pixels.count, by: 4).map { pixels[$0] }.max() ?? 0
         }
+        let colored = try render(time: 1.6, effects: .init(lift: false, glow: true, hdr: true, hdrBrightness: 3.5),
+            wordColors: .init(sung: LyricTypography.color("00F1FF"), unsung: .gray, plain: .white))
+        // The blue channel of cyan should still exceed SDR white.
+        let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+        var values = [Float](repeating: 0, count: colored.width * colored.height * 4)
+        let ci = CIContext(options: [.workingColorSpace: colorSpace, .outputColorSpace: colorSpace])
+        values.withUnsafeMutableBytes { ci.render(CIImage(cgImage: colored), toBitmap: $0.baseAddress!, rowBytes: colored.width * 16,
+            bounds: CGRect(x: 0, y: 0, width: colored.width, height: colored.height), format: .RGBAf, colorSpace: colorSpace) }
+        let bluePeak = stride(from: 2, to: values.count, by: 4).map { values[$0] }.max() ?? 0
+        print("Cyan HDR peak: \(bluePeak)")
+        #expect(bluePeak > 1.1)
         let sdrPeak = peak(sdr), hdrPeak = peak(hdr)
         print("Rendered lyric luminance: SDR=\(sdrPeak), HDR=\(hdrPeak)")
         #expect(sdrPeak <= 1.01)
@@ -364,11 +375,12 @@ import LyricsXCore
         #expect(nextDifference < 1)
     }
 
-    private func render(time: Double, effects: LyricEmphasisOptions, hdrSupported: Bool = true, hdrHeadroom: Double = 4) throws -> CGImage {
+    private func render(time: Double, effects: LyricEmphasisOptions, hdrSupported: Bool = true, hdrHeadroom: Double = 4, wordColors: LyricWordColors? = nil) throws -> CGImage {
         let line = LyricLine(id: 0, time: 0, text: "Stay 光", words: [
             .init(text: "Stay", start: 0.1, end: 3.2), .init(text: "光", start: 3.2, end: 4)
         ])
         let view = WordHighlight(line: line, time: time, active: true, text: line.text, effects: effects)
+            .environment(\.lyricWordColors, wordColors)
             .environment(\.lyricHDRSupported, hdrSupported)
             .environment(\.lyricHDRHeadroom, hdrHeadroom)
             .font(.system(size: 38, weight: .semibold)).foregroundStyle(.white)

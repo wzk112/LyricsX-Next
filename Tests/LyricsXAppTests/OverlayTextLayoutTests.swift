@@ -14,7 +14,9 @@ import LyricsXCore
         prefs.lyricGlow = false; prefs.lyricWordLift = false
         let samples = ["A short line", "When we follow all the stars together we can find our way home", "让晚风带着我们的故事穿过城市的每一条街道和每一个灯火闪耀的夜晚", "Top line\nBottom line",
             "Don’t look for me, I’m just a story you’ve been told", "Don’t try to make yourself remember, darling"]
-        for width in [260.0, 552, 560, 568, 940] {
+        for name in ["", "Georgia", "Menlo-Regular", "HelveticaNeue", "PingFangSC-Regular", "PingFangSC-Semibold"] {
+          prefs.lyricFontName = name
+          for width in [260.0, 552, 560, 568, 940] {
             for text in samples {
                 let doc = LyricsDocument(lines: [.init(id: 0, time: 0, text: text)])
                 let layout = OverlayTextMeasure.primaryLayout(document: doc, index: 0, preferences: prefs, canvasWidth: width)
@@ -35,6 +37,7 @@ import LyricsXCore
                 #expect((bands.first ?? 100) < 32) // No unused whole line above the ink.
                 #expect(layout.fontSize <= prefs.fontSize && layout.fontSize >= prefs.fontSize * 0.6)
             }
+          }
         }
     }
 }
