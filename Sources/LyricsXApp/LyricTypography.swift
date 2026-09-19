@@ -27,12 +27,23 @@ struct LyricTypography: Equatable {
         }
         return .systemFont(ofSize: size, weight: weight)
     }
-    func reservationSize(_ size: Double, weight: NSFont.Weight = .semibold) -> Double {
+    @MainActor func reservationSize(_ size: Double, weight: NSFont.Weight = .semibold) -> Double {
         fontName.isEmpty ? size : lineHeight(size: size, weight: weight) / 1.4
     }
-    func lineHeight(size: Double, weight: NSFont.Weight = .semibold) -> Double {
+    @MainActor private static let lineHeights: NSCache<NSFont, NSNumber> = {
+        let cache = NSCache<NSFont, NSNumber>()
+        cache.countLimit = 128
+        return cache
+    }()
+    @MainActor func lineHeight(size: Double, weight: NSFont.Weight = .semibold) -> Double {
         let font = nativeFont(size: size, weight: weight)
-        return ceil(max(size * 1.4, NSLayoutManager().defaultLineHeight(for: font)))
+        let metric: Double
+        if let cached = Self.lineHeights.object(forKey: font) { metric = cached.doubleValue }
+        else {
+            metric = NSLayoutManager().defaultLineHeight(for: font)
+            Self.lineHeights.setObject(NSNumber(value: metric), forKey: font)
+        }
+        return ceil(max(size * 1.4, metric))
     }
     func font(size: Double, weight: NSFont.Weight = .semibold) -> Font { Font(nativeFont(size: size, weight: weight)) }
     var primary: Color { Self.color(primaryHex) }

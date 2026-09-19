@@ -198,6 +198,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
     }
 
     private func sync() {
+        guard !stopped else { return }
         presentation.update(model: model)
         let prefs = model.preferences
         if model.session.isPlaying && !wasPlaying { explicitShowWhilePaused = false }

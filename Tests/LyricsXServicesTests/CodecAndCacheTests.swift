@@ -154,3 +154,18 @@ import LyricsXCore
     #expect(payload.snapshot(now: 0, isIOSApp: true).track?.title == "Song")
     #expect(payload.snapshot(now: 0).track?.title == "Some lyric")
 }
+
+@Test func deletedCachePathIsNotReturnedAndReplacementCanBeFound() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let cache = LyricsCache(directory: directory)
+    let track = Track(playerID: "test", playerName: "", title: "Deleted")
+    try await cache.save(LyricsCodec.parse("[00:01]Original"), for: track)
+    let original = try #require(await cache.existingURL(for: track))
+    try FileManager.default.removeItem(at: original)
+    #expect(await cache.existingURL(for: track) == nil)
+    let replacement = directory.appendingPathComponent(LyricsCache.filename(for: track) + ".lrc")
+    try "[00:01]Replacement".write(to: replacement, atomically: true, encoding: .utf16)
+    #expect(await cache.load(for: track)?.lines.first?.text == "Replacement")
+    #expect(await cache.existingURL(for: track) == replacement)
+}

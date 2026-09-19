@@ -11,6 +11,20 @@ private struct CustomizationRepository: LyricsRepository {
 }
 
 @Suite @MainActor struct CustomizationTests {
+    @Test func cachedLineMetricsPreserveNativeFontSizesAndMeasurements() {
+        for name in ["", "Georgia", "Menlo-Regular", "PingFangSC-Regular"] {
+            let type = LyricTypography(fontName: name)
+            for size in [13.0, 26.0, 40.0] {
+                let font = type.nativeFont(size: size, weight: .semibold)
+                let expected = ceil(max(size * 1.4, NSLayoutManager().defaultLineHeight(for: font)))
+                for _ in 0..<3 {
+                    #expect(type.lineHeight(size: size) == expected)
+                    #expect(abs(Double(type.nativeFont(size: size, weight: .semibold).pointSize) - size) < 0.001)
+                }
+            }
+        }
+    }
+
     @Test func customFontsKeepTranslationCenteredAndSeparated() throws {
         let suite = "LyricsXTests-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))

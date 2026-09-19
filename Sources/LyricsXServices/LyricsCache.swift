@@ -45,6 +45,7 @@ public actor LyricsCache {
     public func setDirectory(_ url: URL) { directory = url; loadedPaths = [:]; searches = [:] }
     public func existingURL(for track: Track) -> URL? {
         if let loaded = loadedPaths[track.cacheIdentity], FileManager.default.fileExists(atPath: loaded.path) { return loaded }
+        loadedPaths.removeValue(forKey: track.cacheIdentity)
         _ = load(for: track)
         return loadedPaths[track.cacheIdentity]
     }
@@ -85,8 +86,9 @@ public actor LyricsCache {
     }
     private func readEntry(_ url: URL) -> (document: LyricsDocument, checkpoint: Checkpoint?)? {
         guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 4_000_000 else { return nil }
+        guard let text = try? LyricsCodec.readText(url) else { return nil }
         // Put the small marker on its own line; do not modify any lyric/tt line.
-        if let text = try? String(contentsOf: url, encoding: .utf8), text.hasPrefix(Self.checkpointPrefix),
+        if text.hasPrefix(Self.checkpointPrefix),
            let end = text.firstIndex(of: "\n") {
             let header = String(text[..<end])
             let encoded = String(header.dropFirst(Self.checkpointPrefix.count).dropLast())
@@ -98,7 +100,7 @@ public actor LyricsCache {
                 return (doc, state)
             }
         }
-        return (try? LyricsCodec.read(url)).map { ($0, nil) }
+        return (try? LyricsCodec.parse(text)).map { ($0, nil) }
     }
     private func loadEntry(for track: Track) -> (document: LyricsDocument, checkpoint: Checkpoint?)? {
         let scoped = directory.startAccessingSecurityScopedResource()

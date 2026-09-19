@@ -82,6 +82,10 @@ struct WindowVisibilityReader: NSViewRepresentable {
     func makeNSView(context: Context) -> VisibilityView { let view = VisibilityView(); view.changed = changed; return view }
     func updateNSView(_ view: VisibilityView, context: Context) { view.changed = changed }
 
+    static func dismantleNSView(_ view: VisibilityView, coordinator: ()) {
+        NotificationCenter.default.removeObserver(view)
+        view.changed = nil
+    }
     final class VisibilityView: NSView {
         var changed: ((Bool) -> Void)?
         private var activity = WindowRenderActivity()
@@ -89,6 +93,8 @@ struct WindowVisibilityReader: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             NotificationCenter.default.removeObserver(self)
+            activity = WindowRenderActivity()
+            reported = nil
             if let window {
                 for name in WindowRenderActivity.notifications {
                     NotificationCenter.default.addObserver(self, selector: #selector(updateVisibility(_:)), name: name, object: window)

@@ -40,6 +40,15 @@ private func whiteInkBounds(_ bitmap: NSBitmapImageRep, columns: Range<Int>? = n
         try run(model)
     }
 
+    @Test func stoppedOverlayCannotBeReopenedByDelayedVisibilityUpdates() throws {
+        try fixture { model in
+            let controller = OverlayController(model: model, frameAutosaveName: nil)
+            controller.stop()
+            controller.setUserVisible(true)
+            #expect(!controller.panel.isVisible && !controller.controlPanel.isVisible)
+        }
+    }
+
     @Test func cachedSongHandoverKeepsOneCoherentFrameAndSkipsLoadingCard() throws {
         try fixture { model in
             let presentation = OverlayPresentation(); defer { presentation.stop() }

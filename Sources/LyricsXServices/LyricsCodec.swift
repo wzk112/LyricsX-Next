@@ -49,10 +49,14 @@ public enum LyricsCodec {
     public static func read(_ url: URL) throws -> LyricsDocument {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         guard (attributes[.size] as? NSNumber)?.intValue ?? 0 <= 4_000_000 else { throw CodecError.tooLarge }
+        return try parse(readText(url))
+    }
+    static func readText(_ url: URL) throws -> String {
         let data = try Data(contentsOf: url)
+        guard data.count <= 4_000_000 else { throw CodecError.tooLarge }
         let gb18030 = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
         guard let value = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16) ?? String(data: data, encoding: String.Encoding(rawValue: gb18030)) else { throw CodecError.encoding }
-        return try parse(value)
+        return value
     }
     public static func export(_ doc: LyricsDocument, plain: Bool = false) -> String {
         if doc.isInstrumental { return "[ti:\(doc.title)]\n[ar:\(doc.artist)]\n[lxinstrumental:1]" }

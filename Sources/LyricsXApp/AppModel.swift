@@ -130,6 +130,7 @@ final class AppModel {
         dockVisibility.stop()
         overlay?.stop(); bridge.stop(); session.stop()
         for token in wakeObservers { NSWorkspace.shared.notificationCenter.removeObserver(token) }
+        wakeObservers.removeAll()
     }
     func playPause() {
         bridge.send(.toggle)
