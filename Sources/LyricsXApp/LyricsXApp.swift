@@ -111,6 +111,7 @@ private struct MenuBarContent: View {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let featureGuide = FeatureGuideController()
     let model = AppModel()
     private var hotkeys: GlobalHotkeys?
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -123,7 +124,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) { hotkeys?.stop(); model.stop() }
     func applicationDidBecomeActive(_ notification: Notification) { model.dockVisibility.applicationActivated() }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        featureGuide.preferences = model.preferences
+        model.showFeatureGuide = { [weak self] tutorial in
+            self?.featureGuide.show(tutorial ? .tutorial : .update(previous: GuideContent.latestBaseline))
+        }
         model.start()
+        DispatchQueue.main.async { [weak self] in self?.featureGuide.showAutomaticIfNeeded() }
         if hotkeys == nil { hotkeys = GlobalHotkeys(model: model) }
         model.dockVisibility.applicationActivated()
     }

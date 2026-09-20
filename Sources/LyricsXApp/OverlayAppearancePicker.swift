@@ -35,7 +35,7 @@ struct OverlayAppearancePicker: View {
     }
 }
 
-private struct OverlayMaterialPreview: NSViewRepresentable {
+struct OverlayMaterialPreview: NSViewRepresentable {
     let appearance: OverlayAppearance
     let transparency: Double
     let frostAmount: Double

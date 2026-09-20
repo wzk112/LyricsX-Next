@@ -6,6 +6,7 @@ struct LyricTypographySettings: View {
     @Bindable var preferences: Preferences
     @State private var previewWidth = 460.0
     private static let fonts = NSFontManager.shared.availableFonts.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    private static let fontTitles = Dictionary(uniqueKeysWithValues: fonts.map { ($0, NSFont(name: $0, size: 13)?.displayName ?? $0) })
     private static let sample = LyricsDocument(lines: [
         .init(id: 0, time: 0, text: "让文字按你的习惯显示 · Your lyrics",
               translation: "字体与颜色会同时应用到主窗口和悬浮窗"),
@@ -20,10 +21,23 @@ struct LyricTypographySettings: View {
                         Text("\(preferences.lyricFontName)（未安装）").tag(preferences.lyricFontName)
                     }
                     ForEach(Self.fonts, id: \.self) { name in
-                        Text(NSFont(name: name, size: 13)?.displayName ?? name).tag(name)
+                        Text(Self.fontTitles[name] ?? name).tag(name)
                     }
                 }.labelsHidden().frame(width: 220)
             }
+            SettingToggle(title: "跟随封面主题色", detail: "从当前封面提取主题色并提高文字亮度。已唱部分明亮、未唱部分使用同色系暗色，翻译保留较浅色调。", impact: "无封面时使用中性白色。自动配色优先于手动配色；关闭即可恢复原来的颜色。复杂背景仍建议使用磨砂阅读。", value: $preferences.followArtworkColors)
+            if preferences.followArtworkColors {
+                HStack(spacing: 12) {
+                    ForEach(Array([preferences.artworkTheme?.accent ?? "BFC7D5", preferences.typography.primaryHex,
+                             preferences.artworkTheme?.unsung ?? "757575"].enumerated()), id: \.offset) { item in
+                        RoundedRectangle(cornerRadius: 8).fill(LyricTypography.color(item.element)).frame(width: 40, height: 30)
+                    }
+                    Text(preferences.artworkTheme == nil ? "等待封面 · 中性配色" : "封面主题 / 已唱 / 未唱")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.padding(16)
+                WordColorPreview(preferences: preferences).padding(16)
+            }
+            Group {
             SettingRow(title: "当前歌词颜色", detail: "逐字进度保留明暗变化，长音保留辉光。") {
                 ColorPicker("当前歌词颜色", selection: Binding(get: { preferences.typography.primary }, set: {
                     preferences.lyricPrimaryColor = LyricTypography.hex($0)
@@ -37,7 +51,8 @@ struct LyricTypographySettings: View {
             SettingRow(title: "逐字独立配色", detail: "分别设置已唱到和未唱到部分的颜色，同时用于主窗口和悬浮窗。", impact: "只对带逐字时间的当前歌词生效；关闭后恢复原来的明暗高亮。") {
                 Toggle("逐字独立配色", isOn: $preferences.separateWordColors).labelsHidden()
             }
-            if preferences.separateWordColors {
+            }.disabled(preferences.followArtworkColors)
+            if preferences.separateWordColors && !preferences.followArtworkColors {
                 SettingRow(title: "已唱到的颜色", detail: "进度经过的文字，以及正在唱的文字中已高亮的部分。") {
                     ColorPicker("已唱到的颜色", selection: Binding(get: { LyricTypography.color(preferences.sungWordColor) }, set: {
                         preferences.sungWordColor = LyricTypography.hex($0)
@@ -68,6 +83,7 @@ struct LyricTypographySettings: View {
                     preferences.lyricFontName = ""
                     preferences.lyricPrimaryColor = "FFFFFF"
                     preferences.lyricSecondaryColor = "FFFFFF"
+                    preferences.followArtworkColors = false
                     preferences.separateWordColors = false
                     preferences.sungWordColor = "FFFFFF"
                     preferences.unsungWordColor = "757575"

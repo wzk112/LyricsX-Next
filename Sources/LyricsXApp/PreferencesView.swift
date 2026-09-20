@@ -40,6 +40,15 @@ struct PreferencesView: View {
     @State private var selection: SettingsSection? = .general
     @State private var token = ""
     @State private var tokenMessage = ""
+    @State private var loginChangePending = false
+    @State private var loginStatus = SMAppService.mainApp.status
+    @State private var settingsError: String?
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+
+    init(model: AppModel, initialSection: SettingsSection = .general) {
+        self.model = model
+        _selection = State(initialValue: initialSection)
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -76,7 +85,11 @@ struct PreferencesView: View {
         }
         .navigationTitle("设置")
         .frame(minWidth: 760, idealWidth: 880, minHeight: 580, idealHeight: 700)
-        .task { model.displays.refresh() }
+        .task { model.displays.refresh(); refreshLoginStatus() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshLoginStatus() }
+        .alert("设置未能保存", isPresented: Binding(get: { settingsError != nil }, set: { if !$0 { settingsError = nil } })) {
+            Button("好") { settingsError = nil }
+        } message: { Text(settingsError ?? "") }
     }
 
     @ViewBuilder private var settingsContent: some View {
@@ -105,15 +118,22 @@ struct PreferencesView: View {
             }
             SettingsCard(title: "启动") {
                 SettingToggle(title: "登录时启动", detail: "登录 macOS 后自动运行 LyricsX Next。", impact: "会在后台读取播放状态；可随时关闭。", value: Binding(
-                    get: { p.launchAtLogin }, set: { enabled in
+                    get: { p.launchAtLogin || loginStatus == .requiresApproval }, set: { enabled in
+                        guard !loginChangePending else { return }
+                        loginChangePending = true
                         Task {
+                            defer { loginChangePending = false; refreshLoginStatus() }
                             do {
                                 if enabled { try SMAppService.mainApp.register() }
                                 else { try await SMAppService.mainApp.unregister() }
-                                p.launchAtLogin = SMAppService.mainApp.status == .enabled
-                            } catch { model.message = error.localizedDescription }
+                            } catch { settingsError = error.localizedDescription }
                         }
-                    }))
+                    })).disabled(loginChangePending)
+                if loginStatus == .requiresApproval {
+                    SettingRow(title: "等待系统允许", detail: "请在系统设置的登录项中允许 LyricsX Next 后台启动。") {
+                        Button("打开系统设置") { SMAppService.openSystemSettingsLoginItems() }
+                    }
+                }
             }
             SettingsCard(title: "快捷键") {
                 SettingRow(title: "悬浮歌词", detail: "显示或隐藏桌面上的悬浮窗。") { Text("⌥⌘L").monospaced() }
@@ -147,14 +167,18 @@ struct PreferencesView: View {
                 SettingToggle(title: "显示悬浮窗", detail: "将当前歌词或歌曲信息放在其他窗口之上。", value: Binding(get: { p.overlayVisible }, set: { model.setOverlayVisible($0) }))
                 SettingToggle(title: "锁定位置", detail: "防止误拖动。悬浮窗控制条上仍可解锁；解锁后恢复拖动。", value: Binding(get: { p.overlayLocked }, set: { model.setOverlayLocked($0) }))
                 SettingToggle(title: "点击穿透", detail: "点击歌词区域会操作后面的应用，控制条仍可使用。", impact: "开启时会锁定位置；解锁会同时关闭穿透。", value: Binding(get: { p.overlayClickThrough }, set: { model.setOverlayClickThrough($0) }))
-                SettingToggle(title: "鼠标经过时隐藏", detail: "锁定后，鼠标经过歌词会暂时隐藏内容，离开后恢复。", value: $p.hideOverlayOnHover)
+                SettingToggle(title: "鼠标经过时隐藏", detail: p.overlayLocked ? "鼠标经过歌词会暂时隐藏内容，离开后恢复。" : "需要先锁定位置；解锁时暂不生效，保留你的选择。", value: $p.hideOverlayOnHover)
                 SettingToggle(title: "暂停时隐藏", detail: "暂停音乐时隐藏悬浮窗，继续播放后恢复。", value: $p.hideWhenPaused)
             }
             SettingsCard(title: "外观") {
+                if systemReduceTransparency {
+                    Label("系统已开启降低透明度，当前使用实色背景；下方数值会保留。", systemImage: "info.circle")
+                        .font(.callout).foregroundStyle(.secondary).padding(16)
+                }
                 OverlayAppearancePicker(selection: $p.overlayAppearance, transparency: p.overlayTransparency,
                     glassFrostAmount: p.overlayGlassFrostAmount, readingFrostAmount: p.overlayReadingFrostAmount)
-                SettingSlider(title: "透明度", detail: "数值越高越通透，越低越容易看清歌词；图例与悬浮窗同步变化。", impact: "范围 20–80%。高透明度在浅色或复杂背景上会降低对比度；可选择磨砂阅读。系统“降低透明度”开启时使用实色背景。", value: $p.overlayTransparency, range: OverlayAppearance.transparencyRange, step: 0.02, suffix: "%", multiplier: 100)
-                SettingSlider(title: "磨砂程度", detail: "柔化后方文字与图案，歌词文字保持清晰。两种样式分别记住调节值。", impact: "数值越高，背景细节越少；0% 仍保留材质自带的柔化效果。系统“降低透明度”开启时此调节不生效。", value: $p.overlayFrostAmount, range: OverlayAppearance.frostRange, step: 0.02, suffix: "%", multiplier: 100)
+                SettingSlider(title: "透明度", detail: "数值越高越通透，越低越容易看清歌词；图例与悬浮窗同步变化。", impact: "范围 20–80%。高透明度在浅色或复杂背景上会降低对比度；可选择磨砂阅读。系统“降低透明度”开启时使用实色背景。", value: $p.overlayTransparency, range: OverlayAppearance.transparencyRange, step: 0.02, suffix: "%", multiplier: 100).disabled(systemReduceTransparency)
+                SettingSlider(title: "磨砂程度", detail: "柔化后方文字与图案，歌词文字保持清晰。两种样式分别记住调节值。", impact: "数值越高，背景细节越少；0% 仍保留材质自带的柔化效果。系统“降低透明度”开启时此调节不生效。", value: $p.overlayFrostAmount, range: OverlayAppearance.frostRange, step: 0.02, suffix: "%", multiplier: 100).disabled(systemReduceTransparency)
             }
             SettingsCard(title: "尺寸") {
                 SettingToggle(title: "自动调整高度", detail: "宽度固定，只随当前歌词换行调整高度；顶部位置保持不变。", value: $p.overlayAdaptiveSize)
@@ -176,7 +200,7 @@ struct PreferencesView: View {
                     }.labelsHidden().frame(width: 110)
                 }
                 SettingSlider(title: "主窗口歌词字号", detail: "调整应用内原文的大小，长句自动换行。", value: $p.mainLyricFontSize, range: 20...42)
-                SettingSlider(title: "主窗口翻译字号", detail: "独立调整应用内译文大小。", value: $p.mainTranslationFontSize, range: 11...24)
+                if p.showTranslation { SettingSlider(title: "主窗口翻译字号", detail: "独立调整应用内译文大小。", value: $p.mainTranslationFontSize, range: 11...24) }
             }
             SettingsCard(title: "悬浮窗文字") {
                 SettingSlider(title: "当前句字号", detail: "调整主歌词大小，辅助行保留独立字号。", value: $p.fontSize, range: 18...42)
@@ -185,8 +209,8 @@ struct PreferencesView: View {
                         ForEach(OverlaySecondaryMode.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden().frame(width: 150)
                 }
-                SettingSlider(title: "翻译字号", detail: "调整悬浮窗译文大小，长译文最多显示两行。", value: $p.translationFontSize, range: 10...24)
-                SettingSlider(title: "下一句字号", detail: "调整下一句预览大小，换句时会放大并上移为当前句。", value: $p.nextLineFontSize, range: 10...24)
+                if p.showTranslation && p.overlaySecondaryMode.supportsTranslation { SettingSlider(title: "翻译字号", detail: "调整悬浮窗译文大小，长译文最多显示两行。", value: $p.translationFontSize, range: 10...24) }
+                if p.overlaySecondaryMode.supportsNext { SettingSlider(title: "下一句字号", detail: "调整下一句预览大小，换句时会放大并上移为当前句。", value: $p.nextLineFontSize, range: 10...24) }
             }
             SettingsCard(title: "同步") {
                 SettingRow(title: "歌词时间偏移", detail: "在主窗口底部或菜单栏调整。正值提前显示，负值延后显示。", impact: "偏移会保存回当前歌词文件，下次播放继续沿用。") { EmptyView() }
@@ -198,6 +222,10 @@ struct PreferencesView: View {
         @Bindable var p = model.preferences
         return Group {
             SettingsCard(title: "动态效果") {
+                if systemReduceMotion {
+                    Label("macOS 已开启减少动态效果，应用内动效暂时受系统设置限制。", systemImage: "info.circle")
+                        .font(.callout).foregroundStyle(.secondary).padding(16)
+                }
                 SettingToggle(title: "减少动态效果", detail: "关闭位移、回弹、模糊和辉光，保留歌词同步提亮。", impact: "也会遵循 macOS 的减少动态效果设置。", value: $p.reduceMotion)
                 SettingToggle(title: "逐字轻微放大", detail: "演唱中的词柔和放大并轻微上浮，未唱部分保持接近原字号。", impact: "需要歌词自带逐字时间；开启动效会增加少量绘制开销。", value: $p.lyricWordLift)
                     .disabled(p.reduceMotion || systemReduceMotion)
@@ -216,7 +244,7 @@ struct PreferencesView: View {
     private var hdrSettings: some View {
         @Bindable var p = model.preferences
         let unavailable = !p.lyricGlow || p.reduceMotion || systemReduceMotion
-        return SettingsCard(title: "HDR") {
+        return SettingsCard(title: "HDR / EDR 辉光") {
             SettingToggle(title: "HDR 辉光增强", detail: "默认开启，按所在屏幕能力增强长音辉光。普通屏幕自动使用普通亮度。需先开启长音辉光。", impact: "高亮效果可能更刺眼并增加能耗；实际亮度由屏幕和系统决定。", value: $p.lyricHDR)
                 .disabled(unavailable)
             if p.lyricHDR {
@@ -327,16 +355,27 @@ struct PreferencesView: View {
             SettingRow(title: "Swift 重构版", detail: "版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版本") · Zikai Wang") {
                 Image(systemName: "quote.bubble.fill").font(.largeTitle).foregroundStyle(.pink)
             }
+            SettingRow(title: "使用指南", detail: "从连接播放器到搜索、悬浮窗、自定义、同步与文件管理，完整图文教程。") {
+                Button("查看教程") { model.showFeatureGuide?(true) }
+            }
+            SettingRow(title: "本次更新", detail: "重新查看当前版本新增的功能、修复和优化。") {
+                Button("版本介绍") { model.showFeatureGuide?(false) }
+            }
             SettingRow(title: "项目与更新", detail: "查看本重构版源代码、版本说明和安装包。") {
-                Link("GitHub", destination: URL(string: "https://github.com/wzk112/LyricsX")!)
+                Link("GitHub", destination: URL(string: "https://github.com/wzk112/LyricsX-Next")!)
             }
             SettingRow(title: "上游项目", detail: "保留原 LyricsX、LyricsKit 与媒体适配组件的开源声明。") {
                 Link("查看上游", destination: URL(string: "https://github.com/MxIris-LyricsX-Project/LyricsX")!)
             }
             SettingRow(title: "开源许可", detail: "本项目采用 MPL-2.0，依赖遵循各自许可。") {
-                Link("查看许可", destination: URL(string: "https://github.com/wzk112/LyricsX/blob/master/LICENSE")!)
+                Link("查看许可", destination: URL(string: "https://github.com/wzk112/LyricsX-Next/blob/master/LICENSE")!)
             }
         }
+    }
+
+    private func refreshLoginStatus() {
+        loginStatus = SMAppService.mainApp.status
+        model.preferences.launchAtLogin = loginStatus == .enabled
     }
 
     private func sourceRow(_ source: String, prefs: Preferences) -> some View {

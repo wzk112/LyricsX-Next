@@ -31,11 +31,21 @@ final class Preferences {
     var lyricFontName: String { didSet { save("lyricFontName", lyricFontName) } }
     var lyricPrimaryColor: String { didSet { save("lyricPrimaryColor", lyricPrimaryColor) } }
     var lyricSecondaryColor: String { didSet { save("lyricSecondaryColor", lyricSecondaryColor) } }
+    var followArtworkColors: Bool { didSet { save("followArtworkColors", followArtworkColors) } }
+    // Derived display state only. Never overwrite the user's saved palette.
+    var artworkTheme: ArtworkTheme?
     var separateWordColors: Bool { didSet { save("separateWordColors", separateWordColors) } }
     var sungWordColor: String { didSet { save("sungWordColor", sungWordColor) } }
     var unsungWordColor: String { didSet { save("unsungWordColor", unsungWordColor) } }
-    var typography: LyricTypography { .init(fontName: lyricFontName, primaryHex: lyricPrimaryColor, secondaryHex: lyricSecondaryColor,
-        wordColors: separateWordColors ? .init(sung: LyricTypography.color(sungWordColor), unsung: LyricTypography.color(unsungWordColor), plain: LyricTypography.color(lyricPrimaryColor)) : nil) }
+    var typography: LyricTypography {
+        if followArtworkColors {
+            let theme = artworkTheme ?? .neutral
+            return .init(fontName: lyricFontName, primaryHex: theme.sung, secondaryHex: theme.secondary,
+                wordColors: .init(sung: LyricTypography.color(theme.sung), unsung: LyricTypography.color(theme.unsung), plain: LyricTypography.color(theme.sung)))
+        }
+        return .init(fontName: lyricFontName, primaryHex: lyricPrimaryColor, secondaryHex: lyricSecondaryColor,
+            wordColors: separateWordColors ? .init(sung: LyricTypography.color(sungWordColor), unsung: LyricTypography.color(unsungWordColor), plain: LyricTypography.color(lyricPrimaryColor)) : nil)
+    }
     var translationFontSize: Double { didSet { save("translationFontSize", translationFontSize) } }
     var nextLineFontSize: Double { didSet { save("nextLineFontSize", nextLineFontSize) } }
     var overlaySecondaryMode: OverlaySecondaryMode { didSet { save("overlaySecondaryMode", overlaySecondaryMode.rawValue) } }
@@ -96,21 +106,26 @@ final class Preferences {
             if d.object(forKey: "overlayWidth") == nil || d.double(forKey: "overlayWidth") == 520 { d.set(620.0, forKey: "overlayWidth") }
             d.set(1, forKey: "fixedOverlayWidthVersion")
         }
-        overlayWidth = d.object(forKey: "overlayWidth") as? Double ?? 620
+        func number(_ key: String, _ fallback: Double, _ range: ClosedRange<Double>) -> Double {
+            guard let value = d.object(forKey: key) as? Double, value.isFinite else { return fallback }
+            return min(range.upperBound, max(range.lowerBound, value))
+        }
+        overlayWidth = number("overlayWidth", 620, 320...1000)
         overlayAdaptiveSize = d.object(forKey: "overlayAdaptiveSize") as? Bool ?? true
         overlayFrameRate = OverlayFrameRate(rawValue: d.string(forKey: "overlayFrameRate") ?? "display") ?? .display
-        fontSize = d.object(forKey: "fontSize") as? Double ?? 26
+        fontSize = number("fontSize", 26, 18...42)
         lyricFontName = d.string(forKey: "lyricFontName") ?? ""
         lyricPrimaryColor = LyricTypography.normalizedHex(d.string(forKey: "lyricPrimaryColor") ?? "FFFFFF")
         lyricSecondaryColor = LyricTypography.normalizedHex(d.string(forKey: "lyricSecondaryColor") ?? "FFFFFF")
+        followArtworkColors = d.bool(forKey: "followArtworkColors")
         separateWordColors = d.object(forKey: "separateWordColors") as? Bool ?? false
         sungWordColor = LyricTypography.normalizedHex(d.string(forKey: "sungWordColor") ?? d.string(forKey: "lyricPrimaryColor") ?? "FFFFFF")
         unsungWordColor = LyricTypography.normalizedHex(d.string(forKey: "unsungWordColor") ?? "757575")
-        translationFontSize = d.object(forKey: "translationFontSize") as? Double ?? 13
-        nextLineFontSize = d.object(forKey: "nextLineFontSize") as? Double ?? 12
+        translationFontSize = number("translationFontSize", 13, 10...24)
+        nextLineFontSize = number("nextLineFontSize", 12, 10...24)
         overlaySecondaryMode = OverlaySecondaryMode(rawValue: d.string(forKey: "overlaySecondaryMode") ?? "translation") ?? .translation
-        mainLyricFontSize = d.object(forKey: "mainLyricFontSize") as? Double ?? 30
-        mainTranslationFontSize = d.object(forKey: "mainTranslationFontSize") as? Double ?? 14
+        mainLyricFontSize = number("mainLyricFontSize", 30, 20...42)
+        mainTranslationFontSize = number("mainTranslationFontSize", 14, 11...24)
         showTranslation = d.object(forKey: "showTranslation") as? Bool ?? true
         showMenubarLyrics = d.bool(forKey: "showMenubarLyrics")
         showMenuBarIcon = d.object(forKey: "showMenuBarIcon") as? Bool ?? true
@@ -125,8 +140,8 @@ final class Preferences {
         // Request enhancement by default; each window's display policy gates it.
         // A saved false is an explicit opt-out and must survive reconnects.
         lyricHDR = d.object(forKey: "lyricHDR") as? Bool ?? true
-        lyricHDRBrightness = min(4, max(1, d.object(forKey: "lyricHDRBrightness") as? Double ?? 1.6))
-        conversion = d.string(forKey: "conversion") ?? "原文"
+        lyricHDRBrightness = number("lyricHDRBrightness", 1.6, 1...4)
+        conversion = ["原文", "简体", "繁體"].first { $0 == d.string(forKey: "conversion") } ?? "原文"
         playerMode = PlayerMode(rawValue: d.string(forKey: "playerMode") ?? "automatic") ?? .automatic
         disabledSources = d.stringArray(forKey: "disabledSources") ?? []
         sourceOrder = SourceConfiguration.normalizedOrder(d.stringArray(forKey: "sourceOrder") ?? [])
@@ -173,12 +188,20 @@ final class Preferences {
             UserDefaults.standard.set(bookmark, forKey: "ModernLyricsDirectoryBookmark")
         }
     }
+    private static let convertedText: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 512
+        cache.totalCostLimit = 1_000_000
+        return cache
+    }()
     func text(_ text: String) -> String {
-        switch conversion {
-        case "简体": text.applyingTransform(StringTransform("Traditional-Simplified"), reverse: false) ?? text
-        case "繁體": text.applyingTransform(StringTransform("Simplified-Traditional"), reverse: false) ?? text
-        default: text
-        }
+        guard conversion != "原文", !text.isEmpty else { return text }
+        let key = (conversion + "\u{0}" + text) as NSString
+        if let cached = Self.convertedText.object(forKey: key) { return cached as String }
+        let transform = conversion == "简体" ? "Traditional-Simplified" : "Simplified-Traditional"
+        let result = text.applyingTransform(StringTransform(transform), reverse: false) ?? text
+        Self.convertedText.setObject(result as NSString, forKey: key, cost: (text.utf8.count + result.utf8.count))
+        return result
     }
 }
 

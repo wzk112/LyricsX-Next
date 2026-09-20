@@ -13,10 +13,10 @@ struct AmbientBackground: View {
             ZStack {
                 LinearGradient(colors: [Color(white: 0.12), Color(white: 0.045)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 if let backdrop {
-                    Image(decorative: backdrop, scale: 1).resizable().opacity(0.32)
+                    Image(decorative: backdrop, scale: 1).resizable().opacity(0.52)
                         .id(ObjectIdentifier(backdrop)).transition(.opacity)
                 }
-                LinearGradient(colors: [.black.opacity(0.02), .black.opacity(0.25)], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [.black.opacity(0.01), .black.opacity(0.18)], startPoint: .top, endPoint: .bottom)
             }.clipped().task(id: key) {
                 // Keep the previous pixels while metadata is temporarily missing
                 // or the replacement blur is being prepared. Never flash a flat fill.

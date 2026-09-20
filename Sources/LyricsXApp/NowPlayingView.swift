@@ -112,7 +112,7 @@ private struct LyricsScrollContent: View {
                 } else if doc.isSynced {
                     syncedLyrics(doc)
                 } else {
-                    ScrollView { Text(doc.plainText ?? "").font(model.preferences.typography.font(size: 26)).foregroundStyle(model.preferences.typography.primary).lineSpacing(16).frame(maxWidth: .infinity, alignment: .leading).padding(45).textSelection(.enabled) }
+                    ScrollView { Text(model.preferences.text(doc.plainText ?? "")).font(model.preferences.typography.font(size: 26)).foregroundStyle(model.preferences.typography.primary).lineSpacing(16).frame(maxWidth: .infinity, alignment: .leading).padding(45).textSelection(.enabled) }
                         .scrollPosition($position)
                         .safeAreaInset(edge: .top) { Text("此歌词暂无时间轴").font(.caption).foregroundStyle(.secondary).padding(12) }
                 }

@@ -52,9 +52,23 @@ struct TimedLyricFragment: Equatable {
     let cue: WordCue?
 
     static func make(line: LyricLine, text: String) -> [Self] {
-        // Keep the original script and shaping. Text conversion without a
-        // reliable range mapping falls back to legible, untimed text.
-        guard text == line.text else { return [.init(text: text, cue: nil)] }
+        if text != line.text {
+            // Only map verified script conversions, never arbitrary replacement
+            // lyrics. Map grapheme boundaries, not UTF-8/UTF-16 offsets.
+            let converted = ["Simplified-Traditional", "Traditional-Simplified"].contains {
+                line.text.applyingTransform(StringTransform($0), reverse: false) == text
+            }
+            guard converted, line.text.count == text.count else { return [.init(text: text, cue: nil)] }
+            let original = make(line: line, text: line.text)
+            var cursor = text.startIndex
+            return original.map { fragment in
+                let end = text.index(cursor, offsetBy: fragment.text.count)
+                defer { cursor = end }
+                let part = String(text[cursor..<end])
+                let cue = fragment.cue.map { WordCue(text: part, start: $0.start, end: $0.end) }
+                return .init(text: part, cue: cue)
+            }
+        }
         var fragments: [Self] = []
         var cursor = text.startIndex
         for (range, cue) in line.wordTimingRanges {

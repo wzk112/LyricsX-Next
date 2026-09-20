@@ -5,6 +5,8 @@ import Foundation
 enum OverlaySecondaryMode: String, CaseIterable, Identifiable {
     case translation, next, either, both, none
     var id: String { rawValue }
+    var supportsTranslation: Bool { self == .translation || self == .either || self == .both }
+    var supportsNext: Bool { self == .next || self == .either || self == .both }
     var title: String {
         switch self {
         case .translation: "仅翻译"

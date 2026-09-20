@@ -50,12 +50,11 @@ struct SettingRow<Control: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title).font(.body.weight(.medium))
-                    Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                Text(title).font(.body.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
                 control().fixedSize(horizontal: true, vertical: false)
             }
+            Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let impact {
                 Label(impact, systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

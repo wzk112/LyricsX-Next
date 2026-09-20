@@ -20,11 +20,17 @@ final class AppModel {
     var mainWindowVisible = false { didSet { updateMainLyricSelection() } }
     private(set) var mainLyricIndex: Int?
     private(set) var playbackControlPosition = 0.0
-    var artwork: NSImage?
+    var artwork: NSImage? {
+        didSet {
+            if artwork !== oldValue { updateArtworkTheme() }
+        }
+    }
+    @ObservationIgnored private var artworkThemeTask: Task<Void, Never>?
     var library: [LyricsCache.Entry] = []
     var libraryLoading = false
     @ObservationIgnored private var libraryGeneration = 0
     var showMainWindow: (() -> Void)?
+    @ObservationIgnored var showFeatureGuide: ((Bool) -> Void)?
     @ObservationIgnored var overlay: OverlayController?
     @ObservationIgnored private var ticker: PlaybackTicker?
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
@@ -126,6 +132,7 @@ final class AppModel {
     }
     func stop() {
         ticker?.stop(); ticker = nil; artworkTask?.cancel(); presentationStopped = true
+        artworkThemeTask?.cancel(); artworkThemeTask = nil
         displays.stop()
         dockVisibility.stop()
         overlay?.stop(); bridge.stop(); session.stop()
@@ -300,6 +307,22 @@ final class AppModel {
                 guard !Task.isCancelled, self?.artworkIdentity == identity, data.count < 8_000_000 else { return }
                 self?.artwork = Self.decodeArtwork(data)
             } catch { }
+        }
+    }
+    private func updateArtworkTheme() {
+        artworkThemeTask?.cancel()
+        let source = artwork?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        artworkThemeTask = Task { [weak self] in
+            let theme: ArtworkTheme?
+            if let source { theme = await ArtworkThemeExtractor.shared.theme(for: source) }
+            else {
+                // Match the cover handover grace period; do not flash white
+                // during a brief gap between track metadata and artwork.
+                do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+                theme = nil
+            }
+            guard !Task.isCancelled, let self, !self.presentationStopped else { return }
+            self.preferences.artworkTheme = theme
         }
     }
     private static func decodeArtwork(_ data: Data) -> NSImage? {
