@@ -159,32 +159,101 @@ enum GuideContent {
     weak var preferences: Preferences?
     weak var model: AppModel?
     private(set) var window: NSWindow?
+    private weak var returnWindow: NSWindow?
+    private var automaticPresentationTask: Task<Void, Never>?
     init(history: GuideHistory = GuideHistory()) { self.history = history }
+
+    /// Wait until SwiftUI has installed its scenes before presenting the
+    /// first-run window. Creating an AppKit window directly from
+    /// applicationDidFinishLaunching can leave it ordered behind a later
+    /// SwiftUI window until the user opens another window.
+    func scheduleAutomaticPresentation() {
+        guard history.pending != nil, automaticPresentationTask == nil else { return }
+        automaticPresentationTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            // The SwiftUI Window scene is installed after the application
+            // delegate finishes launching. Wait for that real host window so
+            // it cannot subsequently cover the guide. A bounded fallback also
+            // supports menu-bar-only launches.
+            for _ in 0..<20 {
+                guard !Task.isCancelled else { return }
+                let hostIsReady = NSApp.windows.contains {
+                    $0.isVisible && $0.level == .normal && $0.styleMask.contains(.titled)
+                }
+                if hostIsReady { break }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.automaticPresentationTask = nil
+            self.showAutomaticIfNeeded()
+        }
+    }
+
+    func cancelScheduledPresentation() {
+        automaticPresentationTask?.cancel()
+        automaticPresentationTask = nil
+    }
+
     func showAutomaticIfNeeded() {
         guard let pending = history.pending else { return }
-        show(pending)
+        guard present(pending, automatic: true) else { return }
         // Record only after constructing and ordering the visible window.
         history.didPresent()
     }
+
     func show(_ mode: GuideHistory.Presentation) {
+        // A manual replay never consumes the automatic receipt. If it races
+        // cold launch, leave the receipt for the next launch rather than
+        // replacing what the user explicitly opened.
+        cancelScheduledPresentation()
+        _ = present(mode, automatic: false)
+    }
+
+    @discardableResult
+    private func present(_ mode: GuideHistory.Presentation, automatic: Bool) -> Bool {
+        if automatic, window != nil { return false }
+        let previousWindow = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.orderedWindows.first {
+            $0 !== window && $0.isVisible && $0.level == .normal
+        }
+        if let previousWindow, previousWindow !== window, previousWindow.isVisible {
+            returnWindow = previousWindow
+        }
         if window == nil {
             let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 920, height: 700),
                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            window.isRestorable = false
+            window.tabbingMode = .disallowed
             window.minSize = .init(width: 800, height: 640)
             window.delegate = self
             window.center()
             self.window = window
         }
         window?.title = mode == .tutorial ? "LyricsX Next · 使用指南" : "LyricsX Next · 版本介绍"
-        window?.contentView = NSHostingView(rootView: FeatureGuideView(mode: mode, preferences: preferences, model: model, close: { [weak self] in self?.window?.close() }))
-        window?.makeKeyAndOrderFront(nil)
+        window?.contentView = NSHostingView(rootView: FeatureGuideView(mode: mode, preferences: preferences, model: model, close: { [weak self] in self?.close() }))
+        // Activate first, then force this dedicated window to the front. This
+        // is independent from Settings and the motion/search preview scenes.
         NSApp.activate()
+        window?.orderFrontRegardless()
+        window?.makeKey()
+        return window?.isVisible == true
     }
+
+    func close() {
+        window?.performClose(nil)
+    }
+
     func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow, closingWindow === window else { return }
         // Release previews/display links even though the controller is retained.
-        window?.contentView = nil
+        closingWindow.contentView = nil
         window = nil
+        let destination = returnWindow
+        returnWindow = nil
+        DispatchQueue.main.async {
+            guard let destination, destination.isVisible else { return }
+            destination.makeKeyAndOrderFront(nil)
+        }
     }
 }
 

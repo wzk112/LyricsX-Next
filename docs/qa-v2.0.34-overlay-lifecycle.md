@@ -1,11 +1,10 @@
-# 2.0.34 build 257: window and transition fixes
+# 2.0.34 build 258: window and transition fixes
 
 ## Scope
 
-The published build 252 was returned to a GitHub draft, retaining tag v2.0.34.
-Build 257 keeps the marketing version unchanged. It has been built, signed
-locally, installed in `/Applications/LyricsX Next.app`, and launched. This
-record accompanies the corrected v2.0.34 release.
+Build 258 keeps the marketing version and public GitHub release at 2.0.34. It
+replaces the build 257 asset after verification without withdrawing the
+release. This record accompanies the corrected v2.0.34 release.
 
 ## Findings and changes
 
@@ -64,14 +63,18 @@ record accompanies the corrected v2.0.34 release.
 - The About page now gives separate verified links for the LyricsX Next project,
   releases, issues, license, and each upstream project instead of directing the
   whole upstream row to only the original LyricsX repository.
+- Automatic first-run and update presentation now waits for the SwiftUI host
+  scene before ordering its dedicated window to the front. Closing it restores
+  the window that opened it. The Settings motion preview is a Settings-owned
+  sheet, so closing either surface cannot dismiss Settings.
 
 ## Completed verification
 
-- The final `swift test --no-parallel` run passed 39 core, 98 service, and 144
+- The final `swift test --no-parallel` run passed 39 core, 98 service, and 146
   application tests. The transition-focused run also passed 32 tests across
   `OverlayBlurLifecycle`, `OverlayPresentation`, `OverlaySizing`, and
   `ArtworkTransition`. Opt-in live/performance/visual fixtures remain disabled.
-  The marketing version remains 2.0.34, internal build 257.
+  The marketing version remains 2.0.34, internal build 258.
 - Added real NSWindow geometry tests for dragging during resize, changing
   lyrics while dragging, screen notifications during drag, release geometry,
   and cancellation of stale animation completions. Expansion and shrink both
@@ -82,7 +85,10 @@ record accompanies the corrected v2.0.34 release.
   plus state tests for interrupted handovers and invisible departing content.
 - Added artwork replacement/palette checks and render-equivalent EDR checks.
 - Final release build succeeded; installed executable SHA-256 matches it:
-  `bfa9958146d6ef91272c148788ab87564f8f9aa8dc69af882c5479fb064631c0`.
+  `1b15d158463cbddcaf0f620970a480b3cc59f81af4d1eb0de1065a5ffa230931`.
+- A clean QA bundle confirmed that the tutorial is frontmost on first launch.
+  Closing it restored the main window; closing the Settings-owned motion
+  preview and the manually opened release guide both left Settings visible.
 - Installed bundle passed `codesign --verify --deep --strict`.
 - Actual installed Apple Music playback was inspected with `Lover` and
   `雪降り ~雪が降っている~ (feat. 結月ゆかり) [Full Ver.]`; active lyrics,

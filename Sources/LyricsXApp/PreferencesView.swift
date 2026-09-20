@@ -81,6 +81,7 @@ struct PreferencesView: View {
     @State private var loginChangePending = false
     @State private var loginStatus = SMAppService.mainApp.status
     @State private var settingsError: String?
+    @State private var showMotionPreview = false
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
 
     init(model: AppModel, initialSection: SettingsSection = .general) {
@@ -116,7 +117,7 @@ struct PreferencesView: View {
                             Text((selection ?? .general).summary).font(.callout).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 12)
-                        Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
+                        Button("完成") { dismiss() }
                     }
                     .padding(.horizontal, 24).padding(.vertical, 20)
                     Divider()
@@ -135,6 +136,19 @@ struct PreferencesView: View {
         .frame(minWidth: 760, idealWidth: 880, minHeight: 580, idealHeight: 700)
         .task { model.displays.refresh(); refreshLoginStatus() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshLoginStatus() }
+        .sheet(isPresented: $showMotionPreview) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("动效预览").font(.headline)
+                    Spacer()
+                    Button("完成") { showMotionPreview = false }
+                }
+                .padding(.horizontal, 20).padding(.vertical, 14)
+                Divider()
+                LyricsPreviewView(preferences: model.preferences)
+            }
+            .frame(minWidth: 760, minHeight: 500)
+        }
         .alert("设置未能保存", isPresented: Binding(get: { settingsError != nil }, set: { if !$0 { settingsError = nil } })) {
             Button("好") { settingsError = nil }
         } message: { Text(settingsError ?? "") }
@@ -297,7 +311,7 @@ struct PreferencesView: View {
                 SettingToggle(title: "逐字轻微放大", detail: "演唱中的字词柔和放大并上浮；长音中的字符依次起伏，未唱部分保持接近原字号。", impact: "需要歌词自带逐字时间；开启动效会增加少量绘制开销。", value: $p.lyricWordLift)
                     .disabled(p.reduceMotion || systemReduceMotion)
                 SettingRow(title: "预览动效", detail: "使用独立演示歌词查看普通逐字、长音和高速增量效果。", impact: "不会控制播放器或写入歌词缓存。") {
-                    Button("打开预览") { openWindow(id: "preview") }
+                    Button("打开预览") { showMotionPreview = true }
                 }
             }
             SettingsCard(title: "长音辉光") {

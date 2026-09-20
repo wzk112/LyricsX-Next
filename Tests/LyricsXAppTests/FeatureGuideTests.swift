@@ -3,6 +3,14 @@ import SwiftUI
 import Testing
 @testable import LyricsXApp
 
+private final class GuideOwnerWindow: NSWindow {
+    var orderFrontCount = 0
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        orderFrontCount += 1
+        super.makeKeyAndOrderFront(sender)
+    }
+}
+
 @Suite @MainActor struct FeatureGuideTests {
     private func fixture(_ body: (UserDefaults) throws -> Void) throws {
         let suite = "LyricsXGuideTests-" + UUID().uuidString
@@ -67,14 +75,61 @@ import Testing
             controller.show(.tutorial)
             #expect(controller.window?.isVisible == true)
             #expect(history.pending == .tutorial)
-            controller.window?.close()
+            controller.close()
             #expect(controller.window == nil)
             controller.showAutomaticIfNeeded()
             #expect(controller.window?.isVisible == true)
             #expect(history.pending == nil)
-            controller.window?.close()
+            controller.close()
             controller.showAutomaticIfNeeded()
             #expect(controller.window == nil)
         }
+    }
+
+    @Test func closingGuideKeepsAndRestoresTheWindowThatOpenedIt() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXGuideTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let owner = GuideOwnerWindow(contentRect: .init(x: 0, y: 0, width: 500, height: 400),
+                                     styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        owner.isReleasedWhenClosed = false
+        owner.makeKeyAndOrderFront(nil)
+        defer { owner.close() }
+
+        let controller = FeatureGuideController(history: GuideHistory(defaults: defaults, version: "2.0.34"))
+        controller.show(.update(previous: "2.0.33"))
+        #expect(controller.window?.isVisible == true)
+        #expect(owner.isVisible)
+        controller.close()
+        #expect(controller.window == nil)
+        await Task.yield()
+        #expect(owner.isVisible)
+        #expect(owner.orderFrontCount == 2)
+    }
+
+    @Test func scheduledAutomaticGuideWaitsForAHostWindowAndPresentsOnce() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXGuideTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let owner = GuideOwnerWindow(contentRect: .init(x: 0, y: 0, width: 500, height: 400),
+                                     styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        owner.isReleasedWhenClosed = false
+        owner.orderFrontRegardless()
+        defer { owner.close() }
+
+        let history = GuideHistory(defaults: defaults, version: "2.0.34")
+        let controller = FeatureGuideController(history: history)
+        controller.scheduleAutomaticPresentation()
+        for _ in 0..<20 where controller.window == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(controller.window?.isVisible == true)
+        #expect(history.pending == nil)
+        controller.close()
+        controller.scheduleAutomaticPresentation()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(controller.window == nil)
     }
 }

@@ -121,7 +121,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = NSApp.setActivationPolicy(show ? .regular : .accessory)
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-    func applicationWillTerminate(_ notification: Notification) { hotkeys?.stop(); model.stop() }
+    func applicationWillTerminate(_ notification: Notification) {
+        featureGuide.cancelScheduledPresentation()
+        hotkeys?.stop()
+        model.stop()
+    }
     func applicationDidBecomeActive(_ notification: Notification) { model.dockVisibility.applicationActivated() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         featureGuide.preferences = model.preferences
@@ -130,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.featureGuide.show(tutorial ? .tutorial : .update(previous: GuideContent.latestBaseline))
         }
         model.start()
-        DispatchQueue.main.async { [weak self] in self?.featureGuide.showAutomaticIfNeeded() }
+        featureGuide.scheduleAutomaticPresentation()
         if hotkeys == nil { hotkeys = GlobalHotkeys(model: model) }
         model.dockVisibility.applicationActivated()
     }
