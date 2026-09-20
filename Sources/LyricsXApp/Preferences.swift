@@ -148,7 +148,7 @@ final class Preferences {
         preferBilingual = d.object(forKey: "preferBilingual") as? Bool ?? true
         preferWordTiming = d.object(forKey: "preferWordTiming") as? Bool ?? true
         strictLyricsMatching = d.object(forKey: "strictLyricsMatching") as? Bool ?? true
-        directory = CacheLocation.resolve()
+        directory = CacheLocation.resolve(modern: d)
         // Migrate once. Future launches must prefer the user's new setting.
         if d.string(forKey: "overlayAppearance") != overlayAppearance.rawValue {
             d.set(overlayAppearance.rawValue, forKey: "overlayAppearance")
@@ -183,9 +183,9 @@ final class Preferences {
     }
     func chooseDirectory(_ url: URL) {
         directory = url
-        UserDefaults.standard.set(url.path, forKey: "ModernLyricsDirectory")
+        defaults.set(url.path, forKey: "ModernLyricsDirectory")
         if let bookmark = try? url.bookmarkData(options: [.withSecurityScope]) {
-            UserDefaults.standard.set(bookmark, forKey: "ModernLyricsDirectoryBookmark")
+            defaults.set(bookmark, forKey: "ModernLyricsDirectoryBookmark")
         }
     }
     private static let convertedText: NSCache<NSString, NSString> = {

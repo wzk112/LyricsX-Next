@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
-import ImageIO
 import LyricsXCore
 import LyricsXServices
 
@@ -29,6 +28,7 @@ final class AppModel {
     var library: [LyricsCache.Entry] = []
     var libraryLoading = false
     @ObservationIgnored private var libraryGeneration = 0
+    @ObservationIgnored private var libraryTask: Task<Void, Never>?
     var showMainWindow: (() -> Void)?
     @ObservationIgnored var showFeatureGuide: ((Bool) -> Void)?
     @ObservationIgnored var overlay: OverlayController?
@@ -97,10 +97,13 @@ final class AppModel {
         bridge.mode = preferences.playerMode
         bridge.start()
         wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in guard let self else { return }; self.bridge.restart(); self.overlay?.restoreOnScreen() }
+            Task { @MainActor in guard let self, !self.presentationStopped else { return }; self.bridge.restart(); self.overlay?.restoreOnScreen() }
         })
         wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.bridge.stop(); self?.session.freeze() }
+            Task { @MainActor in
+                guard let self, !self.presentationStopped else { return }
+                self.bridge.stop(); self.session.freeze()
+            }
         })
         startLyricClock()
     }
@@ -131,11 +134,12 @@ final class AppModel {
         if playing { ticker?.start() } else { ticker?.stop() }
     }
     func stop() {
-        ticker?.stop(); ticker = nil; artworkTask?.cancel(); presentationStopped = true
+        ticker?.stop(); ticker = nil; artworkTask?.cancel(); artworkTask = nil; presentationStopped = true
         artworkThemeTask?.cancel(); artworkThemeTask = nil
         displays.stop()
         dockVisibility.stop()
-        overlay?.stop(); bridge.stop(); session.stop()
+        overlay?.stop(); overlay = nil; bridge.stop(); session.stop()
+        unloadLibrary()
         for token in wakeObservers { NSWorkspace.shared.notificationCenter.removeObserver(token) }
         wakeObservers.removeAll()
     }
@@ -270,12 +274,23 @@ final class AppModel {
         }
     }
     func loadLibrary() {
+        libraryTask?.cancel()
         libraryGeneration += 1; let generation = libraryGeneration; libraryLoading = true
-        Task {
-            do { let entries = try await store.cache.entries(); if generation == libraryGeneration { library = entries } }
-            catch { if generation == libraryGeneration { message = error.localizedDescription } }
-            if generation == libraryGeneration { libraryLoading = false }
+        libraryTask = Task { [weak self, cache = store.cache] in
+            do {
+                let entries = try await cache.entries()
+                guard !Task.isCancelled, let self, generation == self.libraryGeneration else { return }
+                self.library = entries; self.libraryLoading = false; self.libraryTask = nil
+            } catch {
+                guard !Task.isCancelled, let self, generation == self.libraryGeneration else { return }
+                self.message = error.localizedDescription; self.libraryLoading = false; self.libraryTask = nil
+            }
         }
+    }
+    func unloadLibrary() {
+        libraryGeneration += 1
+        libraryTask?.cancel(); libraryTask = nil
+        library = []; libraryLoading = false
     }
     func chooseCacheDirectory() {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
@@ -284,7 +299,7 @@ final class AppModel {
             Task { @MainActor in
                 guard response == .OK, let url = panel.url, let self else { return }
                 self.preferences.chooseDirectory(url); await self.store.cache.setDirectory(url)
-                self.session.reload(); self.loadLibrary()
+                self.session.reload(); if self.showLibrary { self.loadLibrary() }
             }
         }
     }
@@ -292,21 +307,17 @@ final class AppModel {
         let identity = (track?.id ?? "") + (track?.artworkURL?.absoluteString ?? "")
         guard identity != artworkIdentity || track?.artworkData != artworkBytes else { return }
         artworkIdentity = identity; artworkBytes = track?.artworkData; artworkTask?.cancel()
-        if let data = track?.artworkData, let decoded = Self.decodeArtwork(data) { artwork = decoded; return }
         artwork = nil
-        guard let originalURL = track?.artworkURL,
-              let scheme = originalURL.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return }
-        var url = originalURL
-        if scheme == "http", var components = URLComponents(url: originalURL, resolvingAgainstBaseURL: false) {
-            components.scheme = "https"
-            url = components.url ?? originalURL
-        }
+        guard track?.artworkData != nil || track?.artworkURL != nil else { artworkTask = nil; return }
+        let data = track?.artworkData, url = track?.artworkURL
         artworkTask = Task { [weak self] in
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                guard !Task.isCancelled, self?.artworkIdentity == identity, data.count < 8_000_000 else { return }
-                self?.artwork = Self.decodeArtwork(data)
-            } catch { }
+            let decoded = await ArtworkDecoder.shared.load(data: data, url: url)
+            // Cancellation also covers a newer byte payload for the same track
+            // and URL, which an identity-only check cannot distinguish.
+            guard !Task.isCancelled, let self, !self.presentationStopped,
+                  self.artworkIdentity == identity else { return }
+            if let decoded { self.artwork = NSImage(cgImage: decoded, size: .zero) }
+            self.artworkTask = nil
         }
     }
     private func updateArtworkTheme() {
@@ -325,15 +336,7 @@ final class AppModel {
             self.preferences.artworkTheme = theme
         }
     }
-    private static func decodeArtwork(_ data: Data) -> NSImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: 640,
-                kCGImageSourceCreateThumbnailWithTransform: true
-              ] as CFDictionary) else { return nil }
-        return NSImage(cgImage: image, size: .zero)
-    }
+
 }
 
 enum DemoContent {

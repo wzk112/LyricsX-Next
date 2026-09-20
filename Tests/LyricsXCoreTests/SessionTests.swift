@@ -230,3 +230,40 @@ private final class ControlledRepository: LyricsRepository, @unchecked Sendable 
         await waitFor { session.phase == .notFound }; session.stop()
     }
 }
+
+private final class TerminationRepository: LyricsRepository, @unchecked Sendable {
+    private let lock = NSLock()
+    private var ended = false
+    let pair = AsyncThrowingStream<LyricCandidate, Error>.makeStream()
+    var terminated: Bool { lock.withLock { ended } }
+    init() { pair.continuation.onTermination = { [weak self] _ in self?.lock.withLock { self?.ended = true } } }
+    func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> { pair.stream }
+    func save(_ document: LyricsDocument, for track: Track) async throws {}
+}
+
+@Test @MainActor func discardedSessionCancelsSuspendedSearchWithoutWaitingForDeadline() async throws {
+    let repository = TerminationRepository()
+    var session: LyricsSession? = LyricsSession(repository: repository)
+    weak var reference = session
+    session?.accept(.init(track: .init(playerID: "test", playerName: "Test", title: "Lifetime"), position: 0, isPlaying: true))
+    try await Task.sleep(for: .milliseconds(10))
+    session = nil
+    for _ in 0..<100 where !repository.terminated { try await Task.sleep(for: .milliseconds(2)) }
+    #expect(reference == nil)
+    #expect(repository.terminated)
+    repository.pair.continuation.finish()
+}
+
+@Test @MainActor func malformedExtremeOffsetCanBeAdjustedAndResetWithoutOverflow() {
+    let session = LyricsSession(repository: ControlledRepository())
+    defer { session.stop() }
+    session.use(.init(lines: [.init(id: 0, time: 0, text: "Test")], offsetMilliseconds: .max), persist: false)
+    session.adjustOffset(by: 100)
+    #expect(session.document?.offsetMilliseconds == 300_000)
+    session.use(.init(lines: [.init(id: 0, time: 0, text: "Test")], offsetMilliseconds: .min), persist: false)
+    session.adjustOffset(by: -100)
+    #expect(session.document?.offsetMilliseconds == -300_000)
+    session.use(.init(lines: [.init(id: 0, time: 0, text: "Test")], offsetMilliseconds: .min), persist: false)
+    session.resetOffset()
+    #expect(session.document?.offsetMilliseconds == 0)
+}

@@ -35,6 +35,11 @@ public actor LyricsCache {
     }
     public private(set) var directory: URL
     private var loadedPaths: [String: URL] = [:]
+    var rememberedPathCount: Int { loadedPaths.count }
+    private func remember(_ url: URL, for track: Track) {
+        if loadedPaths.count >= 512, loadedPaths[track.cacheIdentity] == nil { loadedPaths.removeAll(keepingCapacity: true) }
+        loadedPaths[track.cacheIdentity] = url
+    }
     private var searches: [String: (id: UUID, mayCheckpoint: Bool)] = [:]
     private struct Checkpoint: Codable {
         var title: String; var artist: String; var album: String; var source: String
@@ -108,7 +113,7 @@ public actor LyricsCache {
         for ext in ["lrcx", "lrc", "txt"] {
             let url = directory.appendingPathComponent(Self.filename(for: track)).appendingPathExtension(ext)
             if var entry = readEntry(url) {
-                loadedPaths[track.cacheIdentity] = url
+                remember(url, for: track)
                 if entry.document.title.isEmpty { entry.document.title = track.title }
                 if entry.document.artist.isEmpty { entry.document.artist = track.artist }
                 return entry
@@ -141,7 +146,7 @@ public actor LyricsCache {
         }
         if let old = try? String(contentsOf: url, encoding: .utf8), old == value { return }
         try value.write(to: url, atomically: true, encoding: .utf8)
-        loadedPaths[track.cacheIdentity] = url
+        remember(url, for: track)
     }
     public func entries() throws -> [Entry] {
         let scoped = directory.startAccessingSecurityScopedResource()
@@ -149,6 +154,7 @@ public actor LyricsCache {
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])
             .filter { ["lrcx", "lrc", "txt"].contains($0.pathExtension.lowercased()) }.compactMap { url in
+                try Task.checkCancellation()
                 guard let doc = readEntry(url)?.document else { return nil }
                 let parts = url.deletingPathExtension().lastPathComponent.components(separatedBy: " - ")
                 let title = doc.title.isEmpty ? parts.first ?? "未命名" : doc.title

@@ -14,9 +14,12 @@ import Foundation
     @objc private func tick() {
         timer = nil
         guard running, let milliseconds = update(), running else { stop(); return }
-        let timer = Timer(timeInterval: max(0.008, milliseconds / 1_000), target: self, selector: #selector(tick), userInfo: nil, repeats: false)
+        let timer = Timer(timeInterval: max(0.008, milliseconds / 1_000), repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
     func stop() { running = false; timer?.invalidate(); timer = nil }
+    isolated deinit { timer?.invalidate() }
 }

@@ -125,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) { model.dockVisibility.applicationActivated() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         featureGuide.preferences = model.preferences
+        featureGuide.model = model
         model.showFeatureGuide = { [weak self] tutorial in
             self?.featureGuide.show(tutorial ? .tutorial : .update(previous: GuideContent.latestBaseline))
         }

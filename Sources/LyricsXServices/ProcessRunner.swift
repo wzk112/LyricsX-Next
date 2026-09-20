@@ -16,8 +16,10 @@ enum ProcessRunner {
                         let out = directory.appendingPathComponent("stdout"), err = directory.appendingPathComponent("stderr")
                         FileManager.default.createFile(atPath: out.path, contents: nil)
                         FileManager.default.createFile(atPath: err.path, contents: nil)
-                        let outHandle = try FileHandle(forWritingTo: out), errHandle = try FileHandle(forWritingTo: err)
-                        defer { try? outHandle.close(); try? errHandle.close() }
+                        let outHandle = try FileHandle(forWritingTo: out)
+                        defer { try? outHandle.close() }
+                        let errHandle = try FileHandle(forWritingTo: err)
+                        defer { try? errHandle.close() }
                         let process = Process(); process.executableURL = URL(fileURLWithPath: executable)
                         process.arguments = arguments; process.standardOutput = outHandle; process.standardError = errHandle
                         try execution.launch(process)
@@ -28,7 +30,9 @@ enum ProcessRunner {
                         let reader = try FileHandle(forReadingFrom: out)
                         defer { try? reader.close() }
                         let data = try reader.read(upToCount: 12_000_000) ?? Data()
-                        let errorData = (try? Data(contentsOf: err)) ?? Data()
+                        let errorReader = try FileHandle(forReadingFrom: err)
+                        defer { try? errorReader.close() }
+                        let errorData = try errorReader.read(upToCount: 4096) ?? Data()
                         continuation.resume(returning: Output(data: data, error: String(decoding: errorData.prefix(4096), as: UTF8.self), status: process.terminationStatus))
                     } catch { continuation.resume(throwing: error) }
                 }

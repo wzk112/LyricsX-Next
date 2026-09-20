@@ -40,10 +40,16 @@ struct HDRDisplayCapability: Equatable, Identifiable {
     func start() {
         guard !observing else { return }
         observing = true
-        NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(screenParametersDidChange), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         refresh()
     }
-    @objc func refresh() {
+    @objc nonisolated private func screenParametersDidChange() {
+        Task { @MainActor [weak self] in
+            guard let self, self.observing else { return }
+            self.refresh()
+        }
+    }
+    func refresh() {
         let updated = NSScreen.screens.map(HDRDisplayCapability.init(screen:))
         if displays != updated { displays = updated }
     }
@@ -74,12 +80,14 @@ private struct WindowHDRReader: NSViewRepresentable {
     @MainActor final class Reader: NSView {
         var changed: ((HDRDisplayCapability?) -> Void)?
         private var capability: HDRDisplayCapability?
+        private var observing = false
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow(); stop()
             guard let window else { return }
-            NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: NSWindow.didChangeScreenNotification, object: window)
-            NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: NSWindow.didChangeOcclusionStateNotification, object: window)
-            NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+            observing = true
+            NotificationCenter.default.addObserver(self, selector: #selector(displayDidChange), name: NSWindow.didChangeScreenNotification, object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(displayDidChange), name: NSWindow.didChangeOcclusionStateNotification, object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(displayDidChange), name: NSApplication.didChangeScreenParametersNotification, object: nil)
             refresh()
             // Attachment can precede orderFront and screen assignment.
             DispatchQueue.main.async { [weak self, weak window] in
@@ -87,17 +95,23 @@ private struct WindowHDRReader: NSViewRepresentable {
                 self.refresh()
             }
         }
-        @objc private func refresh() {
+        @objc nonisolated private func displayDidChange() {
+            Task { @MainActor [weak self] in
+                guard let self, self.observing else { return }
+                self.refresh()
+            }
+        }
+        private func refresh() {
             let value = window?.screen.map { HDRDisplayCapability(screen: $0) }
             guard capability != value else { return }
             capability = value
             // Avoid publishing SwiftUI state during native view attachment.
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.capability == value else { return }
+                guard let self, self.observing, self.capability == value else { return }
                 self.changed?(value)
             }
         }
-        func stop() { NotificationCenter.default.removeObserver(self); capability = nil }
+        func stop() { NotificationCenter.default.removeObserver(self); observing = false; capability = nil }
     }
 }
 

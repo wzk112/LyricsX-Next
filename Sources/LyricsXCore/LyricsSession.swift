@@ -80,7 +80,7 @@ public final class LyricsSession {
     /// Display frames sample the same bounded monotonic clock directly. They
     /// never mutate playback or wait for the lower-frequency UI/session tick.
     public func presentationPosition(at now: Double = ProcessInfo.processInfo.systemUptime) -> Double {
-        isPlaying ? timeline.position(at: now) : position
+        isPlaying ? timeline.presentationPosition(at: now) : position
     }
     public func freeze(now: Double = ProcessInfo.processInfo.systemUptime) {
         timeline.freeze(at: now); isPlaying = false; tick(now: now)
@@ -143,14 +143,22 @@ public final class LyricsSession {
         document = nil; candidates = []; currentLineIndex = nil; phase = .notFound
     }
     public func adjustOffset(by milliseconds: Int) {
+        guard let document else { return }
+        let (value, overflow) = document.offsetMilliseconds.addingReportingOverflow(milliseconds)
+        setOffset(overflow ? (milliseconds >= 0 ? 300_000 : -300_000) : value)
+    }
+    public func resetOffset() { setOffset(0) }
+    private func setOffset(_ value: Int) {
         guard var updated = document else { return }
         invalidateSearch(); phase = .ready
-        updated.offsetMilliseconds = min(300_000, max(-300_000, updated.offsetMilliseconds + milliseconds))
+        updated.offsetMilliseconds = min(300_000, max(-300_000, value))
         document = updated
         tick(); persist()
     }
-    public func resetOffset() { guard let document else { return }; adjustOffset(by: -document.offsetMilliseconds) }
     public func stop() { invalidateSearch(); freeze() }
+    // Saves deliberately finish in order; abandoned searches and their deadline
+    // must not stay alive just because a provider has not yielded yet.
+    isolated deinit { searchTask?.cancel(); deadlineTask?.cancel() }
     private func invalidateSearch() {
         isSearching = false
         searchGeneration &+= 1; searchTask?.cancel(); deadlineTask?.cancel()

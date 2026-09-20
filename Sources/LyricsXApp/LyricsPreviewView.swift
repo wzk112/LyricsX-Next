@@ -70,10 +70,10 @@ struct WindowRenderActivity {
         NSWindow.willMiniaturizeNotification, NSWindow.didMiniaturizeNotification,
         NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification, NSWindow.didBecomeKeyNotification]
     private var leaving = false
-    mutating func update(event: Notification.Name?, visible: Bool, miniaturized: Bool, exposed: Bool) -> Bool {
+    mutating func update(event: Notification.Name?, visible: Bool, miniaturized: Bool, exposed: Bool, floating: Bool = false) -> Bool {
         if event == NSWindow.willMiniaturizeNotification || event == NSWindow.willCloseNotification { leaving = true }
         else if !visible || event == NSWindow.didMiniaturizeNotification || event == NSWindow.didDeminiaturizeNotification || event == NSWindow.didBecomeKeyNotification { leaving = false }
-        return !leaving && visible && !miniaturized && exposed
+        return !leaving && visible && !miniaturized && (floating || exposed)
     }
 }
 
@@ -104,7 +104,8 @@ struct WindowVisibilityReader: NSViewRepresentable {
         }
         @objc private func updateVisibility(_ notification: Notification?) {
             let visible = activity.update(event: notification?.name, visible: window?.isVisible == true,
-                miniaturized: window?.isMiniaturized == true, exposed: window?.occlusionState.contains(.visible) == true)
+                miniaturized: window?.isMiniaturized == true, exposed: window?.occlusionState.contains(.visible) == true,
+                floating: window is DraggableOverlayPanel)
             guard visible != reported else { return }
             reported = visible; changed?(visible)
         }

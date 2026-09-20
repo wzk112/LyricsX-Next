@@ -1001,39 +1001,34 @@ enum XMLUtils {
         return result
     }
 
-    /// 移除 XML 内容中无效的部分
-    private static func removeIllegalContent(_ content: String) -> String {
+    /// Remove malformed self-closing pseudo-tags without repeatedly counting
+    /// graphemes or walking from startIndex for every character. Normal XML is
+    /// scanned once. After an actual deletion, rescan to preserve legacy repair
+    /// semantics for adjacent malformed content.
+    static func removeIllegalContent(_ content: String) -> String {
         var modifiedContent = content
-        var i = 0
-        var left = 0
-
-        while i < modifiedContent.count {
-            let index = modifiedContent.index(modifiedContent.startIndex, offsetBy: i)
-            if modifiedContent[index] == "<" {
-                left = i
-            }
-
-            if i > 0 && modifiedContent[index] == ">" && modifiedContent[modifiedContent.index(before: index)] == "/" {
-                let partStartIndex = modifiedContent.index(modifiedContent.startIndex, offsetBy: left)
-                let partEndIndex = modifiedContent.index(after: index)
-                let part = String(modifiedContent[partStartIndex ..< partEndIndex])
-
-                if part.contains("=") && part.firstIndex(of: "=") == part.lastIndex(of: "=") {
-                    let equalIndex = part.firstIndex(of: "=")!
-                    let part1 = part[..<equalIndex]
-                    if !part1.trimmingCharacters(in: .whitespaces).contains(" ") {
-                        modifiedContent.removeSubrange(partStartIndex ..< partEndIndex)
-                        i = 0
-                        continue
-                    }
+        var index = modifiedContent.startIndex
+        var left = index
+        while index < modifiedContent.endIndex {
+            let character = modifiedContent[index]
+            if character == "<" { left = index }
+            if index > modifiedContent.startIndex, character == ">",
+               modifiedContent[modifiedContent.index(before: index)] == "/" {
+                let end = modifiedContent.index(after: index)
+                let part = modifiedContent[left..<end]
+                if let equal = part.firstIndex(of: "="), equal == part.lastIndex(of: "="),
+                   !part[..<equal].trimmingCharacters(in: .whitespaces).contains(" ") {
+                    modifiedContent.removeSubrange(left..<end)
+                    index = modifiedContent.startIndex
+                    left = index
+                    continue
                 }
             }
-
-            i += 1
+            modifiedContent.formIndex(after: &index)
         }
-
         return modifiedContent.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
 }
 
 func decryptQQMusicQrc(_ data: String) -> String? {

@@ -11,8 +11,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .player: "play.circle"
         case .overlay: "rectangle.on.rectangle"
-        case .lyrics: "text.quote"
-        case .effects: "sparkles"
+        case .lyrics: "text.alignleft"
+        case .effects: "waveform"
         case .sources: "magnifyingglass"
         case .developer: "curlybraces"
         case .about: "info.circle"
@@ -32,12 +32,50 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
+private struct SettingsSidebarItem: View {
+    let section: SettingsSection
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: section.symbol)
+                    .font(.system(size: 14, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                    .frame(width: 26, height: 26)
+                    .background(selected ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.06),
+                                in: .rect(cornerRadius: 7))
+                Text(section.rawValue).font(.system(size: 13, weight: selected ? .semibold : .regular))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(selected ? Color.accentColor.opacity(0.10) : .clear, in: .rect(cornerRadius: 9))
+            .contentShape(.rect(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(section.rawValue)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .help(section.summary)
+    }
+}
+
+enum SettingsLayout {
+    // Keep the reading column independent of the sidebar's animated width.
+    // Only a real window resize changes wrapping and preview geometry.
+    static func readingWidth(windowWidth: Double) -> Double {
+        min(680, max(480, windowWidth - 196 - 48))
+    }
+}
+
 struct PreferencesView: View {
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var selection: SettingsSection? = .general
+    @State private var sidebarVisible = true
     @State private var token = ""
     @State private var tokenMessage = ""
     @State private var loginChangePending = false
@@ -51,45 +89,74 @@ struct PreferencesView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selection) {
-                Section {
-                    ForEach(SettingsSection.allCases.filter { $0 != .developer && $0 != .about }) { section in
-                        Label(section.rawValue, systemImage: section.symbol).tag(section)
-                            .padding(.vertical, 4)
+        GeometryReader { window in
+            HStack(spacing: 0) {
+                sidebar
+                    .frame(width: 196)
+                    .frame(width: sidebarVisible ? 196 : 0, alignment: .leading)
+                    .clipped()
+                    .allowsHitTesting(sidebarVisible)
+                    .accessibilityHidden(!sidebarVisible)
+                VStack(spacing: 0) {
+                    HStack(alignment: .center, spacing: 14) {
+                        Button {
+                            withAnimation(systemReduceMotion || model.preferences.reduceMotion ? nil : .smooth(duration: 0.28)) {
+                                sidebarVisible.toggle()
+                            }
+                        } label: {
+                            Image(systemName: "sidebar.left")
+                                .font(.system(size: 15, weight: .regular))
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(sidebarVisible ? "收起设置边栏" : "展开设置边栏")
+                        .help(sidebarVisible ? "收起设置边栏" : "展开设置边栏")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text((selection ?? .general).rawValue).font(.title2.weight(.semibold))
+                            Text((selection ?? .general).summary).font(.callout).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 12)
+                        Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
                     }
-                }
-                Section {
-                    Label(SettingsSection.developer.rawValue, systemImage: SettingsSection.developer.symbol).tag(SettingsSection.developer)
-                    Label(SettingsSection.about.rawValue, systemImage: SettingsSection.about.symbol).tag(SettingsSection.about)
-                }
-            }.listStyle(.sidebar)
-                .navigationSplitViewColumnWidth(min: 165, ideal: 180, max: 210)
-        } detail: {
-            VStack(spacing: 0) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text((selection ?? .general).rawValue).font(.title2.bold())
-                        Text((selection ?? .general).summary).font(.callout).foregroundStyle(.secondary)
+                    .padding(.horizontal, 24).padding(.vertical, 20)
+                    Divider()
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) { settingsContent }
+                            .frame(width: SettingsLayout.readingWidth(windowWidth: window.size.width), alignment: .leading)
+                            .padding(24).frame(maxWidth: .infinity)
                     }
-                    Spacer(minLength: 12)
-                    Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
-                }.padding(24)
-                Divider()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) { settingsContent }
-                        .frame(maxWidth: 680, alignment: .leading)
-                        .padding(24).frame(maxWidth: .infinity)
-                }.id(selection).scrollBounceBehavior(.basedOnSize)
-            }.background(.background)
+                    .id(selection)
+                    .scrollBounceBehavior(.basedOnSize)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(nsColor: .windowBackgroundColor))
+            }
         }
-        .navigationTitle("设置")
         .frame(minWidth: 760, idealWidth: 880, minHeight: 580, idealHeight: 700)
         .task { model.displays.refresh(); refreshLoginStatus() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshLoginStatus() }
         .alert("设置未能保存", isPresented: Binding(get: { settingsError != nil }, set: { if !$0 { settingsError = nil } })) {
             Button("好") { settingsError = nil }
         } message: { Text(settingsError ?? "") }
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("偏好设置").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 14)
+            ScrollView {
+                VStack(spacing: 3) {
+                    ForEach(SettingsSection.allCases) { section in
+                        if section == .developer { Divider().padding(.vertical, 9).padding(.horizontal, 10) }
+                        SettingsSidebarItem(section: section, selected: selection == section) { selection = section }
+                    }
+                }.padding(.horizontal, 10)
+            }.scrollBounceBehavior(.basedOnSize)
+            Text("LyricsX Next").font(.caption).foregroundStyle(.tertiary)
+                .padding(20)
+        }
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+        .overlay(alignment: .trailing) { Rectangle().fill(.separator).frame(width: 0.5) }
     }
 
     @ViewBuilder private var settingsContent: some View {
@@ -227,14 +294,14 @@ struct PreferencesView: View {
                         .font(.callout).foregroundStyle(.secondary).padding(16)
                 }
                 SettingToggle(title: "减少动态效果", detail: "关闭位移、回弹、模糊和辉光，保留歌词同步提亮。", impact: "也会遵循 macOS 的减少动态效果设置。", value: $p.reduceMotion)
-                SettingToggle(title: "逐字轻微放大", detail: "演唱中的词柔和放大并轻微上浮，未唱部分保持接近原字号。", impact: "需要歌词自带逐字时间；开启动效会增加少量绘制开销。", value: $p.lyricWordLift)
+                SettingToggle(title: "逐字轻微放大", detail: "演唱中的字词柔和放大并上浮；长音中的字符依次起伏，未唱部分保持接近原字号。", impact: "需要歌词自带逐字时间；开启动效会增加少量绘制开销。", value: $p.lyricWordLift)
                     .disabled(p.reduceMotion || systemReduceMotion)
                 SettingRow(title: "预览动效", detail: "使用独立演示歌词查看普通逐字、长音和高速增量效果。", impact: "不会控制播放器或写入歌词缓存。") {
                     Button("打开预览") { openWindow(id: "preview") }
                 }
             }
             SettingsCard(title: "长音辉光") {
-                LyricGlowPicker(enabled: $p.lyricGlow, reduced: p.reduceMotion || systemReduceMotion)
+                LyricGlowPicker(enabled: $p.lyricGlow, reduced: p.reduceMotion || systemReduceMotion, lift: p.lyricWordLift)
                     .disabled(p.reduceMotion || systemReduceMotion)
             }
             if p.lyricGlow && !p.reduceMotion && !systemReduceMotion { hdrSettings }
@@ -352,7 +419,7 @@ struct PreferencesView: View {
 
     private var aboutSettings: some View {
         SettingsCard(title: "LyricsX Next") {
-            SettingRow(title: "Swift 重构版", detail: "版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版本") · Zikai Wang") {
+            SettingRow(title: "Swift 重构版", detail: "版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版本")（\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "本地")） · Zikai Wang") {
                 Image(systemName: "quote.bubble.fill").font(.largeTitle).foregroundStyle(.pink)
             }
             SettingRow(title: "使用指南", detail: "从连接播放器到搜索、悬浮窗、自定义、同步与文件管理，完整图文教程。") {

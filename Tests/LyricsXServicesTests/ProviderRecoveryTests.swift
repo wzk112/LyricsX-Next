@@ -180,11 +180,13 @@ private actor QQPageClient: HTTPClient {
     var sizes: [Int] = []
     var failLaterPages = false
     let flakyFirstPage: Bool
-    init(failLaterPages: Bool = false, flakyFirstPage: Bool = false) { self.failLaterPages = failLaterPages; self.flakyFirstPage = flakyFirstPage }
+    let slowSmartbox: Bool
+    init(failLaterPages: Bool = false, flakyFirstPage: Bool = false, slowSmartbox: Bool = false) { self.failLaterPages = failLaterPages; self.flakyFirstPage = flakyFirstPage; self.slowSmartbox = slowSmartbox }
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let url = request.url!
         let response: Data
         if url.path.contains("smartbox") {
+            if slowSmartbox { try await Task.sleep(for: .milliseconds(30)) }
             response = flakyFirstPage
                 ? Data(#"{"code":0,"data":{"song":{"itemlist":[{"id":"0","mid":"id0","name":"Version 0","singer":"Singer"}]}}}"#.utf8)
                 : Data(#"{"code":0,"data":{}}"#.utf8)
@@ -284,8 +286,8 @@ private actor FinalVersionGate {
     #expect(!session.isSearching)
 }
 
-@Test func qqRetriesTransientEmptyFullSearchWhenSmartboxHasEvidence() async throws {
-    let client = QQPageClient(flakyFirstPage: true)
+@Test(arguments: [false, true]) func qqRetriesTransientEmptyFullSearchWhenSmartboxHasEvidence(slowSmartbox: Bool) async throws {
+    let client = QQPageClient(flakyFirstPage: true, slowSmartbox: slowSmartbox)
     let provider = LyricsProviders.Service.qq.create(httpClient: client)
     var count = 0
     for try await _ in provider.lyrics(for: .init(searchTerm: .keyword("Song"), duration: 0, limit: 40)) { count += 1 }

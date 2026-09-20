@@ -18,20 +18,43 @@ struct LyricEmphasisFrame: Equatable {
     let lift: Double
     let glow: Double
 
-    init(cue: WordCue, time: Double, options: LyricEmphasisOptions) {
+    init(cue: WordCue, time: Double, options: LyricEmphasisOptions, characterPhase: Double = 0) {
         progress = cue.progress(at: time)
         let duration = cue.end - cue.start
         let singing = time.isFinite && time >= cue.start && time < cue.end && duration > 0
-        let swell = singing ? Self.smooth(progress / 0.42) * (1 - Self.smooth((progress - 0.76) / 0.24)) : 0
+        // Stagger only the visual envelope. The karaoke reveal continues to
+        // use the original cue timing, including after a pause or direct seek.
+        let delay = 0.22 * min(1, max(0, characterPhase))
+        let motion = min(1, max(0, (progress - delay) / (1 - delay)))
+        let swell = singing ? Self.smoother(motion / 0.42) * (1 - Self.smoother((motion - 0.70) / 0.30)) : 0
         // A held note anywhere in the line earns emphasis; there is no
         // special-case glow attached to the last letter or the last word.
         let sustained = Self.smooth((duration - 0.45) / 1.15)
         let emphasis = sustained * swell
-        let smallLift = singing ? sin(.pi * progress) * 0.012 : 0
+        let smallLift = singing ? pow(sin(.pi * motion), 2) * 0.012 : 0
         scale = options.lift && !options.reduced
-            ? 0.985 + 0.015 * Self.smooth(progress / 0.22) + smallLift + 0.055 * emphasis : 1
+            ? 0.985 + 0.015 * Self.smoother(motion / 0.22) + smallLift + 0.055 * emphasis : 1
         lift = options.lift && !options.reduced ? 0.035 * emphasis + smallLift * 0.5 : 0
         glow = options.glow && !options.reduced ? (options.usesHDR ? 0.8 : 1.0) * emphasis : 0
+    }
+
+    // Zero velocity and acceleration at both ends avoid a visible kick when
+    // a short cue starts/stops; evaluating absolute time is frame-rate independent.
+    static func smoother(_ value: Double) -> Double {
+        let t = min(1, max(0, value))
+        return t * t * t * (t * (t * 6 - 15) + 10)
+    }
+
+    static func separatesCharacters(in cue: WordCue, time: Double, options: LyricEmphasisOptions) -> Bool {
+        guard !options.reduced, options.lift || options.glow,
+              cue.end - cue.start > 0.45, time >= cue.start, time < cue.end else { return false }
+        // Connected scripts stay shaped as a unit. Latin, CJK and Hangul can
+        // move by native glyph cluster without separating their combining marks.
+        return cue.text.unicodeScalars.allSatisfy {
+            let c = $0.value
+            return c <= 0x052f || (0x2000...0x206f).contains(c) || (0x3000...0x9fff).contains(c)
+                || (0xac00...0xd7af).contains(c) || (0xff00...0xffef).contains(c)
+        }
     }
 
     static func smooth(_ value: Double) -> Double {
@@ -164,6 +187,10 @@ struct HeldNoteRenderer: TextRenderer {
     }
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
+        // Keep fractional glyph positions during scrolling, lift and scaling.
+        // Native text quantization is useful for still text but makes small
+        // animation steps snap. Use the same drawing option at rest so cue
+        // activation/deactivation never switches rasterization policy.
         // TextRenderer aligns paragraphs inside the extra horizontal drawing
         // space. Remove only that alignment's share of the padding: leading
         // text has none, centered text half, trailing text the full width.
@@ -173,7 +200,7 @@ struct HeldNoteRenderer: TextRenderer {
         // Inactive lines reuse the same shaped text and backing surface. No
         // cue grouping, masks or per-frame clock is needed for these rows.
         guard active else {
-            for line in layout { context.draw(line) }
+            for line in layout { context.draw(line, options: .disablesSubpixelQuantization) }
             return
         }
         var groups: [Int: [Text.Layout.Run]] = [:]
@@ -188,7 +215,7 @@ struct HeldNoteRenderer: TextRenderer {
                 else {
                     var plain = arrivalContext(context, run: run)
                     if let wordColors { plain.addFilter(.colorMultiply(wordColors.plain)) }
-                    plain.draw(run)
+                    plain.draw(run, options: .disablesSubpixelQuantization)
                 }
             }
         }
@@ -199,49 +226,95 @@ struct HeldNoteRenderer: TextRenderer {
                 return a < b
             }
             let total = ordered.reduce(0.0) { $0 + $1.typographicBounds.rect.width }
-            let frame = LyricEmphasisFrame(cue: attribute.cue, time: time, options: options)
+            let separate = LyricEmphasisFrame.separatesCharacters(in: attribute.cue, time: time, options: options)
             var offset = 0.0
             for run in ordered {
                 let bounds = run.typographicBounds.rect
-                let progress = LyricEmphasisFrame.reveal(progress: frame.progress, offset: offset, width: bounds.width, total: total)
+                let slices = separate ? Self.clusters(in: run) : [run[run.startIndex..<run.endIndex]]
+                let units = slices.map { slice -> (Text.Layout.RunSlice, CGRect, LyricEmphasisFrame, Double) in
+                    let box = slice.typographicBounds.rect
+                    let advance = run.layoutDirection == .rightToLeft ? bounds.maxX - box.maxX : box.minX - bounds.minX
+                    let phase = total > 0 ? (offset + max(0, advance)) / total : 0
+                    let frame = LyricEmphasisFrame(cue: attribute.cue, time: time, options: options,
+                                                  characterPhase: separate ? phase : 0)
+                    let progress = LyricEmphasisFrame.reveal(progress: frame.progress,
+                        offset: offset + max(0, advance), width: box.width, total: total)
+                    return (slice, box, frame, progress)
+                }
                 offset += bounds.width
-                var drawing = arrivalContext(context, run: run)
-                drawing.translateBy(x: bounds.midX, y: bounds.maxY - bounds.height * frame.lift)
-                drawing.scaleBy(x: frame.scale, y: frame.scale)
-                drawing.translateBy(x: -bounds.midX, y: -bounds.maxY)
-                if progress >= 1 {
-                    var sung = drawing
-                    if let wordColors { sung.addFilter(.colorMultiply(wordColors.sung)) }
-                    sung.draw(run)
-                } else {
-                    var dim = drawing
-                    if let wordColors { dim.addFilter(.colorMultiply(wordColors.unsung)) }
-                    else { dim.opacity *= 0.46 }
-                    dim.draw(run)
-                    if progress > 0 {
+                let base = arrivalContext(context, run: run)
+                for (slice, box, frame, progress) in units {
+                    let drawing = transformed(base, bounds: box, referenceBounds: bounds, frame: frame)
+                    if progress >= 1 {
                         var sung = drawing
-                        clipReveal(&sung, run: run, progress: progress)
                         if let wordColors { sung.addFilter(.colorMultiply(wordColors.sung)) }
-                        sung.draw(run)
+                        sung.draw(slice, options: .disablesSubpixelQuantization)
+                    } else {
+                        var dim = drawing
+                        if let wordColors { dim.addFilter(.colorMultiply(wordColors.unsung)) }
+                        else { dim.opacity *= 0.46 }
+                        dim.draw(slice, options: .disablesSubpixelQuantization)
+                        if progress > 0 {
+                            var sung = drawing
+                            clipReveal(&sung, bounds: box, rtl: run.layoutDirection == .rightToLeft, progress: progress)
+                            if let wordColors { sung.addFilter(.colorMultiply(wordColors.sung)) }
+                            sung.draw(slice, options: .disablesSubpixelQuantization)
+                        }
                     }
                 }
-                if frame.glow > 0.005, progress > 0 {
+                // One bloom surface per native run, shared by every moving
+                // character. Do not allocate a blur layer for each letter.
+                if units.contains(where: { $0.2.glow > 0.001 && $0.3 > 0 }) {
                     let white = options.usesHDR ? Self.hdrWhite(brightness: options.hdrBrightness) : .white
-                    var bloom = drawing
-                    bloom.opacity *= frame.glow
-                    // SDR cannot exceed white. A denser, slightly wider halo
-                    // makes the held cue visible without an extra render pass.
+                    var bloom = base
                     bloom.addFilter(.shadow(color: white.opacity(options.usesHDR ? 0.85 : 1),
                         radius: min(9, bounds.height * (options.usesHDR ? 0.19 : 0.24))))
-                    bloom.drawLayer { ink in
-                        clipReveal(&ink, run: run, progress: progress)
-                        if let wordColors { ink.addFilter(.colorMultiply(wordColors.sung)) }
-                        if options.usesHDR { ink.addFilter(.colorMultiply(white)) }
-                        ink.draw(run)
+                    bloom.drawLayer { layer in
+                        for (slice, box, frame, progress) in units where frame.glow > 0.001 && progress > 0 {
+                            var ink = transformed(layer, bounds: box, referenceBounds: bounds, frame: frame)
+                            // Bloom the glyph alpha, never the rectangular
+                            // karaoke mask (which would glow as a capsule).
+                            ink.opacity *= frame.glow * LyricEmphasisFrame.smoother(progress)
+                            if let wordColors { ink.addFilter(.colorMultiply(wordColors.sung)) }
+                            if options.usesHDR { ink.addFilter(.colorMultiply(white)) }
+                            ink.draw(slice, options: .disablesSubpixelQuantization)
+                        }
                     }
                 }
             }
         }
+    }
+
+    private func transformed(_ context: GraphicsContext, bounds: CGRect, referenceBounds: CGRect, frame: LyricEmphasisFrame) -> GraphicsContext {
+        var drawing = context
+        // At the first frame, per-character scaling must match the resting
+        // whole-run transform exactly, including its shared horizontal anchor.
+        let resting = options.lift && !options.reduced ? 0.985 + 0.015 * LyricEmphasisFrame.smoother(frame.progress / 0.22) : 1
+        drawing.translateBy(x: (referenceBounds.midX - bounds.midX) * (1 - resting),
+                            y: (referenceBounds.maxY - bounds.maxY) * (1 - resting))
+        drawing.translateBy(x: bounds.midX, y: bounds.maxY - bounds.height * frame.lift)
+        drawing.scaleBy(x: frame.scale, y: frame.scale)
+        drawing.translateBy(x: -bounds.midX, y: -bounds.maxY)
+        return drawing
+    }
+
+    /// Keep glyphs sharing a character (marks/ligatures) in the same unit. Native
+    /// shaping, kerning and layout remain untouched; only drawing transforms vary.
+    static func clusters(in run: Text.Layout.Run) -> [Text.Layout.RunSlice] {
+        guard !run.isEmpty else { return [] }
+        var result: [Text.Layout.RunSlice] = []
+        var start = run.startIndex
+        var characters = Set(run[start].characterIndices)
+        for index in run.indices.dropFirst() {
+            let next = Set(run[index].characterIndices)
+            if !characters.isDisjoint(with: next) || run[index].typographicBounds.rect.width == 0 {
+                characters.formUnion(next)
+            } else {
+                result.append(run[start..<index]); start = index; characters = next
+            }
+        }
+        result.append(run[start..<run.endIndex])
+        return result
     }
 
     private func arrivalContext(_ context: GraphicsContext, run: Text.Layout.Run) -> GraphicsContext {
@@ -254,13 +327,14 @@ struct HeldNoteRenderer: TextRenderer {
         return drawing
     }
 
-    private func clipReveal(_ context: inout GraphicsContext, run: Text.Layout.Run, progress: Double) {
+    private func clipReveal(_ context: inout GraphicsContext, bounds: CGRect, rtl: Bool, progress: Double) {
         guard progress < 1 else { return }
-        let bounds = run.typographicBounds.rect
-        let rtl = run.layoutDirection == .rightToLeft
         let start = CGPoint(x: rtl ? bounds.maxX : bounds.minX, y: bounds.midY)
         let end = CGPoint(x: rtl ? bounds.minX : bounds.maxX, y: bounds.midY)
-        let feather = min(0.16, 3 / max(1, bounds.width))
+        // Collapse the feather at cue boundaries. A fixed-width feather
+        // reveals a visible strip on the first nonzero frame, then leaves an
+        // equally abrupt dim strip just before completion.
+        let feather = min(0.16, 3 / max(1, bounds.width), progress, 1 - progress)
         context.clipToLayer { mask in
             mask.fill(Path(bounds.insetBy(dx: -2, dy: -3)), with: .linearGradient(
                 Gradient(stops: [.init(color: .white, location: max(0, progress - feather)),

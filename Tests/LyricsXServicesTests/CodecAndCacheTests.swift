@@ -169,3 +169,23 @@ import LyricsXCore
     #expect(await cache.load(for: track)?.lines.first?.text == "Replacement")
     #expect(await cache.existingURL(for: track) == replacement)
 }
+
+@Test func subprocessErrorOutputIsBounded() async throws {
+    let result = try await ProcessRunner.run("/usr/bin/perl", arguments: ["-e", "print STDERR 'x' x 500000; print 'ok'"])
+    #expect(result.status == 0)
+    #expect(result.error.utf8.count == 4096)
+    #expect(String(decoding: result.data, as: UTF8.self) == "ok")
+}
+
+@Test func pathCacheIsBoundedAndEvictedEntriesRemainDiscoverable() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let cache = LyricsCache(directory: directory)
+    let document = LyricsDocument(lines: [.init(id: 0, time: 0, text: "Cache test")])
+    for index in 0..<520 {
+        try await cache.save(document, for: Track(playerID: "test", playerName: "Test", title: "Song \(index)"))
+    }
+    #expect(await cache.rememberedPathCount <= 512)
+    let first = Track(playerID: "test", playerName: "Test", title: "Song 0")
+    #expect(await cache.load(for: first)?.lines.first?.text == "Cache test")
+}

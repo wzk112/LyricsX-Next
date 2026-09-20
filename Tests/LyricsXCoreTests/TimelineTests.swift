@@ -100,3 +100,38 @@ private let song = Track(playerID: "test", playerName: "Test", title: "Song", du
     clock.accept(.init(track: song, position: 0, isPlaying: true, sampledAt: 201, positionIsReliable: false))
     #expect(clock.isPlaying && clock.position(at: 202) == 42)
 }
+
+@Test func displayClockSmoothsSmallPlayerJitterWithoutChangingTransportTime() {
+    for error in [-0.12, -0.04, 0.04, 0.12] {
+        var clock = PlaybackTimeline()
+        clock.accept(.init(track: song, position: 10, isPlaying: true, sampledAt: 100))
+        let before = clock.presentationPosition(at: 101)
+        clock.accept(.init(track: song, position: 11 + error, isPlaying: true, sampledAt: 101))
+        #expect(clock.position(at: 101) == 11 + error)
+        #expect(abs(clock.presentationPosition(at: 101) - before) < 0.000001)
+        var previous = before
+        for frame in 1...36 {
+            let now = 101 + Double(frame) / 120
+            let value = clock.presentationPosition(at: now)
+            #expect(value >= previous && value - previous < 0.017)
+            previous = value
+        }
+        #expect(abs(clock.presentationPosition(at: 101.3) - clock.position(at: 101.3)) < 0.000001)
+    }
+}
+
+@Test func displayClockDoesNotSmoothSeeksPausesOrRecoveredSources() {
+    var clock = PlaybackTimeline()
+    clock.accept(.init(track: song, position: 10, isPlaying: true, sampledAt: 100))
+    clock.accept(.init(track: song, position: 11.04, isPlaying: true, sampledAt: 101))
+    clock.seek(to: 5, at: 101.1)
+    #expect(clock.presentationPosition(at: 101.1) == 5)
+    clock.accept(.init(track: song, position: 50, isPlaying: true, sampledAt: 102))
+    #expect(clock.presentationPosition(at: 102) == 50)
+    clock.accept(.init(track: song, position: 50.9, isPlaying: false, sampledAt: 103))
+    #expect(clock.presentationPosition(at: 105) == 50.9)
+    clock.accept(.init(track: song, position: 50.9, isPlaying: true, sampledAt: 106))
+    #expect(clock.presentationPosition(at: 106) == 50.9)
+    clock.accept(.init(track: song, position: 53.94, isPlaying: true, sampledAt: 200))
+    #expect(clock.presentationPosition(at: 200) == 53.94)
+}

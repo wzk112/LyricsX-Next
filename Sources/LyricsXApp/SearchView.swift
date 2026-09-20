@@ -73,7 +73,10 @@ struct SearchView: View {
             HStack { Text("\(results.count) 个版本" + (retainedPreviousResults ? " · 包含上次搜索结果" : "")).font(.caption).foregroundStyle(.secondary); Spacer(); Button("导入本地歌词") { model.importLyrics() } }
         }.padding(26).frame(width: 760, height: 570)
             .onAppear { query = [model.session.track?.title, model.session.track?.artist].compactMap { $0 }.joined(separator: " "); trackID = model.session.track?.id; results = model.session.candidates; search() }
-            .onDisappear { searchTask?.cancel(); deadline?.cancel() }
+            .onDisappear {
+                requestID = UUID(); searchTask?.cancel(); deadline?.cancel()
+                searchTask = nil; deadline = nil
+            }
             .onChange(of: model.session.track?.id) { _, _ in searchTask?.cancel(); deadline?.cancel(); searching = false; requestID = UUID(); sourceStatuses = []; results = []; error = "歌曲已切换，请重新搜索。" }
     }
     private static func sameVersion(_ lhs: LyricsDocument, _ rhs: LyricsDocument) -> Bool {
@@ -161,5 +164,6 @@ struct LibraryView: View {
             }
             HStack { Image(systemName: "folder"); Text(model.preferences.directory.path).lineLimit(1).truncationMode(.middle); Spacer(); Button("更改…") { model.chooseCacheDirectory() } }.font(.caption).foregroundStyle(.secondary)
         }.padding(24).frame(width: 740, height: 510).task { model.loadLibrary() }
+            .onDisappear { selected = nil; model.unloadLibrary() }
     }
 }

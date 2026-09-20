@@ -5,6 +5,7 @@ import LyricsXCore
 struct LyricGlowPicker: View {
     @Binding var enabled: Bool
     var reduced = false
+    var lift = true
     @State private var visible = false
     @State private var anchor = ProcessInfo.processInfo.systemUptime
     @Environment(\.accessibilityReduceMotion) private var systemReduced
@@ -29,7 +30,7 @@ struct LyricGlowPicker: View {
                                 Color(red: 0.14, green: 0.10, blue: 0.18)],
                                 startPoint: .topLeading, endPoint: .bottomTrailing)
                             WordHighlight(line: Self.sample, time: time, active: true, text: Self.sample.text,
-                                effects: .init(lift: false, glow: glow, hdr: false))
+                                effects: .init(lift: lift, glow: glow, hdr: false))
                                 .font(.system(size: 26, weight: .semibold)).foregroundStyle(.white)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 14)
@@ -38,7 +39,7 @@ struct LyricGlowPicker: View {
                 }
             }
             }
-            .environment(\.lyricFrameRateLimit, 30)
+            .environment(\.lyricFrameRateLimit, 60)
             .onScrollVisibilityChange(threshold: 0.1) { visible = $0 }
             .onDisappear { visible = false }
             Text("点击图例切换，同时应用于主窗口和悬浮窗。预览仅在可见时播放，使用普通亮度。")

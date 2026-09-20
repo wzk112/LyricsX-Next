@@ -6,14 +6,24 @@ public struct PlaybackTimeline: Sendable {
     private var sampledAt = 0.0
     public private(set) var isPlaying = false
     private var duration = 0.0
+    private var displayCorrection = 0.0
+    private static let correctionDuration = 0.3
     public var maximumExtrapolation = 3.0
     public init() {}
     public mutating func accept(_ snapshot: PlaybackSnapshot) {
         guard snapshot.sampledAt.isFinite else { return }
         if snapshot.positionIsReliable, !snapshot.position.isFinite { return }
         guard snapshot.positionIsReliable || snapshot.playbackStateIsReliable else { return }
+        let displayed = presentationPosition(at: snapshot.sampledAt)
+        let continuous = isPlaying && (!snapshot.playbackStateIsReliable || snapshot.isPlaying)
+            && snapshot.sampledAt >= sampledAt && snapshot.sampledAt - sampledAt < maximumExtrapolation
         let current = position(at: snapshot.sampledAt)
         anchor = snapshot.positionIsReliable ? max(0, snapshot.position) : current
+        let correction = displayed - anchor
+        // Player IPC has small timestamp jitter even with a steady display
+        // link. Keep only the visual clock continuous and converge promptly;
+        // real seeks, pauses, stale sources and line selection stay exact.
+        displayCorrection = continuous && abs(correction) <= 0.12 ? correction : 0
         sampledAt = snapshot.sampledAt
         if snapshot.playbackStateIsReliable { isPlaying = snapshot.isPlaying }
         if let track = snapshot.track, track.duration > 0 { duration = track.duration }
@@ -24,11 +34,20 @@ public struct PlaybackTimeline: Sendable {
         let result = anchor + elapsed
         return duration > 0 ? min(duration, result) : result
     }
+    public func presentationPosition(at now: Double) -> Double {
+        let exact = position(at: now)
+        guard isPlaying, now.isFinite, displayCorrection != 0 else { return exact }
+        let t = min(1, max(0, (now - sampledAt) / Self.correctionDuration))
+        let ease = t * t * t * (t * (t * 6 - 15) + 10)
+        let result = max(0, exact + displayCorrection * (1 - ease))
+        return duration > 0 ? min(duration, result) : result
+    }
     public mutating func seek(to position: Double, at now: Double) {
         guard position.isFinite, now.isFinite else { return }
+        displayCorrection = 0
         anchor = max(0, duration > 0 ? min(position, duration) : position); sampledAt = now
     }
-    public mutating func freeze(at now: Double) { anchor = position(at: now); sampledAt = now; isPlaying = false }
+    public mutating func freeze(at now: Double) { anchor = position(at: now); sampledAt = now; isPlaying = false; displayCorrection = 0 }
 }
 
 public enum CandidateRanker {

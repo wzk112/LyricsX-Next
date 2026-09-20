@@ -33,3 +33,26 @@ enum MusicSourcePolicy {
         return result
     }
 }
+
+/// Discovery changes on workspace events, not on each playback-position read.
+/// Keep the filtered snapshot small; termination is also checked defensively in
+/// case its workspace notification is still queued on the main actor.
+@MainActor struct MusicApplicationSnapshot {
+    private var cached: [NSRunningApplication]?
+    private let discover: () -> [NSRunningApplication]
+    private let isTerminated: (NSRunningApplication) -> Bool
+
+    init(discover: @escaping () -> [NSRunningApplication] = {
+        NSWorkspace.shared.runningApplications.filter { MusicSourcePolicy.accepts($0) }
+    }, isTerminated: @escaping (NSRunningApplication) -> Bool = { $0.isTerminated }) {
+        self.discover = discover; self.isTerminated = isTerminated
+    }
+
+    mutating func applications() -> [NSRunningApplication] {
+        if cached?.contains(where: isTerminated) == true { invalidate() }
+        if cached == nil { cached = discover().filter { !isTerminated($0) } }
+        return cached ?? []
+    }
+
+    mutating func invalidate() { cached = nil }
+}

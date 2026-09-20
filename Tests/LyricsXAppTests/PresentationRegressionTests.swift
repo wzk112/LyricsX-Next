@@ -440,13 +440,14 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
             bothCPU, overlayCPU, (cpuTime() - hiddenBegin) * 100, overlay.panel.screen?.maximumFramesPerSecond ?? 0))
     }
 
-    @Test func repeatedArtworkSamplesKeepTheDecodedImageAndTrackChangeClearsIt() throws {
+    @Test func repeatedArtworkSamplesKeepTheDecodedImageAndTrackChangeClearsIt() async throws {
         let model = AppModel(repository: EmptyRepository())
         let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         let data = try #require(bitmap.representation(using: .png, properties: [:]))
         let track = Track(playerID: "test", playerName: "Test", title: "A", artworkData: data)
         let snapshot = PlaybackSnapshot(track: track, position: 2, isPlaying: true)
         model.bridge.onSnapshot?(snapshot)
+        for _ in 0..<200 where model.artwork == nil { try await Task.sleep(for: .milliseconds(10)) }
         let image = try #require(model.artwork)
         for _ in 0..<6 { model.bridge.onSnapshot?(snapshot); #expect(model.artwork === image) }
         model.bridge.onSnapshot?(.init(track: .init(playerID: "test", playerName: "Test", title: "B"), position: 0, isPlaying: true))
@@ -455,13 +456,14 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         model.stop()
     }
 
-    @Test func rejectedTransportGapDoesNotClearAcceptedTrackOrArtwork() throws {
+    @Test func rejectedTransportGapDoesNotClearAcceptedTrackOrArtwork() async throws {
         let model = AppModel(repository: EmptyRepository())
         defer { model.stop() }
         let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         let data = try #require(bitmap.representation(using: .png, properties: [:]))
         let track = Track(playerID: "test", playerName: "Test", title: "A", artworkData: data)
         model.bridge.onSnapshot?(.init(track: track, position: 40, isPlaying: true))
+        for _ in 0..<200 where model.artwork == nil { try await Task.sleep(for: .milliseconds(10)) }
         let image = try #require(model.artwork)
         let generation = model.session.searchGeneration
         model.bridge.onSnapshot?(.init(track: nil, position: 0, isPlaying: false, positionIsReliable: false, playbackStateIsReliable: false))
@@ -547,4 +549,18 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         #expect(restored.sourceOrder == ["NetEase", "QQMusic", "LRCLIB", "Kugou", "Musixmatch"])
         #expect(!restored.preferBilingual && !restored.preferWordTiming && !restored.strictLyricsMatching && restored.disabledSources.contains("Kugou"))
     }
+}
+
+@Test func floatingVisibilityAndFrameDeliveryUseTheSameOcclusionPolicy() {
+    var activity = WindowRenderActivity()
+    let state1 = activity.update(event: nil, visible: true, miniaturized: false, exposed: false, floating: true)
+    #expect(state1)
+    let state2 = activity.update(event: NSWindow.didChangeOcclusionStateNotification, visible: true, miniaturized: false, exposed: false, floating: true)
+    #expect(state2)
+    let state3 = !activity.update(event: nil, visible: false, miniaturized: false, exposed: false, floating: true)
+    #expect(state3)
+    let state4 = activity.update(event: nil, visible: true, miniaturized: false, exposed: false, floating: true)
+    #expect(state4)
+    let state5 = !activity.update(event: nil, visible: true, miniaturized: false, exposed: false, floating: false)
+    #expect(state5)
 }

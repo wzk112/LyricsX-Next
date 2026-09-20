@@ -29,13 +29,12 @@ extension LyricsProviders.QQMusic: _LyricsProvider {
     static let service: String = "QQMusic"
 
     func search(for request: LyricsSearchRequest) async throws -> [LyricsToken] {
-        var endpoints = await withTaskGroup(of: (Int, Result<[LyricsToken], Error>).self) { group in
-            group.addTask { do { return (0, .success(try await self.searchApi1(for: request))) } catch { return (0, .failure(error)) } }
-            group.addTask { do { return (1, .success(try await self.searchApi2(for: request))) } catch { return (1, .failure(error)) } }
-            var values: [(Int, Result<[LyricsToken], Error>)] = []
-            for await value in group { values.append(value) }
-            return values.sorted { $0.0 < $1.0 }.map { $0.1 }
-        }
+        // Keep endpoint identity independent of task completion order. This
+        // also avoids relying on integer-tagged existential tuple results in
+        // optimized builds; each child has a distinct, structured binding.
+        async let hints = searchResult(for: request, full: false)
+        async let details = searchResult(for: request, full: true)
+        var endpoints = await [hints, details]
         if endpoints.count == 2,
            case .success(let hints) = endpoints[0], !hints.isEmpty,
            case .success(let details) = endpoints[1], details.isEmpty {
@@ -56,6 +55,12 @@ extension LyricsProviders.QQMusic: _LyricsProvider {
         }
         if combined.isEmpty, let failure { throw failure }
         return combined
+    }
+
+    private func searchResult(for request: LyricsSearchRequest, full: Bool) async -> Result<[LyricsToken], Error> {
+        do {
+            return .success(try await full ? searchApi2(for: request) : searchApi1(for: request))
+        } catch { return .failure(error) }
     }
 
     private func searchApi1(for request: LyricsSearchRequest) async throws -> [LyricsToken] {

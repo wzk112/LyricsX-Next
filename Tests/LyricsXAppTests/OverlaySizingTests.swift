@@ -182,6 +182,13 @@ private struct SizingRepository: LyricsRepository {
     for _ in 0..<5 { try await Task.sleep(for: .milliseconds(50)) }
     let top = overlay.panel.frame.maxY, center = overlay.panel.frame.midX
     let host = overlay.lyricHostingView, bounds = overlay.lyricHostingView.bounds
+    let settledGeneration = overlay.resizeGeneration
+    // Player time observations must not restart the same rounded native size.
+    for position in [0.1, 0.2, 0.3] {
+        model.session.seek(to: position)
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    #expect(overlay.resizeGeneration == settledGeneration)
     let originalWidth = overlay.panel.frame.width
     let originalHeight = overlay.panel.frame.height
     let targetHeight = OverlayTextMeasure.height(document: doc, index: 1, preferences: prefs, maximumWidth: prefs.overlayLayoutWidth)
@@ -314,4 +321,44 @@ private struct SizingStreamRepository: LyricsRepository {
     deadline = ContinuousClock.now.advanced(by: .seconds(2))
     while abs(overlay.panel.frame.height - shortHeight) > 1, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
     #expect(abs(overlay.panel.frame.height - shortHeight) <= 1)
+}
+
+@MainActor @Test func screenNotificationDuringTrackHandoverCannotStrandAnIntermediateWindowHeight() async throws {
+    _ = NSApplication.shared
+    let suite = "LyricsXTests-" + UUID().uuidString
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let prefs = Preferences(defaults: defaults)
+    prefs.overlayWidth = 620; prefs.hideWhenPaused = false; prefs.hideOverlayOnHover = false
+    prefs.overlaySecondaryMode = .translation
+    let model = AppModel(repository: SizingRepository(), preferences: prefs)
+    let overlay = OverlayController(model: model, frameAutosaveName: nil,
+                                    pointerLocation: { .init(x: -100_000, y: -100_000) })
+    defer { overlay.stop(); model.stop() }
+    func song(_ title: String) {
+        model.session.accept(.init(track: .init(playerID: "test", playerName: "Test", title: title),
+                                   position: 0, isPlaying: false), shouldSearch: false)
+    }
+    song("Waiting")
+    let waitingDocument = LyricsDocument(lines: [.init(id: 0, time: 0, text: ""),
+                                                .init(id: 1, time: 5, text: "Next lyric")])
+    model.session.use(waitingDocument, persist: false)
+    try await Task.sleep(for: .milliseconds(700))
+    let waiting = overlay.panel.frame.height
+    song("New song")
+    let long = LyricsDocument(lines: [.init(id: 0, time: 0,
+        text: "Pain will wake up the despondent crowd in this dormant world somehow",
+        translation: "伤痛会唤醒沉睡的世界中绝望的人们")])
+    model.session.use(long, persist: false)
+    try await Task.sleep(for: .milliseconds(90))
+    NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+    try await Task.sleep(for: .milliseconds(800))
+    let expected = ceil(OverlayTextMeasure.height(document: long, index: 0, preferences: prefs, maximumWidth: 620))
+    #expect(expected > waiting)
+    #expect(abs(overlay.panel.frame.height - expected) <= 1)
+    model.session.use(waitingDocument, persist: false)
+    try await Task.sleep(for: .milliseconds(260))
+    NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+    try await Task.sleep(for: .milliseconds(800))
+    #expect(abs(overlay.panel.frame.height - OverlayPresentationMode.waitingHeight) <= 1)
 }

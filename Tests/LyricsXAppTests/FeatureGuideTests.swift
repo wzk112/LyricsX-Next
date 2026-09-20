@@ -35,8 +35,10 @@ import Testing
         }
     }
     @Test func versionJumpContainsOnlyInterveningReleaseNotes() {
-        #expect(GuideContent.updates(after: "2.0.33").map(\.id) == ["r34", "theme34", "settings34"])
-        #expect(GuideContent.updates(after: "2.0.29").map(\.id) == ["r30", "r33", "r34", "theme34", "settings34"])
+        let current = ["r29", "r30", "r33", "r34", "theme34", "settings34"]
+        #expect(GuideContent.latestBaseline == "2.0.28")
+        #expect(GuideContent.updates(after: "2.0.28").map(\.id) == current)
+        #expect(GuideContent.updates(after: "2.0.33").map(\.id) == current)
         #expect(GuideContent.updates(after: nil).count == 6)
         #expect(GuideContent.tutorial.count == 10)
         #expect(Set(GuideContent.tutorial.map(\.id)).count == GuideContent.tutorial.count)

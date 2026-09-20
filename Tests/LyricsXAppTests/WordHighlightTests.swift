@@ -375,6 +375,37 @@ import LyricsXCore
         #expect(nextDifference < 1)
     }
 
+    @Test func characterAnimationStartsWithoutChangingTheRestingTextAnchor() throws {
+        let before = NSBitmapImageRep(cgImage: try render(time: 0.1 - 0.00001, effects: .init(glow: false)))
+        let after = NSBitmapImageRep(cgImage: try render(time: 0.1 + 0.00001, effects: .init(glow: false)))
+        var difference = 0.0, beforeInk = 0.0, afterInk = 0.0, beforeX = 0.0, afterX = 0.0
+        for y in 0..<before.pixelsHigh {
+            for x in 0..<before.pixelsWide {
+                let a = before.colorAt(x: x, y: y)?.redComponent ?? 0
+                let b = after.colorAt(x: x, y: y)?.redComponent ?? 0
+                difference += abs(a - b)
+                beforeInk += a; afterInk += b; beforeX += a * Double(x); afterX += b * Double(x)
+            }
+        }
+        // Native run/slice antialiasing can differ slightly; the visual origin
+        // must stay within 0.03 pixels and changed ink within 1.5 percent.
+        #expect(abs(beforeX / beforeInk - afterX / afterInk) < 0.03)
+        #expect(difference / beforeInk < 0.015)
+
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LYRICSX_GLOW_MOTION_QA"] != nil))
+    func renderSmoothCharacterMotionPreview() throws {
+        let directory = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["LYRICSX_GLOW_MOTION_QA"]))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for frame in 0..<270 {
+            let image = try render(time: Double(frame) / 60, effects: .init(), hdrSupported: false)
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            let data = try #require(bitmap.representation(using: .png, properties: [:]))
+            try data.write(to: directory.appendingPathComponent(String(format: "%04d.png", frame)))
+        }
+    }
+
     private func render(time: Double, effects: LyricEmphasisOptions, hdrSupported: Bool = true, hdrHeadroom: Double = 4, wordColors: LyricWordColors? = nil) throws -> CGImage {
         let line = LyricLine(id: 0, time: 0, text: "Stay 光", words: [
             .init(text: "Stay", start: 0.1, end: 3.2), .init(text: "光", start: 3.2, end: 4)
@@ -407,4 +438,36 @@ import LyricsXCore
 private struct RenderingFixtureRepository: LyricsRepository {
     func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> { .init { $0.finish() } }
     func save(_ document: LyricsDocument, for track: Track) async throws {}
+}
+
+@Test func longWordCharactersSwellInSequenceWithoutChangingCueTiming() {
+    let cue = WordCue(text: "glowing", start: 0, end: 3)
+    let first = LyricEmphasisFrame(cue: cue, time: 0.9, options: .init(), characterPhase: 0)
+    let last = LyricEmphasisFrame(cue: cue, time: 0.9, options: .init(), characterPhase: 1)
+    #expect(first.scale > last.scale && first.glow > last.glow)
+    #expect(first.progress == last.progress && first.progress == cue.progress(at: 0.9))
+    for phase in [0.0, 0.5, 1] {
+        let dt = 0.0001
+        let start = LyricEmphasisFrame(cue: cue, time: 0, options: .init(), characterPhase: phase)
+        let next = LyricEmphasisFrame(cue: cue, time: dt, options: .init(), characterPhase: phase)
+        let previous = LyricEmphasisFrame(cue: cue, time: 3 - dt, options: .init(), characterPhase: phase)
+        let end = LyricEmphasisFrame(cue: cue, time: 3, options: .init(), characterPhase: phase)
+        #expect(abs(next.scale - start.scale) / dt < 0.001)
+        #expect(abs(end.scale - previous.scale) / dt < 0.001)
+        #expect(abs(end.lift - previous.lift) / dt < 0.001)
+        #expect(abs(end.glow - previous.glow) / dt < 0.001)
+        var old = start
+        for step in 1...360 {
+            let frame = LyricEmphasisFrame(cue: cue, time: Double(step) / 120, options: .init(), characterPhase: phase)
+            #expect(abs(frame.scale - old.scale) < 0.003)
+            #expect(frame.scale >= 0.985 && frame.scale < 1.08)
+            old = frame
+        }
+    }
+    #expect(LyricEmphasisFrame.separatesCharacters(in: cue, time: 1, options: .init()))
+    for text in ["العربية", "नमस्ते", "👩🏽‍🚀"] {
+        #expect(!LyricEmphasisFrame.separatesCharacters(in: .init(text: text, start: 0, end: 3), time: 1, options: .init()))
+    }
+    #expect(!LyricEmphasisFrame.separatesCharacters(in: cue, time: 1, options: .init(reduced: true)))
+    #expect(!LyricEmphasisFrame.separatesCharacters(in: cue, time: 4, options: .init()))
 }

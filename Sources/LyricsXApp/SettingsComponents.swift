@@ -34,10 +34,11 @@ struct SettingsCard<Content: View>: View {
     @ViewBuilder let content: () -> Content
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(title).font(.headline).padding(.leading, 2)
+            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
             VStack(alignment: .leading, spacing: 0) { content() }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 14))
+                .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 12))
+                .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.35), lineWidth: 0.5).allowsHitTesting(false) }
         }
     }
 }
@@ -48,13 +49,13 @@ struct SettingRow<Control: View>: View {
     var impact: String? = nil
     @ViewBuilder let control: () -> Control
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 18) {
                 Text(title).font(.body.weight(.medium))
                     .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
                 control().fixedSize(horizontal: true, vertical: false)
             }
-            Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(detail).font(.callout).foregroundStyle(.secondary).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
             if let impact {
                 Label(impact, systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

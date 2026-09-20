@@ -9,26 +9,27 @@ struct NetEaseProviderTests {
         limit: 3
     )
 
-    @Test func searchHitsApiPathOnBothPasses() async throws {
+    @Test func searchFallsBackOnceWithoutCookieProbe() async throws {
         let mock = MockHTTPClient()
         let searchData = try FixtureLoader.data(named: "NetEase/search.json")
         mock.stub(host: "music.163.com",
                   response: .data(searchData, statusCode: 200,
                                   headers: ["Set-Cookie": "NMTID=abc123; Path=/; Domain=.163.com"]))
-        mock.stub(hostContains: "interface3.music.163.com",
+        mock.stub(path: "/eapi/search/get", response: .error(URLError(.badServerResponse)))
+        mock.stub(path: "/eapi/song/lyric/v1",
                   response: .data(try FixtureLoader.data(named: "NetEase/lyrics.json")))
         let provider = LyricsProviders.NetEase(httpClient: mock)
 
         _ = try await collect(provider.lyrics(for: infoRequest))
 
         let searchRequests = mock.recorded.filter { $0.url?.host == "music.163.com" }
-        #expect(searchRequests.count == 2, "expected two-pass search to issue cookie + payload requests")
+        #expect(searchRequests.count == 1, "fallback must not duplicate the search for a cookie probe")
         let searchURL = try #require(searchRequests.first?.url)
-        #expect(searchURL.scheme == "http")
+        #expect(searchURL.scheme == "https")
         #expect(searchURL.path == "/api/search/pc")
         let query = searchURL.query ?? ""
         #expect(query.contains("type=1"))
-        #expect(query.contains("limit=10"))
+        #expect(query.contains("limit=3"))
         #expect(searchRequests.first?.httpMethod == "POST")
     }
 
@@ -57,10 +58,9 @@ struct NetEaseProviderTests {
                   response: .data(try FixtureLoader.data(named: "NetEase/lyrics_empty.json")))
         let provider = LyricsProviders.NetEase(httpClient: mock)
 
-        // Empty lyric content triggers processingFailed inside fetch.
-        // The default _LyricsProvider implementation logs and skips, so stream finishes empty.
-        let lyrics = try await collect(provider.lyrics(for: infoRequest))
-        #expect(lyrics.isEmpty)
+        await #expect(throws: LyricsProviderError.self) {
+            _ = try await collect(provider.lyrics(for: infoRequest))
+        }
     }
 
     @Test func networkErrorPropagates() async throws {

@@ -81,7 +81,7 @@ struct LyricFrameSource: NSViewRepresentable {
         // `running` (including hover hiding) own rendering, not that occlusion.
         let floating = window is DraggableOverlayPanel
         let visible = activity.update(event: notification?.name, visible: window?.isVisible == true,
-            miniaturized: window?.isMiniaturized == true, exposed: floating || window?.occlusionState.contains(.visible) == true)
+            miniaturized: window?.isMiniaturized == true, exposed: window?.occlusionState.contains(.visible) == true, floating: floating)
         deliveringFrames = visible && running
         if deliveringFrames, link == nil, let window {
             let target = Target(); target.view = self

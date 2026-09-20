@@ -7,12 +7,20 @@ import LyricsXCore
 /// Run alone; owns a native window and event pump, never the real music player.
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["LYRICSX_GPU_QA"] != nil))
 @MainActor struct OverlayGPUPerformanceTests {
+    private final class FixtureDelegate: NSObject, NSApplicationDelegate {
+        func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+        func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply { .terminateCancel }
+    }
     @Test func compareNativeOverlayFrameRates() async throws {
         struct Repository: LyricsRepository {
             func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> { .init { $0.finish() } }
             func save(_ document: LyricsDocument, for track: Track) async throws {}
         }
-        _ = NSApplication.shared; NSApp.finishLaunching()
+        _ = NSApplication.shared
+        let delegate = FixtureDelegate(), oldDelegate = NSApp.delegate
+        NSApp.delegate = delegate
+        defer { NSApp.delegate = oldDelegate; withExtendedLifetime(delegate) {} }
+        NSApp.finishLaunching()
         let directory = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["LYRICSX_GPU_QA"]))
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let suite = "LyricsXTests-" + UUID().uuidString
@@ -34,8 +42,16 @@ import LyricsXCore
             pointerLocation: { .init(x: -10_000, y: -10_000) })
         let screen = try #require(NSScreen.main)
         overlay.panel.setFrameOrigin(.init(x: screen.visibleFrame.midX - 310, y: screen.visibleFrame.midY))
+        var phaseAnchor = ProcessInfo.processInfo.systemUptime
+        var lastSnapshot = phaseAnchor
         let ticker = PlaybackTicker {
-            model.session.tick()
+            let now = ProcessInfo.processInfo.systemUptime
+            // Real playback provides fresh anchors. Without them the production
+            // safety clock correctly freezes extrapolation after three seconds.
+            if now - lastSnapshot >= 0.5 {
+                model.session.accept(.init(track: track, position: now - phaseAnchor, isPlaying: true, sampledAt: now), now: now)
+                lastSnapshot = now
+            } else { model.session.tick(now: now) }
             return LyricTickCadence.milliseconds(playing: true, visible: true, document: document, position: model.session.position)
         }
         ticker.start()
@@ -43,9 +59,14 @@ import LyricsXCore
         func render(_ seconds: Double) async throws {
             let end = ProcessInfo.processInfo.systemUptime + seconds
             while ProcessInfo.processInfo.systemUptime < end {
-                if let event = NSApp.nextEvent(matching: .any, until: Date().addingTimeInterval(0.006), inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
-                try await Task.sleep(for: .milliseconds(2))
+                NSApp.updateWindows()
+                // Yield to the native main run loop; do not nest an event pump
+                // inside Swift Testing's async executor.
+                try await Task.sleep(for: .milliseconds(8))
             }
+        }
+        func frames(in view: NSView) -> [LyricFrameView] {
+            (view as? LyricFrameView).map { [$0] } ?? view.subviews.flatMap { frames(in: $0) }
         }
         func cpuTime() -> Double {
             var value = rusage(); getrusage(RUSAGE_SELF, &value)
@@ -53,7 +74,7 @@ import LyricsXCore
         }
         func phase(_ name: String) throws {
             let data = try JSONSerialization.data(withJSONObject: ["phase": name, "pid": ProcessInfo.processInfo.processIdentifier,
-                "time": Date().timeIntervalSince1970])
+                "time": Date().timeIntervalSince1970, "screenMaximumFPS": screen.maximumFramesPerSecond, "scale": screen.backingScaleFactor])
             try data.write(to: directory.appendingPathComponent("phase.json"), options: .atomic)
         }
         try phase("warmup"); try await render(10)
@@ -61,16 +82,30 @@ import LyricsXCore
         for (index, cap) in [0, 120, 60, 60, 120, 0].enumerated() {
             prefs.overlayVisible = cap != 0
             prefs.overlayFrameRate = cap == 60 ? .sixty : .display
-            model.session.seek(to: 0)
+            phaseAnchor = ProcessInfo.processInfo.systemUptime; lastSnapshot = phaseAnchor
+            model.session.accept(.init(track: track, position: 0, isPlaying: true, sampledAt: phaseAnchor), now: phaseAnchor)
             try phase("settle"); try await render(1)
+            overlay.lyricHostingView.layoutSubtreeIfNeeded()
+            overlay.lyricHostingView.displayIfNeeded()
+            let active = frames(in: overlay.lyricHostingView).filter(\.deliveringFrames)
+            if cap == 0 { #expect(active.isEmpty) }
+            else {
+                try #require(overlay.panel.isVisible && !active.isEmpty,
+                    "No active native render surface; reject this sample instead of reporting an invalid saving.")
+                #expect(active.allSatisfy { $0.requestedFrameRate == min(cap, screen.maximumFramesPerSecond) })
+            }
+            let position = model.session.position
             let name = cap == 0 ? "hidden" : "\(cap)fps"
             try phase(name)
             let epoch = Date().timeIntervalSince1970
             let wall = ProcessInfo.processInfo.systemUptime, cpu = cpuTime()
             try await render(6)
+            #expect(model.session.position - position > 5.5)
             let elapsed = ProcessInfo.processInfo.systemUptime - wall
             let value = (cpuTime() - cpu) / elapsed * 100
-            measurements.append(["phase": name, "order": index, "cpuPercent": value, "seconds": elapsed, "startedAt": epoch])
+            measurements.append(["phase": name, "order": index, "cpuPercent": value, "seconds": elapsed, "startedAt": epoch, "screenMaximumFPS": screen.maximumFramesPerSecond])
+            try JSONSerialization.data(withJSONObject: measurements, options: [.prettyPrinted, .sortedKeys])
+                .write(to: directory.appendingPathComponent("cpu.json"), options: .atomic)
             print("GPU QA phase \(name): CPU \(value)%")
         }
         try phase("finished")

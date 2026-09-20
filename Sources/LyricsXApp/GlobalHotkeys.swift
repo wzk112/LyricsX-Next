@@ -27,5 +27,6 @@ final class GlobalHotkeys {
             if let ref { keys.append(ref) }
         }
     }
+    isolated deinit { stop() }
     func stop() { for key in keys { UnregisterEventHotKey(key) }; keys = []; if let handler { RemoveEventHandler(handler) }; handler = nil }
 }

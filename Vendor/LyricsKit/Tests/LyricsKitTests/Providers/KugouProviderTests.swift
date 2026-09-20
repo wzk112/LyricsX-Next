@@ -11,47 +11,51 @@ struct KugouProviderTests {
 
     @Test func searchBuildsCorrectURL() async throws {
         let mock = MockHTTPClient()
-        mock.stub(host: "mobilecdn.kugou.com",
+        mock.stub(host: "mobiles.kugou.com",
                   response: .data(try FixtureLoader.data(named: "Kugou/search.json")))
         mock.stub(host: "krcs.kugou.com",
                   response: .data(try FixtureLoader.data(named: "Kugou/candidates_empty.json")))
         let provider = LyricsProviders.Kugou(httpClient: mock)
 
-        _ = try await collect(provider.lyrics(for: infoRequest))
+        await #expect(throws: LyricsProviderError.self) {
+            _ = try await collect(provider.lyrics(for: infoRequest))
+        }
 
-        let searchRequest = try #require(mock.recorded.first(where: { $0.url?.host == "mobilecdn.kugou.com" }))
-        #expect(searchRequest.url?.scheme == "http")
+        let searchRequest = try #require(mock.recorded.first(where: { $0.url?.host == "mobiles.kugou.com" }))
+        #expect(searchRequest.url?.scheme == "https")
         #expect(searchRequest.url?.path == "/api/v3/search/song")
         let query = searchRequest.url?.query ?? ""
         #expect(query.contains("format=json"))
         #expect(query.contains("keyword=Test%20Song%20Test%20Artist"))
-        #expect(query.contains("pagesize=20"))
+        #expect(query.contains("pagesize=3"))
     }
 
     @Test func processingFailsWhenNoCandidates() async throws {
         let mock = MockHTTPClient()
-        mock.stub(host: "mobilecdn.kugou.com",
+        mock.stub(host: "mobiles.kugou.com",
                   response: .data(try FixtureLoader.data(named: "Kugou/search.json")))
         mock.stub(host: "krcs.kugou.com",
                   response: .data(try FixtureLoader.data(named: "Kugou/candidates_empty.json")))
         let provider = LyricsProviders.Kugou(httpClient: mock)
 
-        // Empty candidates: each per-token task fails internally (processingFailed),
-        // and the _LyricsProvider default lyrics(for:) swallows per-task errors,
-        // so stream finishes with zero yields.
-        let lyrics = try await collect(provider.lyrics(for: infoRequest))
-        #expect(lyrics.isEmpty)
+        // Every candidate failed; surface the failure so the UI can distinguish
+        // an unavailable source from a successful search with no matches.
+        await #expect(throws: LyricsProviderError.self) {
+            _ = try await collect(provider.lyrics(for: infoRequest))
+        }
     }
 
     @Test func candidatesEndpointHitsKrcsHost() async throws {
         let mock = MockHTTPClient()
-        mock.stub(host: "mobilecdn.kugou.com",
+        mock.stub(host: "mobiles.kugou.com",
                   response: .data(try FixtureLoader.data(named: "Kugou/search.json")))
         mock.stub(host: "krcs.kugou.com",
                   response: .data(try FixtureLoader.data(named: "Kugou/candidates_empty.json")))
         let provider = LyricsProviders.Kugou(httpClient: mock)
 
-        _ = try await collect(provider.lyrics(for: infoRequest))
+        await #expect(throws: LyricsProviderError.self) {
+            _ = try await collect(provider.lyrics(for: infoRequest))
+        }
 
         let candidatesRequest = try #require(mock.recorded.first(where: { $0.url?.host == "krcs.kugou.com" }))
         let query = candidatesRequest.url?.query ?? ""
@@ -73,7 +77,7 @@ struct KugouProviderTests {
 
     @Test func decodingErrorOnSearchPropagates() async throws {
         let mock = MockHTTPClient()
-        mock.stub(host: "mobilecdn.kugou.com", response: .data(Data("garbage".utf8)))
+        mock.stub(host: "mobiles.kugou.com", response: .data(Data("garbage".utf8)))
         let provider = LyricsProviders.Kugou(httpClient: mock)
 
         await #expect(throws: LyricsProviderError.self) {

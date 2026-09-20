@@ -43,7 +43,7 @@ private struct SettingsQARepository: LyricsRepository {
         prefs.artworkTheme = .init(accent: "BB55AA", sung: "FFD6EF", unsung: "6E5C67", secondary: "FFE0F4")
         try await snapshot(PreferencesView(model: model, initialSection: .lyrics), name: "settings-theme", width: 760)
         for index in GuideContent.tutorial.indices {
-            try await snapshot(FeatureGuideView(mode: .tutorial, initialPage: index, close: {}), name: "guide-\(index)")
+            try await snapshot(FeatureGuideView(mode: .tutorial, initialPage: index, preferences: prefs, model: model, close: {}), name: "guide-\(index)")
         }
         for index in GuideContent.updates(after: "2.0.33").indices {
             try await snapshot(FeatureGuideView(mode: .update(previous: "2.0.33"), initialPage: index, close: {}), name: "update-\(index)")

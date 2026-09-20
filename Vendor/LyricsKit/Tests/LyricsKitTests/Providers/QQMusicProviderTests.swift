@@ -110,8 +110,9 @@ struct QQMusicProviderTests {
                   response: .data(Data("<root></root>".utf8)))
 
         let provider = LyricsProviders.QQMusic(httpClient: mock)
-        // fetch fails for every token, default stream finishes with zero yields.
-        let lyrics = try await collect(provider.lyrics(for: infoRequest))
-        #expect(lyrics.isEmpty)
+        // When every fetch fails, the stream reports the source failure.
+        await #expect(throws: LyricsProviderError.self) {
+            _ = try await collect(provider.lyrics(for: infoRequest))
+        }
     }
 }

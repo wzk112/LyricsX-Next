@@ -98,6 +98,7 @@ public final class PlayerBridge {
     private var commandQueue: [PlayerCommand] = []
     private var observers: [NSObjectProtocol] = []
     private var workspaceObservers: [NSObjectProtocol] = []
+    private var musicApplications = MusicApplicationSnapshot()
     private var latestScriptID = ""
     private var latestScriptTarget = ""
     private var artworkCacheID = ""
@@ -118,26 +119,33 @@ public final class PlayerBridge {
     }
     public func start() {
         guard loop == nil else { return }
+        musicApplications.invalidate()
         for name in ["com.apple.iTunes.playerInfo", "com.spotify.client.PlaybackStateChanged"] {
             observers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.refresh() }
+                Task { @MainActor in
+                    guard let self, self.loop != nil else { return }
+                    self.refresh()
+                }
             })
         }
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
                 Task { @MainActor in
+                    guard let self, self.loop != nil else { return }
+                    self.musicApplications.invalidate()
                     guard let app else { return }
                     MusicSourcePolicy.invalidate(app)
                     guard MusicSourcePolicy.accepts(app) else { return }
-                    self?.refresh()
+                    self.refresh()
                 }
             })
         }
         loop = Task { [weak self] in
             while !Task.isCancelled {
+                guard let interval = self?.pollInterval else { return }
                 self?.refresh()
-                do { try await Task.sleep(for: .seconds(self?.pollInterval ?? 1)) } catch { return }
+                do { try await Task.sleep(for: .seconds(interval)) } catch { return }
             }
         }
     }
@@ -152,10 +160,12 @@ public final class PlayerBridge {
     public func stop() {
         revision &+= 1; loop?.cancel(); loop = nil; pollTask?.cancel(); pollTask = nil
         refreshPending = false
+        musicApplications.invalidate()
         commandTask?.cancel(); commandTask = nil; commandQueue.removeAll()
         for token in observers { DistributedNotificationCenter.default().removeObserver(token) }; observers = []
         for token in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(token) }; workspaceObservers = []
     }
+    isolated deinit { stop() }
     public func restart() { stop(); latestScriptID = ""; artworkCacheID = ""; artworkCacheData = nil; start() }
     public func refresh() {
         guard pollTask == nil, commandTask == nil else { refreshPending = true; return }
@@ -274,7 +284,7 @@ public final class PlayerBridge {
     private func readSnapshot() async throws -> PlaybackSnapshot {
         if let target = mode.bundleID { scriptTarget = target; return try await readScript(target) }
         let previousScriptTarget = scriptTarget
-        let musicApps = NSWorkspace.shared.runningApplications.filter { MusicSourcePolicy.accepts($0) }
+        let musicApps = musicApplications.applications()
         guard !musicApps.isEmpty else {
             scriptTarget = nil
             return PlaybackSnapshot(track: nil, position: 0, isPlaying: false)

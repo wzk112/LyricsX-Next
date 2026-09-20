@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AppKit
+import SwiftUI
 import LyricsXCore
 @testable import LyricsXApp
 
@@ -33,10 +34,17 @@ private struct IdleRepository: LyricsRepository {
 }
 
 @Test @MainActor func backgroundPowerAndThermalNotificationsDoNotEnterUIActorDirectly() async {
+    let monitor = HDRDisplayMonitor()
+    monitor.start()
+    defer { monitor.stop() }
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
                           styleMask: [.borderless], backing: .buffered, defer: false)
     let view = LyricFrameView()
     window.contentView = view
+    let hdrHost = NSHostingView(rootView: Text("EDR").hdrDisplayScope(requested: true))
+    hdrHost.frame = view.bounds
+    view.addSubview(hdrHost)
+    hdrHost.layoutSubtreeIfNeeded()
     defer { view.stop(); window.contentView = nil }
     let names = [ProcessInfo.thermalStateDidChangeNotification,
                  Notification.Name.NSProcessInfoPowerStateDidChange,
@@ -49,8 +57,10 @@ private struct IdleRepository: LyricsRepository {
     #expect(!view.deliveringFrames)
     #expect(view.requestedFrameRate == 0)
     view.stop()
+    monitor.stop()
     await Task.detached {
         NotificationCenter.default.post(name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
+        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }.value
     #expect(!view.deliveringFrames)
 }

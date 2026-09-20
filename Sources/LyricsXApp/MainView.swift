@@ -18,7 +18,7 @@ struct MainView: View {
             .frame(minWidth: 520, minHeight: 420)
             .background(WindowVisibilityReader { model.mainWindowVisible = $0 })
             .onAppear {
-                model.showMainWindow = { openWindow(id: "main"); NSApp.activate() }
+                model.showMainWindow = { [openWindow] in openWindow(id: "main"); NSApp.activate() }
             }
             .sheet(isPresented: $model.showSearch) { SearchView(model: model) }
             .sheet(isPresented: $model.showLibrary) { LibraryView(model: model) }

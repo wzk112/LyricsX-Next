@@ -28,11 +28,11 @@ final class OverlayController: NSObject, NSWindowDelegate {
     let panel: DraggableOverlayPanel
     let controlPanel: NSPanel
     private let background = OverlayGlassBackground()
-    private let content: NSHostingView<OverlayView>
+    private let content: NSHostingView<OverlayView?>
     private let root = NSView()
     private let viewport: OverlayViewport
     private let presentation = OverlayPresentation()
-    private let controls: NSHostingView<OverlayControlStrip>
+    private let controls: NSHostingView<OverlayControlStrip?>
     private unowned let model: AppModel
     private let pointerLocation: () -> NSPoint
     private let frameAutosaveName: String?
@@ -41,6 +41,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
     private var controlsDetached = false
     private var hoverHidden = false
     private var lastSize = NSSize.zero
+    private var resizeTarget: NSRect?
     private var explicitShowWhilePaused = false
     private var wasPlaying = false
     private var stopped = false
@@ -49,7 +50,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
     private var restoring = true
     private var anchorTop: NSPoint?
     private var lastSizingConfiguration: [Double] = []
-    private var resizeGeneration = 0
+    private(set) var resizeGeneration = 0
     private var resizeSettlement: Task<Void, Never>?
     private var sizingDocument: UUID?
     private var sizingDocumentRevision: UInt64?
@@ -180,16 +181,28 @@ final class OverlayController: NSObject, NSWindowDelegate {
     }
 
     func stop() {
+        guard !stopped else { return }
         presentation.stop()
         cancelResize()
         stopped = true
+        lastVisible = false; controlsVisible = false; viewport.rendering = false
         viewport.contentSizeChanged = nil
         resizeSettlement?.cancel()
         resizeGeneration += 1
         stopPointerTracking()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         if let accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver) }
+        screenObserver = nil; accessibilityObserver = nil
+        panel.onDragActivity = nil; panel.delegate = nil
         controlPanel.orderOut(nil); panel.orderOut(nil)
+        // Hosted SwiftUI roots own the model. Ordering a window out alone does
+        // not break model → controller → host → model, or release display links.
+        content.rootView = nil; controls.rootView = nil
+        panel.setAccessibilityChildren([])
+        panel.removeChildWindow(controlPanel)
+        controlPanel.contentView = nil; panel.contentView = nil
+        controls.removeFromSuperview(); content.removeFromSuperview()
+        controlPanel.close(); panel.close()
     }
 
     func setUserVisible(_ visible: Bool) {
@@ -268,6 +281,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
     }
 
     func refreshAppearance(at point: NSPoint? = nil) {
+        guard !stopped else { return }
         let point = point ?? pointerLocation()
         let prefs = model.preferences
         let inside = panel.frame.contains(point) || (controlsDetached && controlsVisible && controlPanel.frame.contains(point))
@@ -367,7 +381,11 @@ final class OverlayController: NSObject, NSWindowDelegate {
         applySize(desiredSize)
     }
 
-    private func applySize(_ size: NSSize) {
+    private func applySize(_ measuredSize: NSSize) {
+        // AppKit rounds window dimensions to whole points. Comparing its
+        // settled frame to fractional text metrics restarts an identical
+        // animation on subsequent observations, especially during playback.
+        let size = NSSize(width: ceil(measuredSize.width), height: ceil(measuredSize.height))
         let p = model.preferences
         let maximum = size.width
         let canvas = NSSize(width: maximum, height: max(size.height,
@@ -375,10 +393,11 @@ final class OverlayController: NSObject, NSWindowDelegate {
         if content.frame.size != canvas { content.setFrameSize(canvas) }
         positionContent()
         // A requested size is not evidence that the native animation arrived.
-        guard size != lastSize || (!resizing && panel.frame.size != size) else { return }
-        lastSize = size
-        viewport.width = size.width
         let target = anchoredFrame(size: size)
+        guard size != lastSize || resizeTarget != target || (!resizing && panel.frame != target) else { return }
+        lastSize = size
+        resizeTarget = target
+        viewport.width = size.width
         resizeGeneration += 1
         let generation = resizeGeneration
         resizeSettlement?.cancel()
@@ -433,18 +452,25 @@ final class OverlayController: NSObject, NSWindowDelegate {
         }
         resizing = false
         lastSize = panel.frame.size
+        resizeTarget = nil
     }
 
     func restoreOnScreen() {
-        cancelResize()
-        let frame = anchoredFrame(size: panel.frame.size)
-        let wasResizing = resizing; resizing = true
-        if frame != panel.frame { panel.setFrame(frame, display: true) }
-        resizing = wasResizing
+        guard !stopped else { return }
+        // EDR/brightness changes also send screen-parameter notifications.
+        // Cancelling here strands an in-flight expansion at its intermediate
+        // height until an unrelated hover/visibility update retries sizing.
+        // Keep a valid target running; retarget only when the screen geometry
+        // actually changed, using the current lyric rather than the old frame.
         if let anchorTop, !NSScreen.screens.contains(where: { $0.frame.contains(anchorTop) }) {
+            let size = desiredSize == .zero ? panel.frame.size : desiredSize
+            let frame = anchoredFrame(size: size)
             self.anchorTop = NSPoint(x: frame.midX, y: frame.maxY)
-            if !restoring { saveFrame() }
+            if !restoring, let key = topDefaultsKey, let anchorTop = self.anchorTop {
+                UserDefaults.standard.set(NSStringFromPoint(anchorTop), forKey: key)
+            }
         }
+        updateSizing()
         positionContent(); positionControlPanel()
     }
 
@@ -477,7 +503,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
     }
 
     private func saveFrame() {
-        guard !restoring else { return }
+        guard !restoring, !stopped else { return }
         anchorTop = NSPoint(x: panel.frame.midX, y: panel.frame.maxY)
         if let key = topDefaultsKey, let anchorTop { UserDefaults.standard.set(NSStringFromPoint(anchorTop), forKey: key) }
         if let frameAutosaveName { panel.saveFrame(usingName: frameAutosaveName) }
