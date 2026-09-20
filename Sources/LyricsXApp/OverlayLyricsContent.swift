@@ -73,7 +73,6 @@ struct OverlayLyricsContent: View {
     var animationTime: () -> Double = { ProcessInfo.processInfo.systemUptime }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State var transition = OverlayCueTransition()
-    @State private var settledCue: OverlayCueSnapshot?
 
     private var prefs: Preferences { preferences }
     private func secondary(at index: Int) -> OverlaySecondaryMode.Content {
@@ -117,7 +116,6 @@ struct OverlayLyricsContent: View {
                 font: prefs.translationFontSize, canvasWidth: adaptiveCanvasWidth ?? 0, typography: prefs.typography), nextHeight: nextHeight,
                 primarySpacing: prefs.overlayPrimarySpacing, secondarySpacing: prefs.overlaySecondarySpacing)
         let height = primaryHeight + auxiliaryHeight
-        let _ = settledCue
         let sampledTime = lyricTime()
         GeometryReader { geometry in
             let translationHeight = OverlayTextMeasure.translationHeight(content.translation, font: prefs.translationFontSize, canvasWidth: geometry.size.width, typography: prefs.typography)
@@ -201,18 +199,21 @@ struct OverlayLyricsContent: View {
             .onChange(of: cue, initial: true) { _, value in
                 transition = transition.updating(to: value, lyricTime: sampledTime, at: now, animated: !reduced && visible)
             }
-            .task(id: cue) {
-                guard !reduced, visible else { return }
-                // A terminal update is required even if native display delivery
-                // was interrupted while the arrival was blurred.
-                do { try await Task.sleep(for: .seconds(OverlayMotionFrame.durationLimit)) } catch { return }
-                settledCue = cue
+            .task(id: staged.arrivedAt) {
+                guard !reduced, visible, let token = staged.arrivedAt else { return }
+                let remaining = max(0, token + OverlayMotionFrame.durationLimit - animationTime())
+                do { try await Task.sleep(for: .seconds(remaining)) } catch { return }
+                // Clear the actual motion, not a dummy state value. Font reflow,
+                // hover recovery and paused playback cannot retain an old pose.
+                if transition.arrivedAt == token { transition.settle() }
             }
             .onChange(of: visible) { _, shown in if !shown { transition = .init() } }
             .onChange(of: reduced) { _, value in if value { transition = .init() } }
             .onDisappear { transition = .init() }
         }.frame(height: height)
-            .modifier(OverlayContentTransition(identity: .init(document: document.id), reduced: reduced, visible: visible, animateInitial: false))
+            // OverlayView owns the one song-level blur. A document commonly
+            // arrives just after its track metadata; adding another modifier
+            // here stacked two expensive blurs and looked like a second flash.
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
 

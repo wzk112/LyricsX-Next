@@ -21,9 +21,12 @@ final class AppModel {
     private(set) var playbackControlPosition = 0.0
     var artwork: NSImage? {
         didSet {
-            if artwork !== oldValue { updateArtworkTheme() }
+            if artwork !== oldValue && !publishingArtwork { updateArtworkTheme() }
         }
     }
+    @ObservationIgnored private var publishingArtwork = false
+    @ObservationIgnored private var artworkHandoverTask: Task<Void, Never>?
+    @ObservationIgnored private var artworkGeneration: UInt64 = 0
     @ObservationIgnored private var artworkThemeTask: Task<Void, Never>?
     var library: [LyricsCache.Entry] = []
     var libraryLoading = false
@@ -136,6 +139,7 @@ final class AppModel {
     func stop() {
         ticker?.stop(); ticker = nil; artworkTask?.cancel(); artworkTask = nil; presentationStopped = true
         artworkThemeTask?.cancel(); artworkThemeTask = nil
+        artworkHandoverTask?.cancel(); artworkHandoverTask = nil
         displays.stop()
         dockVisibility.stop()
         overlay?.stop(); overlay = nil; bridge.stop(); session.stop()
@@ -182,9 +186,20 @@ final class AppModel {
     func applySearchCandidate(_ candidate: LyricCandidate, forTrackID trackID: String?) -> Bool {
         applyLyrics(candidate.document, forTrackID: trackID)
     }
+    func applySearchCandidate(_ candidate: LyricCandidate, forTrackRevision revision: UInt64?) -> Bool {
+        applyLyrics(candidate.document, forTrackRevision: revision)
+    }
     @discardableResult
     func applyLyrics(_ document: LyricsDocument, forTrackID trackID: String?) -> Bool {
         guard let trackID, let track = session.track, track.id == trackID else { return false }
+        return applyLyrics(document, to: track)
+    }
+    @discardableResult
+    func applyLyrics(_ document: LyricsDocument, forTrackRevision revision: UInt64?) -> Bool {
+        guard let revision, revision == session.trackRevision, let track = session.track else { return false }
+        return applyLyrics(document, to: track)
+    }
+    private func applyLyrics(_ document: LyricsDocument, to track: Track) -> Bool {
         // An explicit choice overrides an earlier “wrong lyrics” mark. Keep an
         // album-wide exclusion for other songs, with a persistent per-song exception.
         preferences.blockedTracks.removeAll { $0 == track.cacheIdentity }
@@ -265,13 +280,13 @@ final class AppModel {
         }
     }
     func importLyrics() {
-        let expectedTrackID = session.track?.id
+        let expectedTrackRevision = session.track.map { _ in session.trackRevision }
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.plainText, UTType(filenameExtension: "lrc") ?? .data, UTType(filenameExtension: "lrcx") ?? .data]
         panel.message = "为当前歌曲选择 LRC、LRCX 或文本歌词"
         panel.begin { [weak self] response in
             Task { @MainActor in
                 guard response == .OK, let url = panel.url, let self else { return }
-                guard self.session.track?.id == expectedTrackID else {
+                guard self.session.track.map({ _ in self.session.trackRevision }) == expectedTrackRevision else {
                     self.message = "歌曲已经切换，请为当前歌曲重新选择歌词。"
                     return
                 }
@@ -283,7 +298,7 @@ final class AppModel {
         guard session.track != nil else { message = "请先播放一首歌曲，再导入对应歌词。"; return }
         do {
             let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            applyLyrics(try LyricsCodec.read(url), forTrackID: session.track?.id)
+            applyLyrics(try LyricsCodec.read(url), forTrackRevision: session.track.map { _ in session.trackRevision })
         } catch { message = error.localizedDescription }
     }
     func exportLyrics(plain: Bool = false) {
@@ -328,19 +343,42 @@ final class AppModel {
         }
     }
     private func updateArtwork(_ track: Track?) {
-        let identity = (track?.id ?? "") + (track?.artworkURL?.absoluteString ?? "")
+        let identity = "\(session.trackRevision):" + (track?.artworkURL?.absoluteString ?? "")
         guard identity != artworkIdentity || track?.artworkData != artworkBytes else { return }
         artworkIdentity = identity; artworkBytes = track?.artworkData; artworkTask?.cancel()
-        artwork = nil
-        guard track?.artworkData != nil || track?.artworkURL != nil else { artworkTask = nil; return }
+        artworkThemeTask?.cancel(); artworkHandoverTask?.cancel()
+        artworkGeneration &+= 1
+        let generation = artworkGeneration
+        guard track?.artworkData != nil || track?.artworkURL != nil else {
+            artworkTask = nil; artworkHandoverTask = nil; artwork = nil
+            return
+        }
+        // Decode replacement pixels before clearing the existing cover. A
+        // short bounded hold avoids nil -> image flashes for cached artwork.
+        artworkHandoverTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            guard let self, !self.presentationStopped, self.artworkGeneration == generation else { return }
+            self.artwork = nil
+            self.artworkHandoverTask = nil
+        }
         let data = track?.artworkData, url = track?.artworkURL
         artworkTask = Task { [weak self] in
             let decoded = await ArtworkDecoder.shared.load(data: data, url: url)
+            let theme = if let decoded { await ArtworkThemeExtractor.shared.theme(for: decoded) } else { ArtworkTheme?.none }
             // Cancellation also covers a newer byte payload for the same track
             // and URL, which an identity-only check cannot distinguish.
             guard !Task.isCancelled, let self, !self.presentationStopped,
-                  self.artworkIdentity == identity else { return }
-            if let decoded { self.artwork = NSImage(cgImage: decoded, size: .zero) }
+                  self.artworkIdentity == identity, self.artworkGeneration == generation else { return }
+            self.artworkHandoverTask?.cancel(); self.artworkHandoverTask = nil
+            if let decoded {
+                // The cover and its lyric palette publish in one main-actor
+                // turn; the palette must not arrive as a second visual update.
+                self.artworkThemeTask?.cancel(); self.artworkThemeTask = nil
+                self.publishingArtwork = true
+                self.artwork = NSImage(cgImage: decoded, size: .zero)
+                if self.preferences.artworkTheme != theme { self.preferences.artworkTheme = theme }
+                self.publishingArtwork = false
+            } else { self.artwork = nil }
             self.artworkTask = nil
         }
     }
@@ -357,7 +395,7 @@ final class AppModel {
                 theme = nil
             }
             guard !Task.isCancelled, let self, !self.presentationStopped else { return }
-            self.preferences.artworkTheme = theme
+            if self.preferences.artworkTheme != theme { self.preferences.artworkTheme = theme }
         }
     }
 

@@ -131,6 +131,19 @@ private final class ControlledRepository: LyricsRepository, @unchecked Sendable 
         session.accept(snapshot(updated))
         #expect(repo.count == 1); #expect(session.track?.artworkData == Data([9])); session.stop()
     }
+    @Test func stagedMetadataDoesNotRestartSearchOrAdvanceTrackRevision() {
+        let repo = ControlledRepository(); let session = LyricsSession(repository: repo)
+        let early = Track(playerID: "test", playerName: "", persistentID: "item", title: "A")
+        session.accept(snapshot(early))
+        let revision = session.trackRevision
+        var completed = early
+        completed.artist = "Artist"; completed.album = "Album"; completed.artworkData = Data([1])
+        session.accept(snapshot(completed, position: 2))
+        #expect(session.trackRevision == revision)
+        #expect(session.track?.artist == "Artist" && session.track?.artworkData == Data([1]))
+        #expect(repo.count == 1)
+        session.stop()
+    }
     @Test func metadataOnlyUpdateDoesNotResetReliablePlaybackTime() {
         let repo = ControlledRepository(); let session = LyricsSession(repository: repo)
         let now = ProcessInfo.processInfo.systemUptime

@@ -26,6 +26,21 @@ public struct Track: Codable, Hashable, Sendable, Identifiable {
     // Length prefixes prevent ambiguous identities when metadata contains separators.
     public var id: String { [playerID, persistentID, title, artist, album].map { "\($0.utf8.count):\($0)" }.joined() }
     public var cacheIdentity: String { [title, artist, album, String(Int(duration.rounded()))].map { "\($0.utf8.count):\($0)" }.joined() }
+
+    /// Player APIs commonly publish a song in stages: title first, then artist,
+    /// album, artwork, or a persistent identifier. Those refinements must not
+    /// be presented as another track change.
+    public func representsSamePlaybackItem(as other: Track) -> Bool {
+        guard playerID == other.playerID else { return false }
+        if !persistentID.isEmpty, !other.persistentID.isEmpty {
+            return persistentID == other.persistentID
+        }
+        guard !title.isEmpty, title == other.title else { return false }
+        func compatible(_ lhs: String, _ rhs: String) -> Bool {
+            lhs.isEmpty || rhs.isEmpty || lhs == rhs
+        }
+        return compatible(artist, other.artist) && compatible(album, other.album)
+    }
 }
 
 public struct PlaybackSnapshot: Sendable {

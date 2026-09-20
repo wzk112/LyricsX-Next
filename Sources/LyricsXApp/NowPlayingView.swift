@@ -14,10 +14,10 @@ struct NowPlayingView: View {
                         HStack(spacing: 16) {
                             CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion).frame(width: 64)
                             ZStack(alignment: .leading) {
-                                CompactTrackMetadata(track: model.session.track).id(model.session.track?.id)
+                                CompactTrackMetadata(track: model.session.track).id(model.session.trackRevision)
                                     .transition(reduceMotion || model.preferences.reduceMotion ? .identity : .artworkBlur)
                             }.frame(maxWidth: .infinity, alignment: .leading)
-                                .animation(reduceMotion || model.preferences.reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.track?.id)
+                                .animation(reduceMotion || model.preferences.reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.trackRevision)
                             playbackButtons(compact: true)
                         }
                         PlaybackProgressView(model: model)
@@ -39,10 +39,10 @@ struct NowPlayingView: View {
                     .animation(model.preferences.reduceMotion || reduceMotion ? nil : .spring(response: 0.65, dampingFraction: 0.8), value: model.session.isPlaying)
                     .padding(.bottom, 20)
                 ZStack(alignment: .topLeading) {
-                    TrackMetadata(track: model.session.track).id(model.session.track?.id)
+                    TrackMetadata(track: model.session.track).id(model.session.trackRevision)
                         .transition(model.preferences.reduceMotion || reduceMotion ? .identity : .artworkBlur)
                 }
-                    .animation(model.preferences.reduceMotion || reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.track?.id)
+                    .animation(model.preferences.reduceMotion || reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.trackRevision)
                 Spacer(minLength: 18)
                 PlaybackProgressView(model: model)
                 playbackButtons(compact: false).frame(maxWidth: .infinity).padding(.top, 12)
@@ -70,7 +70,7 @@ private struct PlaybackProgressView: View {
                         if !editing, let position = scrubPosition { model.seek(position); scrubPosition = nil }
                     }).tint(.white.opacity(0.8)).controlSize(.mini).disabled((model.session.track?.duration ?? 0) <= 0)
                         .accessibilityLabel("播放进度")
-                        .onChange(of: model.session.track?.id) { _, _ in scrubPosition = nil }
+                        .onChange(of: model.session.trackRevision) { _, _ in scrubPosition = nil }
                     HStack {
                         Text(timeString(position))
                         Spacer()
@@ -83,15 +83,19 @@ private struct PlaybackProgressView: View {
 struct LyricsScrollView: View {
     let model: AppModel
     private struct ContentID: Hashable, Sendable {
-        var track: String?
+        var track: UInt64
         var document: UUID?
     }
     var body: some View {
         // Browsing, pending return timers and native scroll offsets belong to
         // this song/version. Line changes keep the same view and animation.
         LyricsScrollContent(model: model)
-            .id(ContentID(track: model.session.track?.id, document: model.session.document?.id))
-            .lyricArrival(trigger: ContentID(track: model.session.track?.id, document: model.session.document?.id),
+            .id(ContentID(track: model.session.trackRevision, document: model.session.document?.id))
+            // Metadata and lyrics arrive in separate observations during a
+            // track change. Animate the surface once for the playback item;
+            // rebuilding for the later document still resets scrolling, but
+            // must not replay a second full-window blur.
+            .lyricArrival(trigger: model.session.trackRevision,
                 reduced: model.preferences.reduceMotion, distance: 5, visible: { model.mainWindowVisible })
     }
 }
@@ -101,6 +105,7 @@ private struct LyricsScrollContent: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var browsing = false
     @State private var position = ScrollPosition(edge: .top)
+    @State private var followState = MainLyricFollowState()
     @State private var returnTask: Task<Void, Never>?
     @Environment(\.openWindow) private var openWindow
     private var reduced: Bool { systemReduceMotion || model.preferences.reduceMotion }
@@ -183,44 +188,43 @@ private struct LyricsScrollContent: View {
                 follow(doc, animated: true)
             }
             .onChange(of: browsing) { _, browsing in
-                if !browsing { follow(doc, animated: true) }
+                if !browsing { follow(doc, animated: false, force: true) }
             }
-            .onChange(of: model.mainWindowVisible, initial: true) { _, visible in
+            .modifier(MainLyricVisibility(model: model) { visible in
                 returnTask?.cancel(); returnTask = nil
-                browsing = false
-                if visible { follow(doc, animated: false) }
-            }
+                if visible { browsing = false; follow(doc, animated: false, force: true) }
+            })
         }
     }
-    private func follow(_ doc: LyricsDocument, animated: Bool) {
+    private func follow(_ doc: LyricsDocument, animated: Bool, force: Bool = false) {
         guard model.mainWindowVisible else { return }
         // A newly loaded document can arrive before the cached UI selection.
         // Resolve once against its own timeline, including the prelude (nil).
         let index = doc.index(at: model.session.position)
-        withAnimation(animated && !reduced && index != nil ? LyricMotion.following(lines: doc.lines, index: index) : nil) {
+        guard let request = followState.request(index: index, lines: doc.lines, animated: animated && !reduced, force: force) else { return }
+        let animation = request.duration.map { Animation.timingCurve(0.22, 0, 0.18, 1, duration: $0) }
+        withAnimation(animation) {
             if let index { position.scrollTo(id: doc.lines[index].id, anchor: .center) }
             else { position.scrollTo(edge: .top) }
         }
     }
     private func lyricRow(_ line: LyricLine, doc: LyricsDocument, width: Double) -> some View {
-        let active = line.id == model.mainLyricIndex
-        let distance = abs(line.id - (model.mainLyricIndex ?? 0))
+        let appearance = MainLyricRowAppearance(index: line.id, current: model.mainLyricIndex, browsing: browsing, reduced: reduced)
         return Button {
             model.seek(doc.seekPosition(for: line)); browsing = false
         } label: {
             VStack(alignment: .leading, spacing: 9) {
-                LiveLyricText(session: model.session, line: line, document: doc, active: active, rendering: { model.mainWindowVisible && !model.showSearch && !model.showLibrary },
+                LiveLyricText(session: model.session, line: line, document: doc, active: appearance.active, rendering: { model.mainWindowVisible && !model.showSearch && !model.showLibrary },
                               text: line.text.isEmpty ? "•••" : model.preferences.text(line.text), effects: model.preferences.lyricEmphasis)
                     .environment(\.lyricWordColors, model.preferences.typography.wordColors)
                     .font(model.preferences.typography.font(size: model.preferences.mainLyricFontSize * min(1, max(0.8, width / 480)), weight: .bold)).tracking(-0.4).fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(model.preferences.typography.primary.opacity(active ? 1 : browsing ? 0.55 : distance <= 1 ? 0.25 : 0.15))
+                    .foregroundStyle(model.preferences.typography.primary.opacity(appearance.primaryOpacity))
                 if model.preferences.showTranslation, let translation = line.translation {
-                    Text(model.preferences.text(translation)).font(model.preferences.typography.font(size: model.preferences.mainTranslationFontSize, weight: .medium)).foregroundStyle(model.preferences.typography.secondary.opacity(active ? 0.65 : 0.25)).fixedSize(horizontal: false, vertical: true)
+                    Text(model.preferences.text(translation)).font(model.preferences.typography.font(size: model.preferences.mainTranslationFontSize, weight: .medium)).foregroundStyle(model.preferences.typography.secondary.opacity(appearance.translationOpacity)).fixedSize(horizontal: false, vertical: true)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-                .scaleEffect(active ? 1 : 0.96, anchor: .leading)
-                .blur(radius: reduced || browsing || active ? 0 : min(2.05, Double(distance) * 0.7))
-                .animation(reduced ? nil : LyricMotion.following(lines: doc.lines, index: model.mainLyricIndex), value: distance)
+                .modifier(MainLyricRowMotion(appearance: appearance,
+                    duration: LyricMotion.followResponse(lines: doc.lines, index: model.mainLyricIndex), reduced: reduced))
                 .contentShape(.rect)
         }.buttonStyle(.plain).accessibilityLabel(line.text.isEmpty ? "间奏" : line.text)
             .accessibilityHint("跳转到 " + timeString(doc.seekPosition(for: line)))
@@ -250,5 +254,15 @@ private struct CompactTrackMetadata: View {
             Text(track?.title ?? "未在播放").font(.headline).lineLimit(1)
             Text(track?.artist ?? "打开播放器并播放歌曲").font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
+    }
+}
+
+/// Observing visibility in this modifier avoids rebuilding every lyric row when
+/// AppKit closes/minimizes the window. Only the active renderer needs to stop.
+private struct MainLyricVisibility: ViewModifier {
+    let model: AppModel
+    let changed: (Bool) -> Void
+    func body(content: Content) -> some View {
+        content.onChange(of: model.mainWindowVisible, initial: true) { _, value in changed(value) }
     }
 }

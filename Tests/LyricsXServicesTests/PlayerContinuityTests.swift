@@ -34,6 +34,21 @@ private struct NoSearch: LyricsRepository {
     #expect(continuity.accept(.init(track: duplicateTitle, position: 0, isPlaying: true), now: 3)?.track?.persistentID == "Other recording")
 }
 
+@Test func lateMetadataAndPersistentIDCompleteTheCurrentPlaybackItem() throws {
+    var continuity = PlaybackContinuity()
+    let early = Track(playerID: "com.apple.Music", playerName: "Apple Music", title: "Song")
+    _ = continuity.accept(.init(track: early, position: 0, isPlaying: true), now: 0)
+    var complete = early
+    complete.persistentID = "library-id"
+    complete.artist = "Artist"
+    complete.album = "Album"
+    complete.artworkData = Data([4, 2])
+    let reconciled = try #require(continuity.accept(.init(track: complete, position: 1, isPlaying: true), now: 1)?.track)
+    #expect(reconciled.persistentID == "library-id")
+    #expect(reconciled.artist == "Artist" && reconciled.album == "Album")
+    #expect(early.representsSamePlaybackItem(as: reconciled))
+}
+
 @Test func confirmedEmptyStateEventuallyClearsButOneGapCannot() throws {
     var continuity = PlaybackContinuity()
     _ = continuity.accept(.init(track: songA, position: 40, isPlaying: true), now: 0)

@@ -11,6 +11,7 @@ enum OverlayPresentationMode: Int {
 /// and the previous song's lyrics. No player or cache state is modified.
 struct OverlayDisplaySnapshot {
     let track: Track?
+    let trackRevision: UInt64
     let document: LyricsDocument?
     let documentRevision: UInt64
     let index: Int?
@@ -23,7 +24,8 @@ struct OverlayDisplaySnapshot {
     let sampledAt: Double
 
     @MainActor init(model: AppModel, at now: Double) {
-        track = model.session.track; document = model.session.document
+        track = model.session.track; trackRevision = model.session.trackRevision
+        document = model.session.document
         documentRevision = model.session.documentRevision
         index = model.session.currentLineIndex; artwork = model.artwork
         mode = model.overlayPresentationMode; searching = model.session.isSearching
@@ -40,7 +42,7 @@ struct OverlayDisplaySnapshot {
 }
 
 @Observable @MainActor final class OverlayPresentation {
-    static let handoverDuration = 0.16
+    nonisolated static let handoverDuration = 0.16
     private(set) var held: OverlayDisplaySnapshot?
     private(set) var preparingSince: Double?
     @ObservationIgnored private var last: OverlayDisplaySnapshot?

@@ -18,7 +18,7 @@ struct SearchView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var deadline: Task<Void, Never>?
     @State private var requestID = UUID()
-    @State private var trackID: String?
+    @State private var trackRevision: UInt64?
     @State private var previewCandidate: LyricCandidate?
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -26,7 +26,8 @@ struct SearchView: View {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("歌曲名和歌手", text: $query).textFieldStyle(.plain).onSubmit(search)
-                if searching { ProgressView().controlSize(.small) }
+                ProgressView().controlSize(.small).opacity(searching ? 1 : 0)
+                    .frame(width: 16, height: 16).accessibilityHidden(!searching)
                 Button("搜索", action: search).buttonStyle(.glassProminent).disabled(query.trimmingCharacters(in: .whitespaces).isEmpty)
             }.padding(12).background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 14))
             HStack(spacing: 10) {
@@ -36,18 +37,28 @@ struct SearchView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
             }
-            if !sourceStatuses.isEmpty {
-                HStack(alignment: .top, spacing: 14) {
-                    ForEach(sourceStatuses) { status in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("\(status.source) · \(status.count) 个版本" + (status.isSearching ? " …" : ""))
-                            if let issue = status.issue { Text(issue).foregroundStyle(.orange).lineLimit(2) }
-                            else if !status.isSearching, status.count == 0 { Text("暂无结果").foregroundStyle(.tertiary) }
-                        }.font(.caption2).frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Group {
+                    if sourceStatuses.isEmpty {
+                        Text(searching ? "正在连接歌词源…" : " ")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        HStack(alignment: .top, spacing: 14) {
+                            ForEach(sourceStatuses) { status in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(status.source) · \(status.count) 个版本" + (status.isSearching ? " …" : ""))
+                                    if let issue = status.issue { Text(issue).foregroundStyle(.orange).lineLimit(2) }
+                                    else if !status.isSearching, status.count == 0 { Text("暂无结果").foregroundStyle(.tertiary) }
+                                }.font(.caption2).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .foregroundStyle(.secondary)
                     }
-                }.foregroundStyle(.secondary)
-            }
-            if let error { Text(error).font(.caption).foregroundStyle(.orange) }
+                }.frame(height: 38, alignment: .top)
+                Text(error ?? " ").font(.caption).foregroundStyle(.orange)
+                    .opacity(error == nil ? 0 : 1).frame(height: 16, alignment: .leading)
+            }.frame(height: 58, alignment: .top)
             HStack(spacing: 16) {
                 Group {
                     if results.isEmpty {
@@ -89,12 +100,12 @@ struct SearchView: View {
                         isPreview: previewCandidate != nil)
                     Button(previewIsApplied ? "已应用当前歌词" : "应用当前歌词") {
                         guard let candidate = previewCandidate,
-                              model.applySearchCandidate(candidate, forTrackID: trackID) else {
+                              model.applySearchCandidate(candidate, forTrackRevision: trackRevision) else {
                             error = "歌曲已切换，请重新搜索。"; return
                         }
                         error = nil
                     }.buttonStyle(.glassProminent)
-                        .disabled(previewCandidate == nil || previewIsApplied || model.session.track == nil || model.session.track?.id != trackID)
+                        .disabled(previewCandidate == nil || previewIsApplied || model.session.track == nil || model.session.trackRevision != trackRevision)
                     Text(previewIsApplied ? "已应用，仍可继续预览其他版本。" : "预览不会替换或保存正式歌词。")
                         .font(.caption2).foregroundStyle(.secondary)
                     if let issue = model.session.persistenceError {
@@ -105,12 +116,12 @@ struct SearchView: View {
             }
             HStack { Text("\(results.count) 个版本" + (retainedPreviousResults ? " · 包含上次搜索结果" : "")).font(.caption).foregroundStyle(.secondary); Spacer(); Button("导入本地歌词") { model.importLyrics() } }
         }.padding(26).frame(width: 900, height: 620)
-            .onAppear { query = [model.session.track?.title, model.session.track?.artist].compactMap { $0 }.joined(separator: " "); trackID = model.session.track?.id; results = model.session.candidates; search() }
+            .onAppear { query = [model.session.track?.title, model.session.track?.artist].compactMap { $0 }.joined(separator: " "); trackRevision = model.session.track.map { _ in model.session.trackRevision }; results = model.session.candidates; search() }
             .onDisappear {
                 requestID = UUID(); searchTask?.cancel(); deadline?.cancel()
                 searchTask = nil; deadline = nil
             }
-            .onChange(of: model.session.track?.id) { _, _ in searchTask?.cancel(); deadline?.cancel(); searching = false; requestID = UUID(); sourceStatuses = []; results = []; previewCandidate = nil; error = "歌曲已切换，请重新搜索。" }
+            .onChange(of: model.session.trackRevision) { _, _ in searchTask?.cancel(); deadline?.cancel(); searching = false; requestID = UUID(); sourceStatuses = []; results = []; previewCandidate = nil; error = "歌曲已切换，请重新搜索。" }
     }
     private var previewIsApplied: Bool {
         guard let candidate = previewCandidate, let document = model.session.document else { return false }
@@ -133,15 +144,21 @@ struct SearchView: View {
         // Keep the last completed versions visible while retrying a source.
         // A transport failure must not make known results disappear.
         let configuration = model.preferences.sourceConfigurationReader.read()
-        if trackID != model.session.track?.id || previousQuery != query || previousCompleteSearch != completeSearch
-            || previousConfigurationKey != configuration.selectionKey { results = [] }
-        retainedPreviousResults = !results.isEmpty
+        let replaceResults = trackRevision != model.session.track.map({ _ in model.session.trackRevision })
+            || previousQuery != query || previousCompleteSearch != completeSearch
+            || previousConfigurationKey != configuration.selectionKey
+        // Keep a populated list until this request has its first replacement.
+        // Showing the empty placeholder between those two commits caused the
+        // search sheet to flash after pressing Search.
+        retainedPreviousResults = replaceResults && !results.isEmpty
+        if replaceResults { previewCandidate = nil }
         previousQuery = query
         previousCompleteSearch = completeSearch
         previousConfigurationKey = configuration.selectionKey
         let track = model.session.track ?? Track(playerID: "search", playerName: "搜索", title: query)
-        trackID = model.session.track?.id
+        trackRevision = model.session.track.map { _ in model.session.trackRevision }
         searchTask = Task {
+            var awaitingFirstReplacement = replaceResults
             do {
                 for try await result in model.store.search(track: track, keyword: query, complete: completeSearch, onSourceUpdate: { status in
                     Task { @MainActor in
@@ -153,6 +170,12 @@ struct SearchView: View {
                     }
                 }) {
                     guard !Task.isCancelled, requestID == id else { return }
+                    if awaitingFirstReplacement {
+                        results.removeAll(keepingCapacity: true)
+                        retainedPreviousResults = false
+                        previewCandidate = nil
+                        awaitingFirstReplacement = false
+                    }
                     if let index = results.firstIndex(where: { $0.id == result.id || Self.sameVersion($0.document, result.document) }) {
                         results[index] = result
                     } else { results.append(result) }

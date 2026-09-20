@@ -10,7 +10,11 @@ struct OverlayContentIdentity: Equatable {
     var compact = false
     var artwork: ObjectIdentifier?
     var songScope: Self {
-        .init(track: track, primary: compact ? primary : "", compact: compact, artwork: compact ? artwork : nil)
+        // The whole-window handover belongs to the playback item. Waiting,
+        // lyric, and artwork-card modes often arrive in separate observations
+        // for that same item; including them here replayed the title blur when
+        // lyrics finished loading.
+        .init(track: track)
     }
 }
 
@@ -21,7 +25,7 @@ struct OverlayBlurStyle: Equatable {
                        incremental: Bool, lineDuration: Double) -> Self {
         guard old != new else { return .init() }
         guard let old, old.track == new.track, old.document == new.document, old.compact == new.compact else {
-            return .init(radius: 3, duration: 0.52)
+            return .init(radius: 3, duration: 0.42)
         }
         // Appending a suffix already animates just the new glyphs. A full-card
         // blur here would repeatedly obscure the stable prefix at high speed.
@@ -36,8 +40,51 @@ struct OverlayBlurStyle: Equatable {
     }
 }
 
-/// One persistent foreground, with no outgoing copy or delayed removal. The
-/// first frame of changed content is already blurred, before onChange runs.
+/// A single committed transition owns both its clock and its terminal state.
+/// A content mismatch must never itself become a permanent blur radius.
+struct OverlayContentAnimation {
+    struct Request: Equatable {
+        let identity: OverlayContentIdentity
+        let reduced: Bool
+        let visible: Bool
+        let preparingSince: Double?
+    }
+    private(set) var request: Request?
+    private(set) var startedAt: Double?
+    private(set) var duration = 0.0
+    private var style = OverlayBlurStyle()
+
+    mutating func update(_ next: Request, at now: Double, incremental: Bool, lineDuration: Double, animateInitial: Bool) {
+        guard request != next else { return }
+        let old = request
+        request = next
+        cancel()
+        guard !next.reduced, next.visible else { return }
+        if next.preparingSince != nil {
+            // The presentation already holds a coherent frame during handover.
+            // Keep it sharp until the new song commits, then run one arrival;
+            // fading the held frame first caused two blur pulses and a blank.
+            return
+        }
+        if old?.identity != next.identity {
+            style = old == nil && !animateInitial ? .init() : .change(from: old?.identity, to: next.identity,
+                incremental: incremental, lineDuration: lineDuration)
+            if style.radius > 0 { startedAt = now; duration = style.duration }
+        }
+    }
+    func frame(at now: Double) -> LyricMotion.Frame {
+        guard let startedAt else { return .init() }
+        let elapsed = max(0, now - startedAt)
+        // Even a delayed completion or stale display callback has a sharp end.
+        guard elapsed < duration else { return .init() }
+        return .init(blur: style.blur(elapsed: elapsed))
+    }
+    mutating func finish(_ token: Double) {
+        if startedAt == token { startedAt = nil }
+    }
+    mutating func cancel() { startedAt = nil }
+}
+
 struct OverlayContentTransition: ViewModifier {
     let identity: OverlayContentIdentity
     var incremental = false
@@ -46,51 +93,27 @@ struct OverlayContentTransition: ViewModifier {
     var visible = true
     var preparingSince: Double?
     var animateInitial = true
-    @State private var displayed: OverlayContentIdentity?
-    @State private var style = OverlayBlurStyle()
-    @State private var clock = LyricArrivalClock()
+    @State private var state = OverlayContentAnimation()
 
     func body(content: Content) -> some View {
-        let pending = displayed != identity
-        let incoming = displayed == nil && !animateInitial ? OverlayBlurStyle() : OverlayBlurStyle.change(from: displayed, to: identity, incremental: incremental, lineDuration: lineDuration)
-        LyricRenderTimeline(running: !reduced && visible && clock.startedAt != nil,
+        let request = OverlayContentAnimation.Request(identity: identity, reduced: reduced, visible: visible, preparingSince: preparingSince)
+        LyricRenderTimeline(running: !reduced && visible && state.startedAt != nil,
                             sampledTime: ProcessInfo.processInfo.systemUptime,
                             preciseTime: { ProcessInfo.processInfo.systemUptime }) { now in
-            let blur: Double = if let preparingSince {
-                3 * LyricMotion.arrivalCurve.value(at: min(1, max(0, (now - preparingSince) / OverlayPresentation.handoverDuration)))
-            } else {
-                pending ? incoming.radius : clock.startedAt.map { style.blur(elapsed: now - $0) } ?? 0
-            }
-            let departure = preparingSince.map { LyricEmphasisFrame.smooth((now - $0) / OverlayPresentation.handoverDuration) } ?? 0
-            content.blur(radius: reduced || !visible ? 0 : blur)
-                .offset(y: reduced || !visible ? 0 : -12 * departure)
-                .opacity(reduced || !visible ? 1 : 1 - departure)
+            let frame = reduced || !visible ? LyricMotion.Frame() : state.frame(at: now)
+            content.blur(radius: frame.blur).offset(y: frame.offset).opacity(frame.opacity)
                 .transaction { $0.animation = nil; $0.disablesAnimations = true }
-                .onChange(of: clock.finishedToken(at: now)) { _, token in clock.finish(token) }
         }
-        .onChange(of: identity, initial: true) { _, value in
-            style = incoming; displayed = value
-            if !reduced && visible && style.radius > 0 { clock.start(at: ProcessInfo.processInfo.systemUptime, duration: style.duration) }
-            else { clock.cancel() }
+        .onChange(of: request, initial: true) { _, value in
+            state.update(value, at: ProcessInfo.processInfo.systemUptime, incremental: incremental,
+                lineDuration: lineDuration, animateInitial: animateInitial)
         }
-        .onChange(of: reduced) { _, value in if value { clock.cancel() } }
-        .onChange(of: preparingSince) { _, value in
-            if reduced || !visible { clock.cancel() }
-            else if value != nil { clock.start(at: ProcessInfo.processInfo.systemUptime, duration: OverlayPresentation.handoverDuration) }
-            else if !pending && !reduced && visible {
-                style = .init(radius: 3, duration: 0.25)
-                clock.start(at: ProcessInfo.processInfo.systemUptime, duration: style.duration)
-            }
-        }
-        .onChange(of: visible) { _, value in if !value { clock.cancel() } }
-        .task(id: clock.startedAt) {
-            // Finish independently of display callbacks (occlusion/minimizing
-            // can suspend them before the final sharp frame is delivered).
-            guard let token = clock.startedAt else { return }
-            let remaining = max(0, token + clock.duration - ProcessInfo.processInfo.systemUptime)
+        .task(id: state.startedAt) {
+            guard let token = state.startedAt else { return }
+            let remaining = max(0, token + state.duration - ProcessInfo.processInfo.systemUptime)
             do { try await Task.sleep(for: .seconds(remaining)) } catch { return }
-            clock.finish(token)
+            state.finish(token)
         }
-        .onDisappear { clock.cancel() }
+        .onDisappear { state.cancel() }
     }
 }

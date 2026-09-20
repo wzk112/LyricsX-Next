@@ -8,7 +8,7 @@ struct MainView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ZStack {
-            AmbientBackground(artwork: model.artwork, reduced: model.preferences.reduceMotion || !model.mainWindowVisible)
+            MainAmbientBackground(model: model)
             VStack(spacing: 0) {
                 header
                 NowPlayingView(model: model)
@@ -78,4 +78,12 @@ struct MainView: View {
 private struct MainPlayingIndicator: View {
     let model: AppModel
     var body: some View { PlayingIndicator(playing: model.mainWindowVisible && model.session.isPlaying) }
+}
+
+/// Window visibility affects background activity, not the entire main hierarchy.
+private struct MainAmbientBackground: View {
+    let model: AppModel
+    var body: some View {
+        AmbientBackground(artwork: model.artwork, reduced: model.preferences.reduceMotion || !model.mainWindowVisible)
+    }
 }

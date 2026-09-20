@@ -38,7 +38,7 @@ struct OverlayCueTransition {
     private(set) var promotionDistance: Double?
     private(set) var departure: OverlayCueDeparture?
     private(set) var motionPlan: LyricLinePresentation?
-    private var arrivedAt: Double?
+    private(set) var arrivedAt: Double?
 
     func layoutTime(at now: Double, fallback: Double) -> Double {
         guard let current, let arrivedAt else { return fallback }
@@ -57,15 +57,14 @@ struct OverlayCueTransition {
         result.current = cue
         if let current, current.document == cue.document, current.index == cue.index, current.text == cue.text {
             let reflowed = current.fontName != cue.fontName || current.height != cue.height || current.fontSize != cue.fontSize || current.previewCenter != cue.previewCenter
-            if !animated || reflowed { result.promotionDistance = nil; result.departure = nil }
-            if reflowed { result.arrivedAt = nil }
+            if !animated || reflowed { result.settle() }
             return result
         }
         result.arrivedAt = now - max(0, lyricTime - cue.line.time)
         result.motionPlan = cue.plan
         result.promotionDistance = nil
         result.departure = nil
-        guard animated else { return result }
+        guard animated else { result.settle(); return result }
         guard let current, current.document == cue.document, current.index + 1 == cue.index,
               lyricTime >= cue.line.time, lyricTime - cue.line.time < 0.2,
               cue.plan?.stablePrefixCount == 0 else { return result }
@@ -93,6 +92,10 @@ struct OverlayCueTransition {
             pose: OverlayMotionFrame.make(time: layoutTime(at: now, fallback: lyricTime), plan: motionPlan,
                 distance: promotionDistance, nextScale: current.previewScale, reduced: false))
         return result
+    }
+
+    mutating func settle() {
+        arrivedAt = nil; motionPlan = nil; promotionDistance = nil; departure = nil
     }
 
     mutating func finishDeparture(startedAt: Double) {

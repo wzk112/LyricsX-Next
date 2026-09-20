@@ -7,19 +7,41 @@ import LyricsXCore
 final class DraggableOverlayPanel: NSPanel {
     var contentDragEnabled = true
     var onDragActivity: ((Bool) -> Void)?
+    var onDragAnchor: ((NSPoint) -> Void)?
+    private var pointerOffset: NSPoint?
     func shouldDrag(at point: NSPoint) -> Bool {
         let controls = NSRect(x: frame.width - 154, y: frame.height - 48, width: 154, height: 48)
         return contentDragEnabled && !controls.contains(point)
     }
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown, shouldDrag(at: event.locationInWindow) {
-            // The fixed header controls own clicks; all other content can drag.
+            // AppKit performDrag owns the whole frame, including its initial
+            // size. Track the pointer anchor instead so live lyric resizing
+            // and movement use one writer rather than competing frame loops.
+            let pointer = convertPoint(toScreen: event.locationInWindow)
+            pointerOffset = NSPoint(x: pointer.x - frame.midX, y: pointer.y - frame.maxY)
             onDragActivity?(true)
-            performDrag(with: event)
-            onDragActivity?(false)
+            return
+        }
+        if let offset = pointerOffset, event.type == .leftMouseDragged || event.type == .leftMouseUp {
+            // Use the delivered event in the same coordinate space as mouse
+            // down. The global pointer may already be elsewhere when this
+            // background/nonactivating window processes a queued drag.
+            let pointer = convertPoint(toScreen: event.locationInWindow)
+            onDragAnchor?(NSPoint(x: pointer.x - offset.x, y: pointer.y - offset.y))
+            if event.type == .leftMouseUp { finishContentDrag() }
             return
         }
         super.sendEvent(event)
+    }
+    private func finishContentDrag() {
+        guard pointerOffset != nil else { return }
+        pointerOffset = nil
+        onDragActivity?(false)
+    }
+    override func orderOut(_ sender: Any?) {
+        finishContentDrag()
+        super.orderOut(sender)
     }
 }
 
@@ -52,6 +74,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
     private var lastSizingConfiguration: [Double] = []
     private(set) var resizeGeneration = 0
     private var resizeSettlement: Task<Void, Never>?
+    private lazy var frameMotion = OverlayWindowMotion(window: panel)
     private var sizingDocument: UUID?
     private var sizingDocumentRevision: UInt64?
     private var sizingIndex: Int?
@@ -89,7 +112,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         controls = NSHostingView(rootView: OverlayControlStrip(model: model))
         super.init()
         viewport.contentSizeChanged = { [weak self] _ in
-            guard let self, !self.stopped, !self.dragging else { return }
+            guard let self, !self.stopped else { return }
             // A SwiftUI task may arrive after the session has already moved to
             // another cue. Reconcile against the latest snapshot, never replay
             // an old view's height over a newer controller request.
@@ -109,11 +132,14 @@ final class OverlayController: NSObject, NSWindowDelegate {
         panel.delegate = self
         panel.onDragActivity = { [weak self] dragging in
             guard let self else { return }
-            if dragging { self.cancelResize() }
             self.dragging = dragging
+            if dragging {
+                self.moveDraggedWindow(to: NSPoint(x: self.panel.frame.midX, y: self.panel.frame.maxY))
+            }
             self.refreshAppearance()
             if !dragging { self.saveFrame(); self.updateSizing() }
         }
+        panel.onDragAnchor = { [weak self] point in self?.moveDraggedWindow(to: point) }
         root.frame = NSRect(origin: .zero, size: panel.frame.size)
         background.frame = root.bounds.insetBy(dx: 6, dy: 6)
         background.autoresizingMask = [.width, .height]
@@ -193,7 +219,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         if let accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver) }
         screenObserver = nil; accessibilityObserver = nil
-        panel.onDragActivity = nil; panel.delegate = nil
+        panel.onDragActivity = nil; panel.onDragAnchor = nil; panel.delegate = nil
         controlPanel.orderOut(nil); panel.orderOut(nil)
         // Hosted SwiftUI roots own the model. Ordering a window out alone does
         // not break model → controller → host → model, or release display links.
@@ -285,7 +311,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         let point = point ?? pointerLocation()
         let prefs = model.preferences
         let inside = panel.frame.contains(point) || (controlsDetached && controlsVisible && controlPanel.frame.contains(point))
-        let hidden = lastVisible && prefs.hideOverlayOnHover && prefs.overlayLocked && inside
+        let hidden = lastVisible && !dragging && prefs.hideOverlayOnHover && prefs.overlayLocked && inside
         let rendering = lastVisible && !hidden
         if viewport.rendering != rendering { viewport.rendering = rendering }
         if hoverHidden != hidden {
@@ -349,7 +375,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
     }
 
     private func updateSizing() {
-        guard !stopped, !dragging else { return }
+        guard !stopped else { return }
         let p = model.preferences
         let maximum = p.overlayLayoutWidth
         // Size the snapshot actually being drawn. During the short handover,
@@ -394,6 +420,12 @@ final class OverlayController: NSObject, NSWindowDelegate {
         positionContent()
         // A requested size is not evidence that the native animation arrived.
         let target = anchoredFrame(size: size)
+        if !resizing, panel.frame == target {
+            // A drag changed the anchor, not the size. Adopt its resting frame
+            // without starting an identical resize on the next playback tick.
+            lastSize = size; resizeTarget = target; viewport.width = size.width
+            return
+        }
         guard size != lastSize || resizeTarget != target || (!resizing && panel.frame != target) else { return }
         lastSize = size
         resizeTarget = target
@@ -403,18 +435,11 @@ final class OverlayController: NSObject, NSWindowDelegate {
         resizeSettlement?.cancel()
         resizing = true
         let animate = !restoring && panel.isVisible && panel.screen != nil && !hoverHidden && !p.reduceMotion && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = animate ? (size.width > panel.frame.width || size.height > panel.frame.height ? 0.34 : 0.48) : 0
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0, 0.18, 1)
-            if animate { panel.animator().setFrame(target, display: true) }
-            else { panel.setFrame(target, display: true) }
-        } completionHandler: { [weak self] in
-            Task { @MainActor in
-                guard let self, self.resizeGeneration == generation, !self.stopped else { return }
-                if self.panel.frame != target { self.panel.setFrame(target, display: true) }
-                self.resizing = false
-                self.positionContent(); self.positionControlPanel()
-            }
+        let duration = animate ? (size.width > panel.frame.width || size.height > panel.frame.height ? 0.34 : 0.48) : 0
+        frameMotion.start(to: target, duration: duration, frameRateLimit: p.overlayFrameRate.limit) { [weak self] in
+            guard let self, self.resizeGeneration == generation, !self.stopped else { return }
+            self.resizing = false
+            self.positionContent(); self.positionControlPanel()
         }
         if !animate { resizing = false }
         positionContent(); positionControlPanel()
@@ -424,7 +449,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
             resizeSettlement = Task { @MainActor [weak self] in
                 do { try await Task.sleep(for: .milliseconds(550)) } catch { return }
                 guard let self, !self.stopped, self.resizeGeneration == generation else { return }
-                if self.panel.frame != target { self.panel.setFrame(target, display: true) }
+                self.frameMotion.finish()
                 self.resizing = false
                 self.positionContent(); self.positionControlPanel()
             }
@@ -433,6 +458,9 @@ final class OverlayController: NSObject, NSWindowDelegate {
 
     private func anchoredFrame(size: NSSize) -> NSRect {
         let top = anchorTop ?? NSPoint(x: panel.frame.midX, y: panel.frame.maxY)
+        if dragging {
+            return NSRect(x: top.x - size.width / 2, y: top.y - size.height, width: size.width, height: size.height)
+        }
         let screen = NSScreen.screens.first { $0.frame.contains(top) } ?? NSScreen.main
         guard let screen else {
             // Display reconfiguration can temporarily have no screen. The old
@@ -446,17 +474,21 @@ final class OverlayController: NSObject, NSWindowDelegate {
         resizeSettlement?.cancel(); resizeSettlement = nil
         guard resizing else { return }
         resizeGeneration += 1
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0
-            panel.animator().setFrame(panel.frame, display: true)
-        }
+        frameMotion.cancel()
         resizing = false
         lastSize = panel.frame.size
         resizeTarget = nil
     }
 
+    private func moveDraggedWindow(to point: NSPoint) {
+        guard dragging, !stopped else { return }
+        anchorTop = point
+        if let size = resizeTarget?.size { resizeTarget = anchoredFrame(size: size) }
+        frameMotion.moveTopCenter(to: point)
+    }
+
     func restoreOnScreen() {
-        guard !stopped else { return }
+        guard !stopped, !dragging else { return }
         // EDR/brightness changes also send screen-parameter notifications.
         // Cancelling here strands an in-flight expansion at its intermediate
         // height until an unrelated hover/visibility update retries sizing.
@@ -517,6 +549,7 @@ struct OverlayView: View {
     var viewport: OverlayViewport
     var presentation: OverlayPresentation?
     @State private var windowVisible = false
+    @State private var revealedSearchingHeader: UInt64?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         let maximum = model.preferences.overlayLayoutWidth
@@ -527,54 +560,88 @@ struct OverlayView: View {
         let renderedSize = NSSize(width: maximum, height: display.mode == .waiting
             ? OverlayPresentationMode.waitingHeight : compact ? card.height : height)
         let transition = contentTransition(display: display)
+        let searchingHeader = OverlaySearchingHeaderRequest(trackRevision: display.trackRevision,
+            delayed: display.mode == .waiting && display.searching)
+        let showsHeader = !searchingHeader.delayed || revealedSearchingHeader == display.trackRevision
+        let modeAnimation: Animation? = reduceMotion || model.preferences.reduceMotion ? nil
+            : .timingCurve(0.22, 0, 0.18, 1, duration: 0.36)
         VStack(spacing: 0) {
-            if display.mode == .waiting {
-                songHeader(display: display)
-                Spacer(minLength: 4)
-                HStack(spacing: 6) {
-                    ForEach(0..<3) { _ in Circle().fill(.white.opacity(0.94)).frame(width: 5, height: 5) }
-                }.shadow(color: .black.opacity(0.85), radius: 2, y: 1)
-                    .accessibilityElement(children: .ignore).accessibilityLabel("等待歌词")
-                Spacer(minLength: 10)
-            } else if compact {
-                HStack(spacing: card.spacing) {
-                    Group {
-                        if let artwork = display.artwork {
-                            Image(nsImage: artwork).resizable().scaledToFill()
-                        } else {
-                            ZStack { Color.white.opacity(0.08); Image(systemName: "music.note").font(.system(size: 18)) }
-                        }
-                    }.frame(width: card.artwork, height: card.artwork).clipShape(.rect(cornerRadius: 9))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(display.track?.title ?? "LyricsX Next")
-                            .font(.system(size: card.title, weight: .semibold)).lineLimit(2).minimumScaleFactor(0.85)
-                        if let artist = display.track?.artist, !artist.isEmpty {
-                            Text(artist).font(.system(size: card.artist, weight: .medium)).lineLimit(1).opacity(0.8)
-                        }
-                    }.shadow(color: .black.opacity(0.8), radius: 2, y: 1)
-                }.frame(maxWidth: card.contentWidth, alignment: .center)
-            } else {
-                songHeader(display: display)
-                Spacer(minLength: 4)
-                ZStack {
-                    if let doc = display.document, let index = display.index {
-                        OverlayLyricsContent(preferences: model.preferences, document: doc, index: index,
-                                             lyricTime: { doc.lyricTime(for: presentation?.held?.position ?? model.session.position) },
-                                             renderTime: { doc.lyricTime(for: presentation?.held?.position ?? model.session.presentationPosition()) },
-                                             playing: display.playing && windowVisible && viewport.rendering,
-                                             visible: windowVisible && viewport.rendering,
-                                             adaptiveCanvasWidth: model.preferences.overlayAdaptiveSize ? maximum - 60 : nil)
-                    } else { Text(placeholder) }
-                }.font(.system(size: model.preferences.fontSize, weight: .semibold))
-                    .shadow(color: .black.opacity(0.8), radius: 1.5, y: 1)
-                    .shadow(color: .black.opacity(0.35), radius: 5, y: 1)
-                Spacer(minLength: 10)
+            if (display.mode == .waiting && showsHeader) || !compact {
+                // The header has its own old/new surface so a real song
+                // change crossfades through one bounded blur. Keeping it out
+                // of the body transition avoids stacking that blur when the
+                // lyrics document arrives a moment after the metadata.
+                ZStack(alignment: .leading) {
+                    songHeader(display: display)
+                        .id(display.trackRevision)
+                        .transition(.artworkBlur)
+                }
+                .frame(width: max(260, viewport.width - 60), height: 30, alignment: .leading)
+                .animation(reduceMotion || model.preferences.reduceMotion ? nil
+                    : .easeInOut(duration: 0.45), value: display.trackRevision)
             }
-        }.padding(.horizontal, 24).padding(.vertical, 12)
+            Group {
+                if display.mode == .waiting {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 4)
+                        HStack(spacing: 6) {
+                            ForEach(0..<3) { _ in Circle().fill(.white.opacity(0.94)).frame(width: 5, height: 5) }
+                        }
+                        .shadow(color: .black.opacity(0.85), radius: 2, y: 1)
+                        .accessibilityElement(children: .ignore).accessibilityLabel("等待歌词")
+                        Spacer(minLength: 10)
+                    }
+                } else if compact {
+                    HStack(spacing: card.spacing) {
+                        Group {
+                            if let artwork = display.artwork {
+                                Image(nsImage: artwork).resizable().scaledToFill()
+                            } else {
+                                ZStack { Color.white.opacity(0.08); Image(systemName: "music.note").font(.system(size: 18)) }
+                            }
+                        }.frame(width: card.artwork, height: card.artwork).clipShape(.rect(cornerRadius: 9))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(display.track?.title ?? "LyricsX Next")
+                                .font(.system(size: card.title, weight: .semibold)).lineLimit(2).minimumScaleFactor(0.85)
+                            if let artist = display.track?.artist, !artist.isEmpty {
+                                Text(artist).font(.system(size: card.artist, weight: .medium)).lineLimit(1).opacity(0.8)
+                            }
+                        }.shadow(color: .black.opacity(0.8), radius: 2, y: 1)
+                    }.frame(maxWidth: card.contentWidth, alignment: .center)
+                } else {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 4)
+                        ZStack {
+                            if let doc = display.document, let index = display.index {
+                                OverlayLyricsContent(preferences: model.preferences, document: doc, index: index,
+                                                     lyricTime: { doc.lyricTime(for: presentation?.held?.position ?? model.session.position) },
+                                                     renderTime: { doc.lyricTime(for: presentation?.held?.position ?? model.session.presentationPosition()) },
+                                                     playing: display.playing && windowVisible && viewport.rendering,
+                                                     visible: windowVisible && viewport.rendering,
+                                                     adaptiveCanvasWidth: model.preferences.overlayAdaptiveSize ? maximum - 60 : nil)
+                            } else { Text(placeholder) }
+                        }
+                        .font(.system(size: model.preferences.fontSize, weight: .semibold))
+                        .shadow(color: .black.opacity(0.8), radius: 1.5, y: 1)
+                        .shadow(color: .black.opacity(0.35), radius: 5, y: 1)
+                        Spacer(minLength: 10)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .modifier(transition)
+        }
+            // Cached instrumental/no-lyrics results can replace the initial
+            // waiting frame almost immediately. Delay that waiting header so
+            // the same title is not first flashed at the top and then redrawn
+            // in the centered song card. A genuine longer search still reveals
+            // its header, while mode changes receive one smooth layout handoff.
+            .animation(modeAnimation, value: display.mode)
+            .animation(modeAnimation, value: showsHeader)
+            .padding(.horizontal, 24).padding(.vertical, 12)
             .foregroundStyle(.white)
             .padding(6)
             .frame(width: maximum, height: display.mode == .waiting ? OverlayPresentationMode.waitingHeight : compact ? card.height : height)
-            .modifier(transition)
             .hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR)
             .environment(\.lyricFrameRateLimit, model.preferences.overlayFrameRate.limit)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -584,6 +651,17 @@ struct OverlayView: View {
             .task(id: renderedSize) { @MainActor in
                 guard !Task.isCancelled else { return }
                 viewport.contentSizeChanged?(renderedSize)
+            }
+            .task(id: searchingHeader) { @MainActor in
+                guard searchingHeader.delayed else {
+                    revealedSearchingHeader = nil
+                    return
+                }
+                revealedSearchingHeader = nil
+                do { try await Task.sleep(for: .seconds(OverlaySearchingHeaderRequest.revealDelay)) }
+                catch { return }
+                guard !Task.isCancelled else { return }
+                revealedSearchingHeader = searchingHeader.trackRevision
             }
             .background(WindowVisibilityReader { windowVisible = $0 }.frame(width: 0, height: 0))
     }
@@ -598,10 +676,11 @@ struct OverlayView: View {
             .frame(width: max(260, viewport.width - 60), height: 30)
     }
     private func contentTransition(display: OverlayDisplaySnapshot) -> OverlayContentTransition {
-        let p = model.preferences, compact = display.compact
-        let identity = OverlayContentIdentity(track: display.track?.id,
-            primary: display.mode == .waiting ? "•••" : compact ? display.track?.artist ?? "" : placeholder,
-            compact: compact, artwork: display.mode == .song ? display.artwork.map(ObjectIdentifier.init) : nil)
+        let p = model.preferences
+        // A song revision changes once per real player transition. Artist,
+        // album, artwork, loading mode, and lyrics may arrive later without
+        // replaying the title/card transition.
+        let identity = OverlayContentIdentity(track: display.track.map { _ in String(display.trackRevision) })
         return OverlayContentTransition(identity: identity.songScope,
             reduced: reduceMotion || p.reduceMotion, visible: windowVisible && viewport.rendering, preparingSince: presentation?.preparingSince)
     }
@@ -618,6 +697,12 @@ struct OverlayView: View {
         if model.session.document != nil { return "•••" }
         return model.session.track == nil ? "未在播放" : "还没有找到歌词"
     }
+}
+
+private struct OverlaySearchingHeaderRequest: Hashable {
+    static let revealDelay = 0.32
+    let trackRevision: UInt64
+    let delayed: Bool
 }
 
 private struct OverlayControlStrip: View {

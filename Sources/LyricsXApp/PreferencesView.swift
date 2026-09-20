@@ -428,11 +428,21 @@ struct PreferencesView: View {
             SettingRow(title: "本次更新", detail: "重新查看当前版本新增的功能、修复和优化。") {
                 Button("版本介绍") { model.showFeatureGuide?(false) }
             }
-            SettingRow(title: "项目与更新", detail: "查看本重构版源代码、版本说明和安装包。") {
-                Link("GitHub", destination: URL(string: "https://github.com/wzk112/LyricsX-Next")!)
+            SettingRow(title: "项目主页", detail: "LyricsX Next 的源代码、说明文档和开发记录。") {
+                Link("打开 GitHub", destination: URL(string: "https://github.com/wzk112/LyricsX-Next")!)
             }
-            SettingRow(title: "上游项目", detail: "保留原 LyricsX、LyricsKit 与媒体适配组件的开源声明。") {
-                Link("查看上游", destination: URL(string: "https://github.com/MxIris-LyricsX-Project/LyricsX")!)
+            SettingRow(title: "版本与下载", detail: "查看正式版本说明并下载安装包。") {
+                Link("查看 Releases", destination: URL(string: "https://github.com/wzk112/LyricsX-Next/releases")!)
+            }
+            SettingRow(title: "问题反馈", detail: "报告问题或查看已经记录的问题。") {
+                Link("打开 Issues", destination: URL(string: "https://github.com/wzk112/LyricsX-Next/issues")!)
+            }
+            SettingRow(title: "上游项目", detail: "本版本基于这些开源项目继续开发。") {
+                HStack(spacing: 12) {
+                    Link("LyricsX", destination: URL(string: "https://github.com/MxIris-LyricsX-Project/LyricsX")!)
+                    Link("LyricsKit", destination: URL(string: "https://github.com/MxIris-LyricsX-Project/LyricsKit")!)
+                    Link("媒体组件", destination: URL(string: "https://github.com/MxIris-LyricsX-Project/mediaremote-adapter")!)
+                }
             }
             SettingRow(title: "开源许可", detail: "本项目采用 MPL-2.0，依赖遵循各自许可。") {
                 Link("查看许可", destination: URL(string: "https://github.com/wzk112/LyricsX-Next/blob/master/LICENSE")!)

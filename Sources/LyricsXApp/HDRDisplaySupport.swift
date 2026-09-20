@@ -13,6 +13,12 @@ struct HDRDisplayCapability: Equatable, Identifiable {
     var supported: Bool { potential.isFinite && potential > 1 }
     var renderHeadroom: Double { supported ? potential : 1 }
     var currentHeadroom: Double { current.isFinite ? min(renderHeadroom, max(1, current)) : 1 }
+    // Rendering uses potential headroom. Current headroom fluctuates when
+    // another window closes or EDR content changes; it is settings-only data.
+    func hasSameRenderOutput(as other: Self?) -> Bool {
+        guard let other else { return false }
+        return supported == other.supported && renderHeadroom == other.renderHeadroom
+    }
     var status: String { supported ? "支持" : "不支持" }
     var explanation: String {
         guard supported else { return "系统未报告扩展亮度余量，此屏幕自动使用增强后的普通辉光。" }
@@ -104,6 +110,7 @@ private struct WindowHDRReader: NSViewRepresentable {
         private func refresh() {
             let value = window?.screen.map { HDRDisplayCapability(screen: $0) }
             guard capability != value else { return }
+            if let value, value.hasSameRenderOutput(as: capability) { return }
             capability = value
             // Avoid publishing SwiftUI state during native view attachment.
             DispatchQueue.main.async { [weak self] in

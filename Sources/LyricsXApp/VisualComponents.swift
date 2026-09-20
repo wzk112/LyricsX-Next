@@ -109,6 +109,7 @@ struct CoverArtwork: View {
 
 // Only the active, word-timed row observes the playback position.
 struct LiveLyricText: View {
+    @Environment(\.lyricViewportVisible) private var viewportVisible
     let session: LyricsSession
     let line: LyricLine
     let document: LyricsDocument
@@ -121,7 +122,7 @@ struct LiveLyricText: View {
         if line.hasWordTiming || arrival != nil {
             // Keep this view identity when a row becomes current. Only active
             // rows observe the session clock; others use the native draw path.
-            let visible = active && rendering()
+            let visible = active && viewportVisible && rendering()
             let time = active ? document.lyricTime(for: visible ? session.position : session.presentationPosition()) : 0
             LyricRenderTimeline(running: visible && session.isPlaying && LyricRenderTimelineActivity.needsFrames(line: line, time: time, arrival: arrival),
                                 sampledTime: time, preciseTime: { document.lyricTime(for: session.presentationPosition()) },

@@ -36,10 +36,10 @@ struct PlaybackContinuity {
             return sample
         }
         emptySince = nil; emptyCount = 0
-        if let previous = latest?.track, sameRecording(previous, track) {
+        if let previous = latest?.track, previous.representsSamePlaybackItem(as: track) {
             // IDs absent from MediaRemote must not restart the same song when
             // the Apple Events fallback supplies a persistent ID (or vice versa).
-            track.persistentID = previous.persistentID
+            if !previous.persistentID.isEmpty { track.persistentID = previous.persistentID }
             if track.title.isEmpty { track.title = previous.title }
             if track.artist.isEmpty { track.artist = previous.artist }
             if track.album.isEmpty { track.album = previous.album }
@@ -61,14 +61,5 @@ struct PlaybackContinuity {
         failureCount += 1
         if failureSince == nil { failureSince = now }
         return failureCount >= 3 && now - (failureSince ?? now) >= 2
-    }
-
-    private func sameRecording(_ lhs: Track, _ rhs: Track) -> Bool {
-        guard lhs.playerID == rhs.playerID else { return false }
-        if !lhs.persistentID.isEmpty, !rhs.persistentID.isEmpty {
-            return lhs.persistentID == rhs.persistentID && lhs.title == rhs.title
-        }
-        return lhs.title == rhs.title && (lhs.artist == rhs.artist || rhs.artist.isEmpty)
-            && (lhs.album == rhs.album || rhs.album.isEmpty)
     }
 }

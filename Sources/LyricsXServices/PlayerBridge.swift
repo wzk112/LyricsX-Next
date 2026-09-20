@@ -381,8 +381,17 @@ public final class PlayerBridge {
             duration:safe(() => t.duration(),0)/\(spotify ? "1000" : "1"),position:safe(() => app.playerPosition(),null),
             playing:state === 'playing' ? true : state === 'paused' || state === 'stopped' ? false : null,
             artwork:\(spotify ? "same ? null : safe(() => t.artworkUrl(), '')" : "''"),lyrics:\(spotify ? "''" : "same ? null : safe(() => t.lyrics(), '')"),location:\(spotify ? "''" : "same ? null : safe(() => t.location().toString(), '')")};
-          const endID = String(safe(() => app.currentTrack().\(spotify ? "id" : "persistentID")(), ''));
-          result.coherent = id === endID;
+          const endTrack = safe(() => app.currentTrack(), null);
+          const endID = String(safe(() => endTrack.\(spotify ? "id" : "persistentID")(), ''));
+          const endTitle = String(safe(() => endTrack.name(), ''));
+          const endArtist = String(safe(() => endTrack.artist(), ''));
+          const endAlbum = String(safe(() => endTrack.album(), ''));
+          // Some adapters briefly expose an empty persistent ID during a
+          // switch. Compare the metadata tuple as a fallback so one script
+          // read cannot combine the old artist with the new title.
+          result.coherent = id.length > 0 || endID.length > 0
+            ? id === endID
+            : result.title === endTitle && result.artist === endArtist && result.album === endAlbum;
           return JSON.stringify(result);
         }
         """

@@ -131,6 +131,27 @@ import LyricsXCore
                 "p50ms": sorted[sorted.count / 2], "p95ms": sorted[Int(Double(sorted.count) * 0.95)],
                 "maxMs": sorted.last!, "over25ms": sorted.filter { $0 > 25 }.count])
         }
+        // The full native lyric/cover hierarchy, not just two idle probes.
+        // Keep recording the floating window while the main window is removed.
+        let overlayProbe = LyricFrameView(frame: .zero)
+        overlay.lyricHostingView.addSubview(overlayProbe)
+        var overlayTimes: [Double] = []
+        overlayProbe.frameCallback = { overlayTimes.append(ProcessInfo.processInfo.systemUptime) }
+        overlayProbe.running = true
+        defer { overlayProbe.stop(); overlayProbe.removeFromSuperview() }
+        prefs.followArtworkColors = true
+        for iteration in 0..<4 {
+            main.orderFrontRegardless(); model.mainWindowVisible = true
+            replace(iteration + 20)
+            try await render(0.08)
+            overlayTimes = []
+            main.orderOut(nil); model.mainWindowVisible = false
+            try await render(0.85)
+            let gaps = zip(overlayTimes, overlayTimes.dropFirst()).map { ($1 - $0) * 1000 }.sorted()
+            try #require(gaps.count > 10 && overlayProbe.deliveringFrames)
+            results.append(["phase": "close-during-switch-\(iteration)", "callbacks": gaps.count,
+                "p50ms": gaps[gaps.count / 2], "p95ms": gaps[Int(Double(gaps.count - 1) * 0.95)], "maxMs": gaps.last!])
+        }
         let output: [String: Any] = ["phases": results, "handoverMainThreadMs": handoverMilliseconds,
             "requestedFPS": probe.requestedFrameRate]
         try JSONSerialization.data(withJSONObject: output, options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("result.json"))

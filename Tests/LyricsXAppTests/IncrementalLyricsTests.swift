@@ -109,10 +109,10 @@ import LyricsXServices
     changed.track = "another song"
     #expect(first.songScope != changed.songScope)
     changed = first; changed.compact = true
-    #expect(first.songScope != changed.songScope)
+    #expect(first.songScope == changed.songScope)
     let compact = changed.songScope
     changed.primary = "Loading lyrics"
-    #expect(compact != changed.songScope)
+    #expect(compact == changed.songScope)
 }
 
 /// Optional local verification: never copies lyric contents or private paths

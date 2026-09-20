@@ -15,6 +15,10 @@ import LyricsXCore
         let changed = moving.updating(to: replacement, lyricTime: 3.05, at: 10.15, animated: true)
         #expect(changed.departure == nil && changed.promotionDistance == nil)
         #expect(!changed.needsFrames(at: 10.15, reduced: false))
+        // Paused playback cannot finish a pose whose wall clock was cleared.
+        let pausedPose = OverlayMotionFrame.make(time: changed.layoutTime(at: 50, fallback: 3.05),
+            plan: changed.motionPlan, distance: changed.promotionDistance, nextScale: 0.5, reduced: false)
+        #expect(pausedPose == .init())
     }
 
     private func cue(_ index: Int, interval: Double = 3, prefix: Bool = false) -> OverlayCueSnapshot {

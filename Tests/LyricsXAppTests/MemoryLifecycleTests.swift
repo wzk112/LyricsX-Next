@@ -48,6 +48,34 @@ private struct MemoryTestRepository: LyricsRepository {
             #expect(contentReference == nil)
         }
     }
+
+    @Test func repeatedMetadataRefinementsDoNotAccumulateTrackOrResizeTransactions() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = Preferences(defaults: defaults)
+        preferences.overlayVisible = false
+        let model = AppModel(repository: MemoryTestRepository(), preferences: preferences)
+        let early = Track(playerID: "test", playerName: "Test", persistentID: "stable-item", title: "Song")
+        model.bridge.onSnapshot?(.init(track: early, position: 0, isPlaying: true))
+        model.session.use(.init(lines: [.init(id: 0, time: 0, text: "A stable lyric")]), persist: false)
+        let overlay = OverlayController(model: model, frameAutosaveName: nil)
+        model.overlay = overlay
+        defer { model.stop() }
+        await Task.yield()
+        let revision = model.session.trackRevision
+        let resizeGeneration = overlay.resizeGeneration
+        for index in 0..<200 {
+            var refined = early
+            refined.artist = "Artist"; refined.album = "Album"; refined.duration = 180
+            model.bridge.onSnapshot?(.init(track: refined, position: Double(index) / 10, isPlaying: true))
+            if index.isMultiple(of: 20) { await Task.yield() }
+        }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(model.session.trackRevision == revision)
+        #expect(overlay.resizeGeneration == resizeGeneration)
+    }
     @Test func libraryClosesWithoutKeepingDocumentsOrPublishingLateResults() async throws {
         let suite = "LyricsXTests-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))

@@ -138,7 +138,10 @@ private struct SizingRepository: LyricsRepository {
         #expect(abs(overlay.panel.frame.height - height) < 1, "The old lyric is still fading out; a waiting-size window clips it")
     }
     try await Task.sleep(for: .milliseconds(700))
-    #expect(abs(overlay.panel.frame.height - OverlayPresentationMode.waitingHeight) < 1)
+    // Parallel AppKit fixtures can quantize one display-pixel boundary in
+    // opposite directions. Accept the same one-point tolerance used by the
+    // interrupted-resize checks below; larger drift still fails.
+    #expect(abs(overlay.panel.frame.height - OverlayPresentationMode.waitingHeight) <= 1)
     #expect(abs(overlay.panel.frame.maxY - top) < 1)
     model.session.seek(to: 8)
     try await Task.sleep(for: .milliseconds(500))
@@ -226,15 +229,15 @@ private struct SizingRepository: LyricsRepository {
     #expect(abs(overlay.panel.frame.width - originalWidth) <= 1)
     #expect(abs(overlay.panel.frame.maxY - top) <= 1)
     #expect(host.bounds == bounds)
-    // Drag during a new expansion, then let sizing resume at the new anchor.
+    // Drag during an expansion without suspending its size animation.
     model.session.seek(to: 3)
     try await Task.sleep(for: .milliseconds(50))
     overlay.panel.onDragActivity?(true)
-    let heldHeight = overlay.panel.frame.height
-    overlay.panel.setFrameOrigin(.init(x: overlay.panel.frame.minX + 10, y: overlay.panel.frame.minY + 10))
-    let movedTop = overlay.panel.frame.maxY
+    let movedTop = overlay.panel.frame.maxY + 10
+    overlay.panel.onDragAnchor?(.init(x: overlay.panel.frame.midX + 10, y: movedTop))
     try await Task.sleep(for: .milliseconds(420))
-    #expect(abs(overlay.panel.frame.height - heldHeight) <= 1)
+    #expect(abs(overlay.panel.frame.height - targetHeight) <= 1)
+    #expect(abs(overlay.panel.frame.maxY - movedTop) <= 1)
     overlay.panel.onDragActivity?(false)
     try await Task.sleep(for: .milliseconds(500))
     #expect(abs(overlay.panel.frame.maxY - movedTop) <= 1)
@@ -361,4 +364,116 @@ private struct SizingStreamRepository: LyricsRepository {
     NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
     try await Task.sleep(for: .milliseconds(800))
     #expect(abs(overlay.panel.frame.height - OverlayPresentationMode.waitingHeight) <= 1)
+}
+
+@MainActor @Test func draggingAndLiveResizingKeepThePointerAnchorWithoutRestartingMotion() async throws {
+    _ = NSApplication.shared
+    let suite = "LyricsXTests-" + UUID().uuidString
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let prefs = Preferences(defaults: defaults)
+    prefs.hideWhenPaused = false; prefs.hideOverlayOnHover = false
+    prefs.overlaySecondaryMode = .translation
+    let model = AppModel(repository: SizingRepository(), preferences: prefs)
+    model.session.accept(.init(track: .init(playerID: "test", playerName: "Test", title: "Dragging"), position: 0, isPlaying: false), shouldSearch: false)
+    let short = LyricsDocument(lines: [.init(id: 0, time: 0, text: "Short")])
+    let long = LyricsDocument(lines: [.init(id: 0, time: 0,
+        text: "A long replacement lyric keeps resizing smoothly while the user moves the window",
+        translation: "第一行翻译\n第二行翻译")])
+    model.session.use(short, persist: false)
+    let overlay = OverlayController(model: model, frameAutosaveName: nil, pointerLocation: { .init(x: -10000, y: -10000) })
+    defer { overlay.stop(); model.stop() }
+    try await Task.sleep(for: .milliseconds(100))
+    model.session.use(long, persist: false)
+    try await Task.sleep(for: .milliseconds(60))
+    overlay.panel.onDragActivity?(true)
+    let start = NSPoint(x: overlay.panel.frame.midX, y: overlay.panel.frame.maxY)
+    var anchor = start
+    for step in 1...16 {
+        anchor = NSPoint(x: start.x + Double(step) * 2, y: start.y - Double(step))
+        overlay.panel.onDragAnchor?(anchor)
+        if step == 8 { NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil) }
+        try await Task.sleep(for: .milliseconds(25))
+        #expect(abs(overlay.panel.frame.midX - anchor.x) < 1)
+        #expect(abs(overlay.panel.frame.maxY - anchor.y) < 1)
+    }
+    let tall = ceil(OverlayTextMeasure.height(document: long, index: 0, preferences: prefs, maximumWidth: prefs.overlayLayoutWidth))
+    #expect(abs(overlay.panel.frame.height - tall) < 1) // Expansion completes while the pointer is still down.
+    model.session.use(short, persist: false)
+    try await Task.sleep(for: .milliseconds(650))
+    let expected = ceil(OverlayTextMeasure.height(document: short, index: 0, preferences: prefs, maximumWidth: prefs.overlayLayoutWidth))
+    #expect(abs(overlay.panel.frame.height - expected) < 1) // Shrink also runs during dragging.
+    #expect(abs(overlay.panel.frame.midX - anchor.x) < 1)
+    #expect(abs(overlay.panel.frame.maxY - anchor.y) < 1)
+    let generation = overlay.resizeGeneration
+    overlay.panel.onDragActivity?(false)
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(overlay.resizeGeneration == generation)
+    #expect(abs(overlay.panel.frame.height - expected) < 1)
+    #expect(abs(overlay.panel.frame.midX - anchor.x) < 1)
+    #expect(abs(overlay.panel.frame.maxY - anchor.y) < 1)
+}
+
+@MainActor @Test func cancelledWindowMotionCannotMoveTheWindowOrInvokeOldCompletion() {
+    let window = NSPanel(contentRect: .init(x: 100, y: 100, width: 620, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let motion = OverlayWindowMotion(window: window)
+    var completed = false
+    let now = ProcessInfo.processInfo.systemUptime
+    motion.start(to: .init(x: 100, y: 0, width: 620, height: 200), duration: 0.4, frameRateLimit: 60) { completed = true }
+    motion.advance(at: now + 0.15)
+    motion.cancel()
+    window.setFrameOrigin(.init(x: 240, y: 300))
+    let dragged = window.frame
+    motion.advance(at: now + 10); motion.finish()
+    #expect(window.frame == dragged && !completed)
+    window.close()
+}
+
+@MainActor @Test func movingAnchorDoesNotRestartResizeOrChangeItsPointerOffset() {
+    let window = NSPanel(contentRect: .init(x: 100, y: 300, width: 620, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    defer { window.close() }
+    let motion = OverlayWindowMotion(window: window)
+    var completions = 0
+    let now = ProcessInfo.processInfo.systemUptime
+    motion.start(to: .init(x: 100, y: 100, width: 620, height: 300), duration: 0.4, frameRateLimit: 60) { completions += 1 }
+    var previousHeight = window.frame.height
+    var changedHeights = 0
+    for step in 1...60 {
+        let point = NSPoint(x: 450 + Double(step), y: 450 - Double(step) * 0.5)
+        motion.moveTopCenter(to: point)
+        motion.advance(at: now + Double(step) / 120)
+        #expect(abs(window.frame.midX - point.x) <= 1)
+        #expect(abs(window.frame.maxY - point.y) <= 1)
+        #expect(window.frame.height >= previousHeight)
+        if window.frame.height > previousHeight { changedHeights += 1 }
+        previousHeight = window.frame.height
+    }
+    #expect(changedHeights > 8)
+    #expect(window.frame.height == 300 && completions == 1)
+}
+
+@MainActor @Test func overlayDragUsesDeliveredEventCoordinatesRatherThanTheGlobalPointer() throws {
+    let panel = DraggableOverlayPanel(contentRect: .init(x: 100, y: 300, width: 620, height: 100),
+                                     styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    panel.isReleasedWhenClosed = false
+    defer { panel.close() }
+    var activity: [Bool] = []
+    var anchors: [NSPoint] = []
+    panel.onDragActivity = { activity.append($0) }
+    panel.onDragAnchor = { anchors.append($0) }
+    func send(_ type: NSEvent.EventType, _ point: NSPoint) throws {
+        let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        panel.sendEvent(event)
+    }
+    let original = panel.frame
+    try send(.leftMouseDown, .init(x: 100, y: 50))
+    try send(.leftMouseDragged, .init(x: 120, y: 60))
+    try send(.leftMouseUp, .init(x: 120, y: 60))
+    #expect(activity == [true, false])
+    #expect(anchors.count == 2)
+    #expect(anchors.allSatisfy { $0 == NSPoint(x: original.midX + 20, y: original.maxY + 10) })
 }

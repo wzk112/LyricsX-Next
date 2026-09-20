@@ -4,6 +4,9 @@ import Observation
 @Observable @MainActor
 public final class LyricsSession {
     public private(set) var track: Track?
+    /// Changes only when the player advances to another playback item. Metadata
+    /// and artwork refinements for the current item retain the same revision.
+    public private(set) var trackRevision: UInt64 = 0
     public private(set) var document: LyricsDocument? {
         didSet {
             documentRevision &+= 1
@@ -46,9 +49,14 @@ public final class LyricsSession {
             tick(now: now)
             return
         }
-        let changed = track?.id != snapshot.track?.id
+        let changed: Bool = switch (track, snapshot.track) {
+        case (nil, nil): false
+        case (nil, _), (_, nil): true
+        case let (previous?, current?): !previous.representsSamePlaybackItem(as: current)
+        }
         if track != snapshot.track { track = snapshot.track }
         if changed {
+            trackRevision &+= 1
             seekProtectionUntil = 0
             pendingSeekTarget = nil
             timeline = PlaybackTimeline()
@@ -57,7 +65,7 @@ public final class LyricsSession {
         }
         if let target = pendingSeekTarget,
            snapshot.positionIsReliable,
-           snapshot.track?.id == track?.id,
+           snapshot.track.map({ track?.representsSamePlaybackItem(as: $0) == true }) == true,
            abs(snapshot.position - target) <= 2.5 {
             seekProtectionUntil = 0
             pendingSeekTarget = nil
@@ -101,11 +109,13 @@ public final class LyricsSession {
         if !forceRefresh { document = nil; currentLineIndex = nil }
         candidates = []; bestScore = -Double.infinity; bestIsProvisional = false; phase = .loading; isSearching = true
         let generation = searchGeneration
+        let trackRevision = self.trackRevision
         let stream = repository.lyrics(for: track, forceRefresh: forceRefresh)
         searchTask = Task { [weak self] in
             do {
                 for try await candidate in stream {
-                    guard !Task.isCancelled, let self, self.searchGeneration == generation, self.track?.id == track.id else { return }
+                    guard !Task.isCancelled, let self, self.searchGeneration == generation,
+                          self.trackRevision == trackRevision else { return }
                     self.candidates.removeAll { $0.id == candidate.id }
                     self.candidates.append(candidate)
                     self.candidates.sort { $0.score > $1.score }

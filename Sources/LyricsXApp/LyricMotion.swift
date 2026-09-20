@@ -55,11 +55,7 @@ private struct LyricArrival<Trigger: Equatable & Sendable>: ViewModifier {
 
     func body(content: Content) -> some View {
         let visible = visible()
-        var staged = clock
-        if displayedTrigger != nil, displayedTrigger != trigger, !reduced, visible {
-            staged.start(at: ProcessInfo.processInfo.systemUptime)
-        }
-        let presentation = staged
+        let presentation = clock
         return LyricRenderTimeline(running: presentation.startedAt != nil && !reduced && visible,
                             sampledTime: ProcessInfo.processInfo.systemUptime,
                             preciseTime: { ProcessInfo.processInfo.systemUptime }) { now in
@@ -74,6 +70,12 @@ private struct LyricArrival<Trigger: Equatable & Sendable>: ViewModifier {
         }
         .onChange(of: visible) { _, value in if !value { clock.cancel() } }
         .onChange(of: reduced) { _, value in if value { clock.cancel() } }
+        .task(id: clock.startedAt) {
+            guard let token = clock.startedAt else { return }
+            let remaining = max(0, token + clock.duration - ProcessInfo.processInfo.systemUptime)
+            do { try await Task.sleep(for: .seconds(remaining)) } catch { return }
+            clock.finish(token)
+        }
         .onDisappear { clock.cancel() }
     }
 }
