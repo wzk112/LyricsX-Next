@@ -410,7 +410,7 @@ struct PreferencesView: View {
             }
             SettingsCard(title: "搜索排除记录") {
                 SettingRow(title: "恢复全部歌词搜索", detail: "已停用 \(p.blockedTracks.count) 首歌曲、\(p.blockedAlbums.count) 张专辑。", impact: "会清空排除记录，之前因匹配错误停用的歌曲也会重新搜索；不会删除歌词文件。") {
-                    Button("恢复全部") { p.blockedTracks = []; p.blockedAlbums = []; model.session.reload() }
+                    Button("恢复全部") { p.blockedTracks = []; p.blockedAlbums = []; p.manualLyricOverrides = [:]; model.session.reload() }
                         .disabled(p.blockedTracks.isEmpty && p.blockedAlbums.isEmpty)
                 }
             }

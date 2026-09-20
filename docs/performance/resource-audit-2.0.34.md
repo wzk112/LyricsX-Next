@@ -91,3 +91,10 @@ https://developer.apple.com/documentation/swiftui/text/layout/drawingoptions/dis
 诊断原始数据位于 `/tmp/lyricsx-playback-baseline-valid/result.json` 和 `/tmp/lyricsx-playback-final/result.json`，不随应用发布。新增回归覆盖解码尺寸上限、无效数据、连续跳歌、同一歌曲更新封面及停止后的迟到回写；既有逐字像素、对齐和辉光测试继续通过。
 
 本地正式应用已更新为 2.0.34（249），签名校验通过；安装包与已安装二进制 SHA-256 一致。实际主窗口已确认封面、主题背景、暂停位置与歌词恢复正常；未操作真实播放器来制造切歌，动态比较来自独立原生窗口测试。GitHub 尚未发布，等待用户验收。
+
+## Release build 251: search preview and explicit application
+
+- Search keeps results open. Preview renders the chosen candidate against the existing playback clock without changing the session document or writing the cache; Apply commits the selection. The main window pauses its word-frame rendering behind search/library sheets.
+- Applying lyrics clears an earlier per-song exclusion. An excluded album gets a persistent exception only for the chosen song, leaving its other songs excluded. Import and library selection share the same apply path. Explicitly excluding the song or album again revokes its exception.
+- The reported apply-then-disappear behavior is reproduced in `SearchSelectionTests` using a blocked song followed by a player snapshot. The fixed path survives repeated snapshots. Tests also cover stale track rejection, ordered persistence, album exceptions and revocation.
+- Release checks: 97 services + 38 core + 123 app tests passed (258 total). Native UI inspection verified separate Preview/Apply controls, bilingual playback preview and preservation of the original local lyrics after dismissing preview. The installed bundle is 2.0.34 (251); strict signature verification passed.

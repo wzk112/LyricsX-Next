@@ -43,56 +43,68 @@ struct GuidePage: Identifiable {
 enum GuideContent {
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.34"
     static let tutorial: [GuidePage] = [
-        .init(id: "start", title: "连接音乐，自动同步歌词", subtitle: "从播放一首歌曲开始", symbol: "play.circle", points: [
-            "打开 Apple Music、Spotify、网易云或 QQ 音乐播放歌曲，LyricsX Next 自动读取歌曲与进度；自动模式排除浏览器。",
-            "其他音乐应用需向系统提供播放状态。若未识别，在设置 → 播放器指定来源或重新连接；macOS 询问自动化访问时按需允许。",
-            "自动查询启用的歌词源并保存匹配结果。没有歌词或纯音乐时显示歌曲信息，前奏和句间等待显示三个点。"], illustration: "player"),
-        .init(id: "main", title: "主窗口与菜单栏", subtitle: "歌词跟随真实播放进度", symbol: "text.quote", points: [
-            "主窗口展示封面、歌词和翻译。点击歌词可跳转到该句，底部可播放、暂停、切歌和拖动进度。",
-            "关闭主窗口后仍可使用悬浮歌词。菜单栏可显示图标、当前歌词或合并显示；设置 → 通用可调整 Dock 和登录启动。",
-            "⌥⌘O 打开主窗口，⌥⌘L 显示或隐藏悬浮窗。关闭 Dock 与菜单栏入口后也能使用这些快捷键。"], illustration: "player"),
-        .init(id: "search", title: "找到适合这首歌的版本", subtitle: "⌘F · 搜索歌词", symbol: "magnifyingglass", points: [
-            "点击主窗口放大镜或按 ⌘F，修改歌名、歌手后搜索。候选结果逐步出现，可查看来源、匹配度、双语与逐字信息，再选择应用。",
-            "完整搜索默认关闭；需要更多别名或版本时再开启，结果更多，等待也可能更久。无结果时检查网络或更换搜索词。",
-            "设置 → 搜索可启用来源、排序、设置严格匹配与双语／逐字偏好。修改影响下一次搜索；当前歌曲可点“重新搜索”绕过已有缓存。"], illustration: "search"),
-        .init(id: "overlay", title: "桌面上的悬浮歌词", subtitle: "宽度固定，高度随当前句调整", symbol: "rectangle.on.rectangle", points: [
-            "悬浮窗放在其他窗口上方，长句自动换行并调整高度，顶部位置保持稳定。关闭自动高度后可手动修改宽度。",
-            "解锁后拖动歌词区域移动；锁定避免误拖。点击穿透让点击传给后面的应用，开启时自动锁定；解锁会关闭穿透。",
-            "鼠标经过隐藏只在锁定时生效，离开后恢复。可设置暂停时隐藏；右上控制条和菜单栏保留操作入口。"], illustration: "overlay"),
-        .init(id: "style", title: "两种背景，按场景选择", subtitle: "Liquid Glass / 磨砂阅读", symbol: "square.on.square", points: [
-            "Liquid Glass 保留通透和折射边缘；磨砂阅读柔化后方内容，提高复杂背景上的可读性。",
-            "透明度越高越通透，磨砂越强背景越柔和。两种样式分别记住磨砂值；文字不会随背景一起模糊。",
-            "系统开启“降低透明度”时使用实色背景。预览与实际窗口后方内容不同，效果也会不同。"], illustration: "style"),
-        .init(id: "text", title: "字体、颜色与辅助内容", subtitle: "设置 → 歌词 · 实时预览", symbol: "textformat", points: [
-            "选择本机字体，独立设置主窗口、悬浮窗原文和辅助行字号；缺少字形会使用系统后备字体。",
-            "设置原文和辅助文字颜色，或为逐字歌词分别设置已唱与未唱颜色。简繁体转换只影响显示，保留逐字时间，不修改歌词文件。",
-            "辅助内容可选仅翻译、仅下一句、翻译或下一句、两者同时显示或关闭。“翻译或下一句”在没有译文时显示下一句；翻译总开关同时影响两个窗口。"], illustration: "text"),
-        .init(id: "effects", title: "逐字高亮与长音辉光", subtitle: "按歌词时间驱动，不自动猜测逐字时间", symbol: "sparkles", points: [
-            "逐字歌词会随进度提亮，演唱中的词轻微放大。长音中的字符依次柔和起伏并渐进发光；普通行级歌词没有逐字效果。",
-            "HDR／EDR 增强按当前屏幕可用余量限制亮度，普通屏幕自动回退。它不会修改系统亮度，也不代表屏幕有 HDR 面板认证。",
-            "减少动态效果保留同步提亮，关闭位移和辉光。设置 → 开发者选项可选 60 帧或智能节能；隐藏的预览停止刷新。"], illustration: "effects"),
-        .init(id: "timing", title: "校准同步，处理错误匹配", subtitle: "每首歌单独记住偏移", symbol: "slider.horizontal.3", points: [
-            "歌词慢了，增加正偏移让它提前；歌词快了，使用负偏移让它延后。主窗口底部可按 0.1 秒调整，点偏移值重置。",
-            "偏移会保存到当前歌词文件，下次播放继续使用。快捷键 ⌥⌘↑／↓ 以 0.2 秒调整。",
-            "版本不对可手动搜索替换。菜单栏 → 歌词可停用此歌曲或专辑的自动搜索；需要时可恢复，开发者选项支持清空排除记录。"], illustration: "timing"),
-        .init(id: "library", title: "本地歌词与资料库", subtitle: "保留已有文件，管理自己的版本", symbol: "books.vertical", points: [
-            "工具栏书本图标打开歌词资料库。自动下载的歌词会缓存，之后优先复用；切歌不必每次重新联网。",
-            "将 LRC / LRCX 拖入主窗口，或在菜单中导入，应用到当前歌曲。LRCX 可保留翻译和逐字时间；导出纯文本会去掉时间信息。",
-            "开发者选项可以更换缓存目录、导出文件或写入 Apple Music。切换目录不会搬迁文件；导入会替换当前版本，写入音乐资料库可能覆盖原歌词。"], illustration: "library"),
-        .init(id: "privacy", title: "数据、更新与帮助", subtitle: "随时在设置 → 关于重新查看", symbol: "info.circle", points: [
-            "搜索会向启用的来源发送歌名、歌手和时长。Musixmatch 可选令牌保存在系统钥匙串；无需使用的来源可关闭。",
-            "开发者选项集中放置文件与排除记录操作、令牌、帧率和显示诊断。普通使用无需修改这些项目。",
-            "菜单栏可检查 GitHub 更新。每个新版本首次打开介绍新增和修复；同版本重启不再弹出。设置 → 关于可重看完整教程和版本介绍。"], illustration: "privacy")
+        .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
+            "打开 Apple Music、Spotify、网易云或 QQ 音乐播放歌曲，即可自动同步歌词。自动识别不包含浏览器。",
+            "没有识别到播放器？前往“设置 → 播放器”选择来源或重新连接。系统询问控制播放器的权限时，请允许。",
+            "应用会自动搜索并保存歌词。等待歌词时显示三个点，纯音乐或没有歌词时显示歌曲信息。"], illustration: "player"),
+        .init(id: "main", title: "主窗口与菜单栏", subtitle: "播放、切歌和查看歌词", symbol: "text.quote", points: [
+            "点击歌词可跳到那一句；底部可以播放、暂停、切歌和拖动进度。",
+            "关闭主窗口也能继续看悬浮歌词。菜单栏歌词、Dock 图标和登录启动，可在“设置 → 通用”调整。",
+            "⌥⌘O 打开主窗口，⌥⌘L 显示或隐藏悬浮窗。隐藏菜单栏和 Dock 图标后，仍可用快捷键打开。"], illustration: "player"),
+        .init(id: "search", title: "选择合适的歌词", subtitle: "点击放大镜，或按 ⌘F", symbol: "magnifyingglass", points: [
+            "输入歌名或歌手，点“预览”查看效果，再点“应用当前歌词”使用。列表会保持打开，方便继续挑选。",
+            "“完整搜索”会查找更多版本，但可能需要更久；平时保持关闭即可。",
+            "下方可调整来源顺序、逐字或双语优先。改好后，对当前歌曲点“重新搜索”，即可重新选择。"], illustration: "search"),
+        .init(id: "overlay", title: "把歌词放在桌面上", subtitle: "设置 → 悬浮窗", symbol: "rectangle.on.rectangle", points: [
+            "悬浮窗显示在其他窗口上方，可随长句自动换行、调整高度。关闭自动高度后可手动调整宽度。",
+            "解锁后拖动窗口，锁定后避免误拖。“点击穿透”让你直接操作后面的应用，并自动锁定位置。",
+            "锁定时可开启“鼠标经过时隐藏”，离开后恢复。也可以选择暂停播放时隐藏。"], illustration: "overlay"),
+        .init(id: "style", title: "选择喜欢的背景", subtitle: "Liquid Glass · 磨砂阅读", symbol: "square.on.square", points: [
+            "Liquid Glass 更通透；磨砂阅读能柔化背景，让歌词更清楚。点击图例切换。",
+            "透明度越高，越能看清后方；磨砂越强，背景越柔和。两种样式会分别记住磨砂程度。",
+            "实际效果会随桌面背景变化。系统开启“降低透明度”时，会使用实色背景。"], illustration: "style"),
+        .init(id: "text", title: "字体和颜色，由你决定", subtitle: "设置 → 歌词 · 边调边预览", symbol: "textformat", points: [
+            "选择喜欢的本机字体，分别调整主窗口、悬浮窗和辅助文字的字号。字体缺少某些字符时，会自动使用系统字体。",
+            "自由设置文字颜色，也能分别设置已唱、未唱的颜色。开启“跟随封面主题色”，歌词就会随歌曲封面换色。",
+            "辅助文字可选翻译、下一句或两者都显示。“翻译或下一句”会在没有翻译时显示下一句；也支持简繁体显示。"], illustration: "text"),
+        .init(id: "effects", title: "让歌词随演唱亮起来", subtitle: "设置 → 动效", symbol: "sparkles", points: [
+            "带逐字时间的歌词会依次提亮、轻微放大，慢唱和长音还会柔和发光。普通逐行歌词没有这些效果。",
+            "EDR 辉光增强可让高光更亮，实际效果取决于屏幕。它不会改变系统亮度；不支持时使用普通辉光。",
+            "喜欢安静的画面，可开启“减少动态效果”。想降低开销，可在开发者选项中选择 60 帧或智能节能。"], illustration: "effects"),
+        .init(id: "timing", title: "让歌词与音乐对齐", subtitle: "每首歌都会记住调整", symbol: "slider.horizontal.3", points: [
+            "歌词慢了，用正偏移提前；歌词快了，用负偏移延后。底部每次调整 0.1 秒，点击数值即可重置。",
+            "也可用 ⌥⌘↑／↓ 每次调整 0.2 秒。调整会保存，下次播放无需重设。",
+            "歌词版本不对时可重新搜索。菜单栏 → 歌词还可以停用某首歌或整张专辑的搜索，需要时再恢复。"], illustration: "timing"),
+        .init(id: "library", title: "使用自己的歌词文件", subtitle: "点击书本图标打开资料库", symbol: "books.vertical", points: [
+            "下载过的歌词会保存在本地，下次播放优先使用。资料库可以查看已有歌词。",
+            "把 LRC 或 LRCX 文件拖入主窗口，即可替换当前歌词。LRCX 可保留翻译和逐字效果；导出纯文本则不保留时间。",
+            "更换保存位置、导出和写入 Apple Music 等操作在开发者选项中。更换位置不会自动搬移文件；写入 Apple Music 可能覆盖原歌词。"], illustration: "library"),
+        .init(id: "privacy", title: "帮助与更新", subtitle: "设置 → 关于，可随时重看", symbol: "info.circle", points: [
+            "搜索时会向启用的歌词来源发送歌名、歌手和时长。不需要的来源可在设置中关闭。",
+            "开发者选项包含文件管理、歌词来源令牌和性能设置，日常使用无需调整。来源令牌保存在系统钥匙串中。",
+            "菜单栏可以检查更新。教程和更新介绍只自动显示一次，以后可在“设置 → 关于”重新查看。"], illustration: "privacy")
     ]
     // Add new release entries here; a version jump includes every intervening
     // entry, while a first upgrade from versions without receipts gets a recap.
     static let releases: [(version: String, page: GuidePage)] = [
-        ("2.0.34", .init(id: "r29", title: "启动与悬浮窗更可靠", subtitle: "稳定性修复", symbol: "rectangle.on.rectangle", points: ["悬浮窗无需先打开主窗口即可启动，菜单栏歌词恢复正常。", "歌词替换时重新测量高度；修复屏幕参数通知中断缩放，导致文字截断、必须鼠标经过才恢复的问题。"], illustration: "overlay")),
-        ("2.0.34", .init(id: "r30", title: "歌词按你的习惯显示", subtitle: "新增自定义字体与配色", symbol: "textformat", points: ["自定义字体与原文、辅助行颜色，并可分别设置已唱和未唱颜色。", "改进封面与背景切歌过渡，修正自定义字体字号和对齐，恢复屏幕 EDR 辉光检测。"], illustration: "text")),
-        ("2.0.34", .init(id: "r33", title: "减少重复工作", subtitle: "性能优化", symbol: "leaf", points: ["优化 QQ 歌词长文本的重复扫描，减少搜索时的 CPU 开销。缓存文件只读取一次，字体行高复用测量结果。", "播放器列表随应用启动、退出和唤醒更新；修复悬浮窗与计时器的释放，关闭资料库后清理文档与扫描。原有动效和帧率策略保留。", "长音字符依次起伏，平滑放大与回落；微小播放器时间抖动不再直接跳变高亮和辉光，设置图例提升为可见时 60 帧。"], illustration: "effects")),
-        ("2.0.34", .init(id: "r34", title: "简繁转换保留逐字效果", subtitle: "本次修复 · 2.0.34", symbol: "character.book.closed", points: ["简体与繁体转换后保留每段逐字时间，继续显示逐字高亮、独立配色和长音辉光。", "转换只作用于显示，不改写歌词文件。主窗口与悬浮窗使用同一套修复。"], illustration: "conversion")),
-        ("2.0.34", .init(id: "theme34", title: "歌词随封面变换主题色", subtitle: "新功能 · 设置 → 歌词", symbol: "paintpalette", points: ["主窗口背景保留更多封面颜色，偏暗封面补充同色系底色，减少灰黑感并保留平滑切换。", "另可开启“跟随封面主题色”：已唱与未唱使用同色系明暗对比，翻译使用浅色，保留逐字时间和长音辉光。", "无封面回退中性白色；关闭开关恢复手动配色。主题只在封面变化时提取，预览不会控制音乐。"], illustration: "theme")),
-        ("2.0.34", .init(id: "settings34", title: "设置更清楚，预览更轻量", subtitle: "本次优化 · 2.0.34", symbol: "slider.horizontal.3", points: ["根据辅助文字模式显示相关字号，标明系统动效限制与登录启动状态。", "边栏统一图标与行距，展开／收起保持阅读列宽度，减少重排卡顿；修正链接并校验旧设置。", "新增完整教程和版本介绍，首次自动展示后可在“关于”重看。"], illustration: "settings"))
+        ("2.0.34", .init(id: "r30", title: "换上喜欢的字体", subtitle: "新功能 · 设置 → 歌词", symbol: "textformat", points: [
+            "使用本机安装的字体，分别调整主窗口、悬浮窗和辅助文字的字号。",
+            "边调边预览，找到适合自己的大小和风格。"], illustration: "text")),
+        ("2.0.34", .init(id: "color34", title: "歌词颜色，自由搭配", subtitle: "新功能 · 设置 → 歌词", symbol: "paintpalette", points: [
+            "原文与翻译可以分别选色，逐字歌词也能单独设置已唱和未唱的颜色。",
+            "保留逐字高亮和长音辉光，让演唱进度更清楚。"], illustration: "text")),
+        ("2.0.34", .init(id: "theme34", title: "跟随歌曲封面换色", subtitle: "新功能 · 设置 → 歌词", symbol: "photo", points: [
+            "开启“跟随封面主题色”，歌词会自动搭配当前封面；已唱与未唱用明暗区分。",
+            "主窗口背景也更有封面的色彩。关闭开关即可恢复手动配色。"], illustration: "theme")),
+        ("2.0.34", .init(id: "r29", title: "悬浮歌词显示更稳定", subtitle: "修复 · 启动、换行与切歌", symbol: "rectangle.on.rectangle", points: [
+            "启动后即可显示悬浮窗，菜单栏歌词也恢复正常。",
+            "修复切歌或更换歌词后高度未及时变化、文字被截断，以及更换字体后对齐不准的问题。"], illustration: "overlay")),
+        ("2.0.34", .init(id: "r33", title: "播放与切歌更流畅", subtitle: "改进 · 动画与性能", symbol: "waveform", points: [
+            "改善逐字、辉光、封面和背景过渡，减少播放与切歌时的卡顿、闪动，并降低不必要的资源占用。",
+            "修复简繁体转换后逐字效果失效，以及部分歌词搜索和显示问题。"], illustration: "effects")),
+        ("2.0.34", .init(id: "settings34", title: "设置更清楚，上手更轻松", subtitle: "新增教程 · 设置 → 关于", symbol: "slider.horizontal.3", points: [
+            "搜索可先预览再应用，列表保持打开，方便挑选。设置页面也更清楚、更好操作。",
+            "首次使用会显示完整教程，更新后只介绍本次变化。以后都可以在“关于”中重新查看。"], illustration: "settings"))
     ]
     // Last release actually published on GitHub, not a local test build.
     static let latestBaseline: String? = "2.0.28"
@@ -293,7 +305,7 @@ private struct GuideQuickSettings: View {
         if available {
             VStack(alignment: .leading, spacing: 10) {
                 Label("在这里设置", systemImage: "slider.horizontal.3").font(.headline)
-                Text("以下是应用的真实设置，修改后立即保存；不操作就保持原来的选择。")
+                Text("可以直接调整，修改会自动保存。")
                     .font(.caption).foregroundStyle(.secondary)
                 VStack(spacing: 0) { controls }
                     .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 14))
@@ -332,9 +344,9 @@ private struct GuideQuickSettings: View {
             Divider().padding(.horizontal, 16)
             VStack(alignment: .leading, spacing: 6) {
                 Text("歌词来源与排序").font(.body.weight(.medium))
-                Text("越靠上越优先。开关决定是否参与搜索，箭头调整顺序；歌名匹配与版本偏好也会影响最终选择。")
+                Text("用开关启用来源，用箭头调整顺序。越靠上越优先，也会参考歌曲匹配和你的偏好。")
                     .font(.callout).foregroundStyle(.secondary)
-                Text("从下一次搜索生效，已有缓存继续复用。当前歌曲可在设置 → 搜索中重新搜索。")
+                Text("对当前歌曲应用新偏好，请在“设置 → 搜索”中重新搜索。")
                     .font(.caption).foregroundStyle(.secondary)
             }.padding(16)
             ForEach(preferences.sourceOrder, id: \.self) { source in
@@ -354,7 +366,7 @@ private struct GuideQuickSettings: View {
         case "text":
             SettingToggle(title: "跟随封面主题色", detail: "自动生成已唱／未唱明暗配色；关闭恢复手动颜色。", value: $preferences.followArtworkColors)
             SettingToggle(title: "显示翻译", detail: "有译文时在主窗口与悬浮窗显示。", value: $preferences.showTranslation)
-            SettingRow(title: "辅助内容", detail: "“翻译或下一句”没有译文时显示下一句，“仅翻译”则不回退。") {
+            SettingRow(title: "辅助内容", detail: "没有翻译时，“翻译或下一句”会显示下一句；“仅翻译”则不显示。") {
                 Picker("辅助内容", selection: $preferences.overlaySecondaryMode) {
                     ForEach(OverlaySecondaryMode.allCases) { Text($0.title).tag($0) }
                 }.labelsHidden().frame(width: 150)

@@ -177,23 +177,45 @@ final class AppModel {
     func skip(next: Bool) {
         bridge.send(next ? .next : .previous)
     }
+    /// Keep the search sheet and its results alive while changing the applied
+    /// version. A stale search may never write lyrics to the next song.
+    func applySearchCandidate(_ candidate: LyricCandidate, forTrackID trackID: String?) -> Bool {
+        applyLyrics(candidate.document, forTrackID: trackID)
+    }
+    @discardableResult
+    func applyLyrics(_ document: LyricsDocument, forTrackID trackID: String?) -> Bool {
+        guard let trackID, let track = session.track, track.id == trackID else { return false }
+        // An explicit choice overrides an earlier “wrong lyrics” mark. Keep an
+        // album-wide exclusion for other songs, with a persistent per-song exception.
+        preferences.blockedTracks.removeAll { $0 == track.cacheIdentity }
+        if preferences.blockedAlbums.contains(albumKey(track)) {
+            preferences.manualLyricOverrides[track.cacheIdentity] = albumKey(track)
+        }
+        session.use(document)
+        updateMainLyricSelection()
+        return true
+    }
     func refreshLyrics() { if !lyricsBlocked { session.reload(forceRefresh: true) } }
     var lyricsBlocked: Bool {
         lyricsBlocked(for: session.track)
     }
     private func lyricsBlocked(for track: Track?) -> Bool {
         guard let track else { return false }
-        return preferences.blockedTracks.contains(track.cacheIdentity) || preferences.blockedAlbums.contains(albumKey(track))
+        if preferences.blockedTracks.contains(track.cacheIdentity) { return true }
+        let key = albumKey(track)
+        return preferences.blockedAlbums.contains(key) && preferences.manualLyricOverrides[track.cacheIdentity] != key
     }
     private func albumKey(_ track: Track) -> String { [track.artist, track.album].map { "\($0.utf8.count):\($0)" }.joined() }
     func markWrongLyrics() {
         guard let track = session.track else { return }
+        preferences.manualLyricOverrides.removeValue(forKey: track.cacheIdentity)
         if !preferences.blockedTracks.contains(track.cacheIdentity) { preferences.blockedTracks.append(track.cacheIdentity) }
         session.suppressLyrics()
     }
     func toggleAlbumSuppression() {
         guard let track = session.track, !track.album.isEmpty else { return }
         let key = albumKey(track)
+        preferences.manualLyricOverrides = preferences.manualLyricOverrides.filter { $0.value != key }
         if preferences.blockedAlbums.contains(key) { preferences.blockedAlbums.removeAll { $0 == key }; session.reload() }
         else { preferences.blockedAlbums.append(key); session.suppressLyrics() }
     }
@@ -201,7 +223,9 @@ final class AppModel {
     func restoreLyricsSearch() {
         guard let track = session.track else { return }
         preferences.blockedTracks.removeAll { $0 == track.cacheIdentity }
-        preferences.blockedAlbums.removeAll { $0 == albumKey(track) }
+        let key = albumKey(track)
+        preferences.blockedAlbums.removeAll { $0 == key }
+        preferences.manualLyricOverrides = preferences.manualLyricOverrides.filter { $0.value != key }
         session.reload(forceRefresh: true)
     }
     func revealLyrics() {
@@ -259,7 +283,7 @@ final class AppModel {
         guard session.track != nil else { message = "请先播放一首歌曲，再导入对应歌词。"; return }
         do {
             let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            session.use(try LyricsCodec.read(url))
+            applyLyrics(try LyricsCodec.read(url), forTrackID: session.track?.id)
         } catch { message = error.localizedDescription }
     }
     func exportLyrics(plain: Bool = false) {

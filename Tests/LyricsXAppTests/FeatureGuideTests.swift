@@ -35,7 +35,7 @@ import Testing
         }
     }
     @Test func versionJumpContainsOnlyInterveningReleaseNotes() {
-        let current = ["r29", "r30", "r33", "r34", "theme34", "settings34"]
+        let current = ["r30", "color34", "theme34", "r29", "r33", "settings34"]
         #expect(GuideContent.latestBaseline == "2.0.28")
         #expect(GuideContent.updates(after: "2.0.28").map(\.id) == current)
         #expect(GuideContent.updates(after: "2.0.33").map(\.id) == current)

@@ -19,9 +19,10 @@ struct SearchView: View {
     @State private var deadline: Task<Void, Never>?
     @State private var requestID = UUID()
     @State private var trackID: String?
+    @State private var previewCandidate: LyricCandidate?
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack { VStack(alignment: .leading, spacing: 5) { Text("找到对的那一句").font(.title2.bold()); Text(searching ? "正在加载歌词，结果会逐步显示…" : "搜索多个歌词源，选择最适合当前歌曲的版本。").font(.caption).foregroundStyle(.secondary) }; Spacer(); Button("完成") { dismiss() }.keyboardShortcut(.cancelAction) }
+            HStack { VStack(alignment: .leading, spacing: 5) { Text("搜索歌词").font(.title2.bold()); Text(searching ? "正在加载歌词，结果会逐步显示…" : "先预览，再应用；选好后点击“完成”。").font(.caption).foregroundStyle(.secondary) }; Spacer(); Button("完成") { dismiss() }.keyboardShortcut(.cancelAction) }
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("歌曲名和歌手", text: $query).textFieldStyle(.plain).onSubmit(search)
@@ -47,37 +48,73 @@ struct SearchView: View {
                 }.foregroundStyle(.secondary)
             }
             if let error { Text(error).font(.caption).foregroundStyle(.orange) }
-            if results.isEmpty {
-                ContentUnavailableView(searching ? "正在加载歌词" : "暂无结果", systemImage: "text.magnifyingglass", description: Text("也可以将本地 LRC 或 LRCX 文件拖入主窗口。"))
-            } else {
-                List(results) { candidate in
-                    HStack(spacing: 14) {
-                        Image(systemName: candidate.document.hasWordTiming ? "waveform" : "text.quote").font(.title3).foregroundStyle(.secondary).frame(width: 30)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(candidate.document.title.isEmpty ? "未命名歌词" : candidate.document.title).font(.headline)
-                            Text("\(candidate.document.artist) · \(candidate.document.source) · \(candidate.document.lines.count) 行").font(.caption).foregroundStyle(.secondary)
-                            if let first = candidate.document.lines.first(where: { !$0.text.isEmpty }) { Text(first.text).font(.caption).lineLimit(1).foregroundStyle(.tertiary) }
+            HStack(spacing: 16) {
+                Group {
+                    if results.isEmpty {
+                        ContentUnavailableView(searching ? "正在加载歌词" : "暂无结果", systemImage: "text.magnifyingglass", description: Text("也可以导入本地 LRC 或 LRCX 文件。"))
+                    } else {
+                        List(results) { candidate in
+                            let applied = model.session.document.map { $0.id == candidate.id || Self.sameVersion($0, candidate.document) } == true
+                            HStack(spacing: 10) {
+                                Image(systemName: candidate.document.hasWordTiming ? "waveform" : "text.quote")
+                                    .foregroundStyle(.secondary).frame(width: 22)
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(candidate.document.title.isEmpty ? "未命名歌词" : candidate.document.title).font(.headline).lineLimit(2)
+                                    Text("\(candidate.document.artist) · \(candidate.document.source) · \(candidate.document.lines.count) 行")
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    HStack(spacing: 5) {
+                                        if candidate.document.hasWordTiming { searchTag("逐字") }
+                                        if candidate.document.hasTranslation { searchTag("双语") }
+                                    }
+                                    if let first = candidate.document.lines.first(where: { !$0.text.isEmpty }) {
+                                        Text(first.text).font(.caption).lineLimit(1).foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer(minLength: 4)
+                                VStack(alignment: .trailing, spacing: 6) {
+                                    Button("预览") { previewCandidate = candidate }
+                                        .buttonStyle(.glass)
+                                    if applied {
+                                        Label("已应用", systemImage: "checkmark.circle.fill")
+                                            .font(.caption2).foregroundStyle(Color.accentColor)
+                                    }
+                                }.frame(width: 72, alignment: .trailing)
+                            }.padding(.vertical, 8)
+                                .listRowBackground(previewCandidate?.id == candidate.id ? Color.accentColor.opacity(0.08) : .clear)
+                        }.listStyle(.plain)
+                    }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 12) {
+                    SearchLyricPreview(model: model, document: previewCandidate?.document ?? model.session.document,
+                        isPreview: previewCandidate != nil)
+                    Button(previewIsApplied ? "已应用当前歌词" : "应用当前歌词") {
+                        guard let candidate = previewCandidate,
+                              model.applySearchCandidate(candidate, forTrackID: trackID) else {
+                            error = "歌曲已切换，请重新搜索。"; return
                         }
-                        Spacer()
-                        HStack(spacing: 6) {
-                            if candidate.document.hasWordTiming { searchTag("逐字") }
-                            if candidate.document.hasTranslation { searchTag("双语") }
-                        }
-                        Button("使用") {
-                            guard model.session.track?.id == trackID else { error = "歌曲已切换，请重新搜索。"; return }
-                            model.session.use(candidate.document); dismiss()
-                        }.buttonStyle(.glass).disabled(model.session.track == nil)
-                    }.padding(.vertical, 8)
-                }.listStyle(.plain)
+                        error = nil
+                    }.buttonStyle(.glassProminent)
+                        .disabled(previewCandidate == nil || previewIsApplied || model.session.track == nil || model.session.track?.id != trackID)
+                    Text(previewIsApplied ? "已应用，仍可继续预览其他版本。" : "预览不会替换或保存正式歌词。")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    if let issue = model.session.persistenceError {
+                        Text(issue).font(.caption2).foregroundStyle(.orange)
+                    }
+                }.frame(width: 290)
+
             }
             HStack { Text("\(results.count) 个版本" + (retainedPreviousResults ? " · 包含上次搜索结果" : "")).font(.caption).foregroundStyle(.secondary); Spacer(); Button("导入本地歌词") { model.importLyrics() } }
-        }.padding(26).frame(width: 760, height: 570)
+        }.padding(26).frame(width: 900, height: 620)
             .onAppear { query = [model.session.track?.title, model.session.track?.artist].compactMap { $0 }.joined(separator: " "); trackID = model.session.track?.id; results = model.session.candidates; search() }
             .onDisappear {
                 requestID = UUID(); searchTask?.cancel(); deadline?.cancel()
                 searchTask = nil; deadline = nil
             }
-            .onChange(of: model.session.track?.id) { _, _ in searchTask?.cancel(); deadline?.cancel(); searching = false; requestID = UUID(); sourceStatuses = []; results = []; error = "歌曲已切换，请重新搜索。" }
+            .onChange(of: model.session.track?.id) { _, _ in searchTask?.cancel(); deadline?.cancel(); searching = false; requestID = UUID(); sourceStatuses = []; results = []; previewCandidate = nil; error = "歌曲已切换，请重新搜索。" }
+    }
+    private var previewIsApplied: Bool {
+        guard let candidate = previewCandidate, let document = model.session.document else { return false }
+        return candidate.id == document.id || Self.sameVersion(candidate.document, document)
     }
     private static func sameVersion(_ lhs: LyricsDocument, _ rhs: LyricsDocument) -> Bool {
         guard lhs.source == rhs.source else { return false }
@@ -157,7 +194,7 @@ struct LibraryView: View {
                             Text(selected.track.title).font(.title2.bold())
                             Text(LyricsCodec.export(selected.document, plain: true)).font(.system(size: 15)).lineSpacing(8).textSelection(.enabled)
                             Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([selected.url]) }
-                            if model.session.track != nil { Button("用于当前歌曲") { model.session.use(selected.document); dismiss() }.buttonStyle(.glass) }
+                            if model.session.track != nil { Button("用于当前歌曲") { model.applyLyrics(selected.document, forTrackID: model.session.track?.id); dismiss() }.buttonStyle(.glass) }
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(20)
                     } else { ContentUnavailableView("选择一首歌曲", systemImage: "text.book.closed", description: Text("这里直接显示现有缓存文件夹中的歌词。")) }
                 }.frame(minWidth: 310)

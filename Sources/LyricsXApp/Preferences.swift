@@ -58,6 +58,7 @@ final class Preferences {
     var combinedMenubarLyrics: Bool { didSet { save("combinedMenubarLyrics", combinedMenubarLyrics) } }
     var blockedTracks: [String] { didSet { save("blockedTracks", blockedTracks) } }
     var blockedAlbums: [String] { didSet { save("blockedAlbums", blockedAlbums) } }
+    var manualLyricOverrides: [String: String] { didSet { save("manualLyricOverrides", manualLyricOverrides) } }
     var hideWhenPaused: Bool { didSet { save("hideWhenPaused", hideWhenPaused) } }
     var reduceMotion: Bool { didSet { save("reduceMotion", reduceMotion) } }
     var lyricWordLift: Bool { didSet { save("lyricWordLift", lyricWordLift) } }
@@ -133,6 +134,7 @@ final class Preferences {
         combinedMenubarLyrics = d.object(forKey: "combinedMenubarLyrics") as? Bool ?? true
         blockedTracks = d.stringArray(forKey: "blockedTracks") ?? []
         blockedAlbums = d.stringArray(forKey: "blockedAlbums") ?? []
+        manualLyricOverrides = d.dictionary(forKey: "manualLyricOverrides") as? [String: String] ?? [:]
         hideWhenPaused = d.bool(forKey: "hideWhenPaused")
         reduceMotion = d.bool(forKey: "reduceMotion")
         lyricWordLift = d.object(forKey: "lyricWordLift") as? Bool ?? true
