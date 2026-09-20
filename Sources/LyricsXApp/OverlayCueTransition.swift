@@ -27,7 +27,7 @@ struct OverlayCueDeparture {
     func frame(at now: Double) -> LyricMotion.Frame? {
         let progress = max(0, (now - startedAt) / duration)
         guard progress < 1 else { return nil }
-        let eased = LyricEmphasisFrame.smooth(progress)
+        let eased = LyricEmphasisFrame.smoother(progress)
         let distance = min(16, max(8, cue.height * 0.3))
         return .init(offset: -distance * eased, blur: 3.2 * eased, opacity: 1 - eased)
     }
@@ -37,6 +37,7 @@ struct OverlayCueTransition {
     private(set) var current: OverlayCueSnapshot?
     private(set) var promotionDistance: Double?
     private(set) var departure: OverlayCueDeparture?
+    private(set) var motionPlan: LyricLinePresentation?
     private var arrivedAt: Double?
 
     func layoutTime(at now: Double, fallback: Double) -> Double {
@@ -47,7 +48,7 @@ struct OverlayCueTransition {
     func needsFrames(at now: Double, reduced: Bool) -> Bool {
         guard !reduced else { return false }
         if departure?.frame(at: now) != nil { return true }
-        guard let plan = current?.plan, plan.stablePrefixCount == 0 else { return false }
+        guard let plan = motionPlan, plan.stablePrefixCount == 0 else { return false }
         return layoutTime(at: now, fallback: .infinity) < plan.start + min(OverlayMotionFrame.durationLimit, plan.duration)
     }
 
@@ -61,12 +62,22 @@ struct OverlayCueTransition {
             return result
         }
         result.arrivedAt = now - max(0, lyricTime - cue.line.time)
+        result.motionPlan = cue.plan
         result.promotionDistance = nil
         result.departure = nil
         guard animated else { return result }
         guard let current, current.document == cue.document, current.index + 1 == cue.index,
               lyricTime >= cue.line.time, lyricTime - cue.line.time < 0.2,
               cue.plan?.stablePrefixCount == 0 else { return result }
+        // A playback tick can arrive partway into a cue. Start geometry at the
+        // pixels still on screen, not partway up the promotion curve. Shorten
+        // only the remaining motion budget; word timing keeps its music clock.
+        result.arrivedAt = now
+        if let plan = cue.plan {
+            result.motionPlan = .init(start: plan.start,
+                duration: max(0.025, plan.duration - max(0, lyricTime - cue.line.time)),
+                stablePrefixCount: plan.stablePrefixCount, layoutTail: plan.layoutTail)
+        }
         // The auxiliary policy trims padding from provider text; the primary
         // retains it so word timing ranges keep their original character offsets.
         // Compare the displayed content, without language-specific matching.
@@ -78,8 +89,8 @@ struct OverlayCueTransition {
         // A new cue replaces the sole departing row. Its deadline uses uptime,
         // so pausing cannot leave a translucent old lyric behind the new one.
         result.departure = .init(cue: current, time: lyricTime, startedAt: now,
-            duration: min(0.16, (cue.plan?.duration ?? 0.4) * 0.45),
-            pose: OverlayMotionFrame.make(time: lyricTime, plan: current.plan,
+            duration: min(0.24, (result.motionPlan?.duration ?? 0.4) * 0.45),
+            pose: OverlayMotionFrame.make(time: layoutTime(at: now, fallback: lyricTime), plan: motionPlan,
                 distance: promotionDistance, nextScale: current.previewScale, reduced: false))
         return result
     }

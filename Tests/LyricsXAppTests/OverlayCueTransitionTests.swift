@@ -34,7 +34,7 @@ import LyricsXCore
         #expect(exit.frame(at: 10.1)?.opacity == 1)
         let halfway = try #require(exit.frame(at: 10.18))
         #expect(halfway.offset < 0 && halfway.blur > 0 && halfway.opacity < 1)
-        #expect(exit.frame(at: 10.261) == nil)
+        #expect(exit.frame(at: 10.341) == nil)
         // Lyric time has stopped, but the layout still reaches its resting pose.
         #expect(state.layoutTime(at: 10.8, fallback: 3) > 3.64)
         #expect(state.needsFrames(at: 10.2, reduced: false))
@@ -79,6 +79,55 @@ import LyricsXCore
         #expect(OverlayMotionFrame.make(time: 0.64, plan: plan, distance: 70, nextScale: 0.5, reduced: false) == .init())
         let fast = cue(0, interval: 0.08).plan
         #expect(OverlayMotionFrame.make(time: 0.08, plan: fast, distance: 70, nextScale: 0.5, reduced: false) == .init())
+    }
+
+    @Test func latePlaybackTicksDoNotSkipThePreviewPositionOrExtendFastCues() throws {
+        for interval in [0.08, 0.3, 3.0] {
+            let first = cue(0, interval: interval), next = cue(1, interval: interval)
+            let delay = min(0.12, interval * 0.3)
+            let state = OverlayCueTransition().updating(to: first, lyricTime: 0, at: 10, animated: true)
+                .updating(to: next, lyricTime: next.line.time + delay, at: 10 + interval + delay, animated: true)
+            let start = 10 + interval + delay
+            let initial = OverlayMotionFrame.make(time: state.layoutTime(at: start, fallback: 0),
+                plan: state.motionPlan, distance: state.promotionDistance, nextScale: 0.5, reduced: false)
+            #expect(initial.offset == 70 && initial.scale == 0.5)
+            #expect(!state.needsFrames(at: 10 + interval * 2, reduced: false))
+            let repeated = state.updating(to: next, lyricTime: next.line.time + delay + 0.01, at: start + 0.01, animated: true)
+            #expect(repeated.layoutTime(at: start + 0.01, fallback: 0) > next.line.time)
+            #expect(repeated.motionPlan == state.motionPlan)
+        }
+    }
+
+    @Test func anInterruptedPromotionDepartsFromItsActualScreenPose() throws {
+        let first = cue(0, interval: 0.2), second = cue(1, interval: 0.2), third = cue(2, interval: 0.2)
+        let moving = OverlayCueTransition().updating(to: first, lyricTime: 0, at: 10, animated: true)
+            .updating(to: second, lyricTime: 0.21, at: 10.21, animated: true)
+        let expected = OverlayMotionFrame.make(time: moving.layoutTime(at: 10.24, fallback: 0.4),
+            plan: moving.motionPlan, distance: moving.promotionDistance, nextScale: 0.5, reduced: false)
+        let interrupted = moving.updating(to: third, lyricTime: 0.4, at: 10.24, animated: true)
+        #expect(try #require(interrupted.departure).pose == expected)
+    }
+
+    @Test func plainTextKeepsItsSurfaceButWordTimingAndIncrementalTextKeepTheirClock() {
+        let plain = cue(0).line
+        let settled = cue(0).plan?.withoutEntry(text: plain.text)
+        #expect(OverlayInkClock.time(line: plain, text: plain.text, arrival: settled, sampledTime: 0.3) == plain.time)
+        #expect(OverlayInkClock.time(line: plain, text: plain.text, arrival: cue(0).plan, sampledTime: 0.3) == 0.3)
+        let timed = LyricLine(id: 0, time: 0, text: "Stay", words: [.init(text: "Stay", start: 0, end: 2)])
+        #expect(OverlayInkClock.time(line: timed, text: timed.text, arrival: nil, sampledTime: 0.3) == 0.3)
+    }
+
+    @Test func arrivalAndDepartureSettleWithoutAnEndVelocityJump() throws {
+        let plan = try #require(cue(0).plan)
+        let before = OverlayMotionFrame.make(time: 0.6399, plan: plan, distance: 70, nextScale: 0.5, reduced: false)
+        #expect(abs(before.offset) / 0.0001 < 0.3)
+        #expect(before.blur / 0.0001 < 0.02)
+        let state = OverlayCueTransition().updating(to: cue(0), lyricTime: 0, at: 10, animated: true)
+            .updating(to: cue(1), lyricTime: 3, at: 13, animated: true)
+        let exit = try #require(state.departure)
+        let last = try #require(exit.frame(at: 13 + exit.duration - 0.0001))
+        #expect(last.opacity / 0.0001 < 0.01)
+        #expect(exit.frame(at: 13 + exit.duration + 0.0001) == nil)
     }
 
     @Test func untranslatedPreviewPromotesAcrossScriptsAndProviderWhitespace() {

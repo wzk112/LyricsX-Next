@@ -10,17 +10,18 @@ import LyricsXServices
     enum Presentation: Equatable { case tutorial, update(previous: String?) }
     private let defaults: UserDefaults
     let version: String
+    let revision: String
     let existingInstallation: Bool
-    init(defaults: UserDefaults = .standard, version: String = GuideContent.version) {
+    init(defaults: UserDefaults = .standard, version: String = GuideContent.version, revision: String = GuideContent.revision) {
         self.defaults = defaults
         self.version = version
+        self.revision = revision
         existingInstallation = ["compactOverlayVersion", "fixedOverlayWidthVersion", "overlayVisible",
             "overlayWidth", "overlayAppearance", "fontSize", "playerMode", "ModernLyricsDirectory",
             "guideLastVersion"].contains { defaults.object(forKey: $0) != nil }
     }
     var pending: Presentation? {
-        guard !(defaults.stringArray(forKey: "guidePresentedVersions") ?? []).contains(version),
-              defaults.string(forKey: "guideLastVersion") != version else { return nil }
+        guard !(defaults.stringArray(forKey: "guidePresentedEditions") ?? []).contains(version + ":" + revision) else { return nil }
         return existingInstallation ? .update(previous: defaults.string(forKey: "guideLastVersion")) : .tutorial
     }
     func didPresent() {
@@ -28,6 +29,10 @@ import LyricsXServices
         if !versions.contains(version) { versions.append(version) }
         defaults.set(versions, forKey: "guidePresentedVersions")
         defaults.set(version, forKey: "guideLastVersion")
+        var editions = defaults.stringArray(forKey: "guidePresentedEditions") ?? []
+        let edition = version + ":" + revision
+        if !editions.contains(edition) { editions.append(edition) }
+        defaults.set(editions, forKey: "guidePresentedEditions")
     }
 }
 
@@ -41,6 +46,8 @@ struct GuidePage: Identifiable {
 }
 
 enum GuideContent {
+    // Changed only when the introduction itself is revised, never for a routine rebuild.
+    static let revision = "complete-2"
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.34"
     static let tutorial: [GuidePage] = [
         .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
@@ -63,10 +70,26 @@ enum GuideContent {
             "Liquid Glass 更通透；磨砂阅读能柔化背景，让歌词更清楚。点击图例切换。",
             "透明度越高，越能看清后方；磨砂越强，背景越柔和。两种样式会分别记住磨砂程度。",
             "实际效果会随桌面背景变化。系统开启“降低透明度”时，会使用实色背景。"], illustration: "style"),
-        .init(id: "text", title: "字体和颜色，由你决定", subtitle: "设置 → 歌词 · 边调边预览", symbol: "textformat", points: [
-            "选择喜欢的本机字体，分别调整主窗口、悬浮窗和辅助文字的字号。字体缺少某些字符时，会自动使用系统字体。",
-            "自由设置文字颜色，也能分别设置已唱、未唱的颜色。开启“跟随封面主题色”，歌词就会随歌曲封面换色。",
-            "辅助文字可选翻译、下一句或两者都显示。“翻译或下一句”会在没有翻译时显示下一句；也支持简繁体显示。"], illustration: "text"),
+        .init(id: "fonts", title: "换上喜欢的字体", subtitle: "设置 → 歌词 → 字体与颜色", symbol: "textformat", points: [
+            "选择此 Mac 已安装的字体，主窗口和悬浮窗会一起更换，下方可实时预览排版。",
+            "主窗口、悬浮窗、翻译和下一句的字号可分别调整。缺少字符或字体被卸载时，会使用系统字体。",
+            "点击“恢复字体与颜色”可回到默认外观。"], illustration: "font"),
+        .init(id: "colors", title: "原文与辅助文字分别选色", subtitle: "设置 → 歌词 → 字体与颜色", symbol: "paintpalette", points: [
+            "“当前歌词颜色”控制原文；“翻译与下一句颜色”控制辅助文字，两组颜色可分别设置。",
+            "修改后立即生效并保存，主窗口和悬浮窗保持一致。用下方预览检查颜色是否清楚。",
+            "若手动颜色选项变灰，请先关闭“跟随封面主题色”。"], illustration: "colors"),
+        .init(id: "wordColors", title: "已唱与未唱，用不同颜色", subtitle: "设置 → 歌词 → 逐字独立配色", symbol: "character.cursor.ibeam", points: [
+            "开启“逐字独立配色”，分别选择已唱到和未唱到的颜色，演唱进度会在两种颜色间推进。",
+            "只对带逐字时间的歌词生效，仍保留轻微放大和长音辉光。普通逐行歌词使用原文颜色。",
+            "关闭独立配色会恢复明暗高亮，已选的两种颜色会保留。"], illustration: "wordColors"),
+        .init(id: "theme", title: "让歌词跟随封面配色", subtitle: "设置 → 歌词 → 跟随封面主题色", symbol: "photo", points: [
+            "开启后从歌曲封面提取颜色：已唱部分更明亮，未唱部分较暗，翻译保持柔和。切歌时自动更新。",
+            "没有封面时使用中性配色。自动配色优先于手动颜色，但不会覆盖它们，关闭即可恢复。",
+            "主窗口背景也会随封面变化。背景与歌词的配色分别处理，关闭歌词跟色不会关掉封面背景。"], illustration: "theme"),
+        .init(id: "text", title: "翻译、下一句与简繁体", subtitle: "设置 → 歌词", symbol: "text.alignleft", points: [
+            "开启“显示翻译”后，有译文的歌词会显示翻译。辅助内容还可选下一句或两者都显示。",
+            "“翻译或下一句”会在没有翻译时显示下一句；“仅翻译”则留空。下一句换到当前句时会平滑上移。",
+            "可选择原文、简体或繁体显示，简繁转换后仍保留逐字进度。"], illustration: "conversion"),
         .init(id: "effects", title: "让歌词随演唱亮起来", subtitle: "设置 → 动效", symbol: "sparkles", points: [
             "带逐字时间的歌词会依次提亮、轻微放大，慢唱和长音还会柔和发光。普通逐行歌词没有这些效果。",
             "EDR 辉光增强可让高光更亮，实际效果取决于屏幕。它不会改变系统亮度；不支持时使用普通辉光。",
@@ -87,24 +110,38 @@ enum GuideContent {
     // Add new release entries here; a version jump includes every intervening
     // entry, while a first upgrade from versions without receipts gets a recap.
     static let releases: [(version: String, page: GuidePage)] = [
-        ("2.0.34", .init(id: "r30", title: "换上喜欢的字体", subtitle: "新功能 · 设置 → 歌词", symbol: "textformat", points: [
-            "使用本机安装的字体，分别调整主窗口、悬浮窗和辅助文字的字号。",
-            "边调边预览，找到适合自己的大小和风格。"], illustration: "text")),
-        ("2.0.34", .init(id: "color34", title: "歌词颜色，自由搭配", subtitle: "新功能 · 设置 → 歌词", symbol: "paintpalette", points: [
-            "原文与翻译可以分别选色，逐字歌词也能单独设置已唱和未唱的颜色。",
-            "保留逐字高亮和长音辉光，让演唱进度更清楚。"], illustration: "text")),
-        ("2.0.34", .init(id: "theme34", title: "跟随歌曲封面换色", subtitle: "新功能 · 设置 → 歌词", symbol: "photo", points: [
-            "开启“跟随封面主题色”，歌词会自动搭配当前封面；已唱与未唱用明暗区分。",
-            "主窗口背景也更有封面的色彩。关闭开关即可恢复手动配色。"], illustration: "theme")),
-        ("2.0.34", .init(id: "r29", title: "悬浮歌词显示更稳定", subtitle: "修复 · 启动、换行与切歌", symbol: "rectangle.on.rectangle", points: [
-            "启动后即可显示悬浮窗，菜单栏歌词也恢复正常。",
-            "修复切歌或更换歌词后高度未及时变化、文字被截断，以及更换字体后对齐不准的问题。"], illustration: "overlay")),
-        ("2.0.34", .init(id: "r33", title: "播放与切歌更流畅", subtitle: "改进 · 动画与性能", symbol: "waveform", points: [
-            "改善逐字、辉光、封面和背景过渡，减少播放与切歌时的卡顿、闪动，并降低不必要的资源占用。",
-            "修复简繁体转换后逐字效果失效，以及部分歌词搜索和显示问题。"], illustration: "effects")),
-        ("2.0.34", .init(id: "settings34", title: "设置更清楚，上手更轻松", subtitle: "新增教程 · 设置 → 关于", symbol: "slider.horizontal.3", points: [
-            "搜索可先预览再应用，列表保持打开，方便挑选。设置页面也更清楚、更好操作。",
-            "首次使用会显示完整教程，更新后只介绍本次变化。以后都可以在“关于”中重新查看。"], illustration: "settings"))
+        ("2.0.34", .init(id: "font34", title: "自定义字体与实时预览", subtitle: "新增 · 设置 → 歌词", symbol: "textformat", points: [
+            "选择本机字体，主窗口与悬浮窗一起更换；原文、翻译和下一句的字号可分别调整。",
+            "设置里可实时查看排版，也能一键恢复默认字体与颜色。缺少字符时自动使用系统字体。"], illustration: "font")),
+        ("2.0.34", .init(id: "color34", title: "原文与辅助文字分别选色", subtitle: "新增 · 设置 → 歌词 → 字体与颜色", symbol: "paintpalette", points: [
+            "自定义原文颜色，以及翻译与下一句的颜色，两个窗口同步生效并自动保存。",
+            "保留逐字明暗高亮和长音辉光。预览中可以直接检查配色是否清楚。"], illustration: "colors")),
+        ("2.0.34", .init(id: "word34", title: "逐字歌词，两种颜色", subtitle: "新增 · 设置 → 歌词 → 逐字独立配色", symbol: "character.cursor.ibeam", points: [
+            "分别设置已唱到、未唱到的颜色；演唱中的文字仍会逐个提亮、柔和放大。需要歌词自带逐字时间。",
+            "关闭后恢复原来的明暗高亮，并保留已选颜色。翻译和下一句仍使用辅助文字颜色。"], illustration: "wordColors")),
+        ("2.0.34", .init(id: "theme34", title: "跟随封面，自动换色", subtitle: "新增 · 设置 → 歌词 → 跟随封面主题色", symbol: "photo", points: [
+            "从当前歌曲封面提取歌词配色，用明暗区分已唱与未唱；切歌时自动更新，无封面时用中性色。",
+            "自动配色不会覆盖手动颜色，关闭即可恢复。主窗口背景取色也更鲜明，减少灰黑感。"], illustration: "theme")),
+        ("2.0.34", .init(id: "search34", title: "先预览，再应用歌词", subtitle: "新增 · 放大镜或 ⌘F", symbol: "magnifyingglass", points: [
+            "点“预览”，右侧按实际播放进度显示歌词和翻译，不替换正式歌词，也不保存。",
+            "满意后点“应用当前歌词”。列表保持打开，可继续比较版本；点“完成”才关闭。",
+            "修复应用后马上消失的问题。手动应用会恢复这首歌的显示，切歌后旧结果不能误用到新歌。"], illustration: "search")),
+        ("2.0.34", .init(id: "settings34", title: "设置更清楚、更好操作", subtitle: "改进 · 设置", symbol: "slider.horizontal.3", points: [
+            "重新整理侧栏、图标与说明，收起或展开侧栏时，右侧内容保持稳定。",
+            "相关选项按开关状态显示，例如逐字颜色和辅助字号。文件管理、来源令牌与性能选项集中在开发者选项。"], illustration: "settings")),
+        ("2.0.34", .init(id: "guide34", title: "完整教程，随时重看", subtitle: "新增 · 设置 → 关于", symbol: "book.closed", points: [
+            "首次安装会介绍播放器、搜索、悬浮窗、字体颜色、动效、同步和文件管理；教程里可直接调整常用设置。",
+            "更新后只介绍新增功能与改进，之后不重复弹出。“关于”中可重看“使用指南”或“本次更新”。"], illustration: "guide")),
+        ("2.0.34", .init(id: "overlay34", title: "悬浮窗与菜单栏更稳定", subtitle: "修复 · 启动、换行与字体", symbol: "rectangle.on.rectangle", points: [
+            "启动后即可显示悬浮窗，修复菜单栏歌词不显示的问题。关闭或最小化主窗口时，悬浮歌词更顺畅。",
+            "修复切歌、更换歌词后高度更新不及时和文字被截断的问题；更换字体后保持字号、对齐与行距。"], illustration: "overlay")),
+        ("2.0.34", .init(id: "playback34", title: "逐字与切歌更顺畅", subtitle: "改进 · 动画与资源占用", symbol: "waveform", points: [
+            "改善逐字放大缩小、长音辉光，以及封面、背景和歌词的切歌过渡，减少卡顿与闪动。",
+            "悬浮窗的下一句从原位平滑上移，上一句向上模糊淡出；普通歌词与逐字歌词都适用。",
+            "减少重复取色、字体测量、文件读取和后台绘制；关闭窗口后释放不再使用的内容，保留现有动效。"], illustration: "effects")),
+        ("2.0.34", .init(id: "compatibility34", title: "这些小问题也修好了", subtitle: "修复 · 简繁体、辉光与搜索", symbol: "checkmark.circle", points: [
+            "简繁体转换后仍能显示逐字进度。自定义颜色保留 EDR 辉光，改善窗口首次显示时的屏幕能力识别。",
+            "改善部分 QQ 音乐歌词的读取、搜索与封面显示；修复缓存文件变化及异常设置值引起的显示问题。"], illustration: "conversion"))
     ]
     // Last release actually published on GitHub, not a local test build.
     static let latestBaseline: String? = "2.0.28"
@@ -177,16 +214,21 @@ struct FeatureGuideView: View {
                 Label("LyricsX Next", systemImage: "quote.bubble.fill").font(.headline)
                 Text(mode == .tutorial ? "使用指南" : "更新至 \(GuideContent.version)")
                     .font(.title3.weight(.semibold))
-                ScrollView {
-                    VStack(spacing: 5) {
-                        ForEach(Array(pages.enumerated()), id: \.element.id) { item in
-                            Button { index = item.offset } label: {
-                                Label(item.element.title, systemImage: item.element.symbol)
-                                    .font(.callout).frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(10).background(index == item.offset ? Color.accentColor.opacity(0.14) : .clear,
-                                                            in: .rect(cornerRadius: 10))
-                            }.buttonStyle(.plain).accessibilityAddTraits(index == item.offset ? .isSelected : [])
+                ScrollViewReader { navigation in
+                    ScrollView {
+                        VStack(spacing: 5) {
+                            ForEach(Array(pages.enumerated()), id: \.element.id) { item in
+                                Button { index = item.offset } label: {
+                                    Label(item.element.title, systemImage: item.element.symbol)
+                                        .font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(10).background(index == item.offset ? Color.accentColor.opacity(0.14) : .clear,
+                                                                in: .rect(cornerRadius: 10))
+                                }.buttonStyle(.plain).accessibilityAddTraits(index == item.offset ? .isSelected : [])
+                                    .id(item.element.id)
+                            }
                         }
+                    }.onChange(of: index, initial: true) { _, value in
+                        navigation.scrollTo(pages[value].id)
                     }
                 }
                 Text("无需登录 · 设置自动保存").font(.caption).foregroundStyle(.secondary)
@@ -227,80 +269,13 @@ struct FeatureGuideView: View {
     }
 }
 
-/// Original demonstration text; shares the actual word renderer and materials.
-/// One 30 Hz clock per visible page, no player connection or cache writes.
-private struct GuideIllustration: View {
-    let kind: String
-    var appReduced = false
-    @State private var visible = false
-    @State private var inViewport = false
-    @State private var anchor = ProcessInfo.processInfo.systemUptime
-    @State private var appearance: OverlayAppearance = .glass
-    @Environment(\.accessibilityReduceMotion) private var reduced
-    private let line = LyricLine(id: 0, time: 0, text: "让歌词随音乐流动", words: [
-        .init(text: "让歌词", start: 0, end: 1.2), .init(text: "随", start: 1.2, end: 3.8),
-        .init(text: "音乐", start: 3.8, end: 5), .init(text: "流动", start: 5, end: 6.5)])
-    var body: some View {
-        ZStack {
-            LinearGradient(colors: [Color(red: 0.12, green: 0.25, blue: 0.35), Color(red: 0.32, green: 0.2, blue: 0.36)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            if kind == "search" {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("歌名 / 歌手", systemImage: "magnifyingglass").foregroundStyle(.white.opacity(0.7))
-                    ForEach(["网易云音乐 · 双语 · 逐字", "QQ 音乐 · 逐字", "LRCLIB · 逐行"], id: \.self) { text in
-                        HStack { Text(text); Spacer(); Image(systemName: "chevron.right") }
-                            .padding(10).background(.white.opacity(0.12), in: .rect(cornerRadius: 9))
-                    }
-                }.font(.callout).padding(20)
-            } else if kind == "library" || kind == "privacy" || kind == "settings" {
-                HStack(spacing: 25) {
-                    ForEach(kind == "library" ? ["doc.text", "arrow.right", "books.vertical"] : ["slider.horizontal.3", "lock.shield", "info.circle"], id: \.self) { icon in
-                        Image(systemName: icon).font(.system(size: 36, weight: .light))
-                            .frame(width: 70, height: 80).background(.white.opacity(0.08), in: .rect(cornerRadius: 18))
-                    }
-                }
-            } else {
-                VStack(spacing: 12) {
-                    if kind == "style" {
-                        Picker("材质预览", selection: $appearance) {
-                            ForEach(OverlayAppearance.allCases) { Text($0.title).tag($0) }
-                        }.pickerStyle(.segmented).frame(maxWidth: 330)
-                    }
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack { Image(systemName: "music.note"); Text("LyricsX Next · 演示歌词"); Spacer() }
-                            .font(.caption).foregroundStyle(.white.opacity(0.75))
-                        LyricRenderTimeline(running: visible && inViewport && !reduced && !appReduced, sampledTime: 2.3,
-                            preciseTime: { (ProcessInfo.processInfo.systemUptime - anchor).truncatingRemainder(dividingBy: 7.5) }) { time in
-                            WordHighlight(line: line, time: time, active: true,
-                                text: kind == "conversion" ? "讓歌詞隨音樂流動" : line.text,
-                                effects: .init(glow: kind == "effects", reduced: reduced || appReduced))
-                                .environment(\.lyricWordColors, kind == "theme" ? .init(sung: Color(red: 1, green: 0.82, blue: 0.94), unsung: Color(red: 0.43, green: 0.35, blue: 0.40), plain: .white) : nil)
-                                .font(.system(size: 28, weight: .semibold)).frame(maxWidth: .infinity)
-                                .multilineTextAlignment(.center)
-                        }
-                        Text(kind == "conversion" ? "简繁转换 · 时间轴保持一致" : kind == "timing" ? "− 0.1 s     同步偏移     + 0.1 s" : "翻译 / 下一句 · 保持同步")
-                            .font(.callout).frame(maxWidth: .infinity).foregroundStyle(.white.opacity(0.8))
-                    }.padding(20).background {
-                        OverlayMaterialPreview(appearance: appearance, transparency: 0.35, frostAmount: 0.5)
-                    }.clipShape(.rect(cornerRadius: 22))
-                }.padding(16)
-            }
-        }.foregroundStyle(.white)
-            .environment(\.lyricFrameRateLimit, 30)
-            .background(WindowVisibilityReader { visible = $0 })
-            .onScrollVisibilityChange(threshold: 0.1) { inViewport = $0 }
-            .onDisappear { visible = false }
-            .accessibilityLabel("功能示意预览，不会控制音乐播放器")
-    }
-}
-
 /// Real settings, not disconnected demonstration toggles. Playback actions are
 /// deliberately absent; merely opening the guide never changes preferences.
 private struct GuideQuickSettings: View {
     let page: String
     @Bindable var preferences: Preferences
     let model: AppModel?
-    private var available: Bool { ["main", "search", "overlay", "style", "text", "effects"].contains(page) }
+    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects"].contains(page) }
     var body: some View {
         if available {
             VStack(alignment: .leading, spacing: 10) {
@@ -363,8 +338,9 @@ private struct GuideQuickSettings: View {
         case "style":
             OverlayAppearancePicker(selection: $preferences.overlayAppearance, transparency: preferences.overlayTransparency,
                 glassFrostAmount: preferences.overlayGlassFrostAmount, readingFrostAmount: preferences.overlayReadingFrostAmount)
-        case "text":
+        case "theme":
             SettingToggle(title: "跟随封面主题色", detail: "自动生成已唱／未唱明暗配色；关闭恢复手动颜色。", value: $preferences.followArtworkColors)
+        case "text":
             SettingToggle(title: "显示翻译", detail: "有译文时在主窗口与悬浮窗显示。", value: $preferences.showTranslation)
             SettingRow(title: "辅助内容", detail: "没有翻译时，“翻译或下一句”会显示下一句；“仅翻译”则不显示。") {
                 Picker("辅助内容", selection: $preferences.overlaySecondaryMode) {

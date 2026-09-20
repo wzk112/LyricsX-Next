@@ -25,10 +25,11 @@ struct OverlayMotionFrame: Equatable {
         let duration = min(durationLimit, plan.duration)
         let progress = min(1, max(0, (time - plan.start) / duration))
         guard progress < 1 else { return .init() }
-        let settle = 0.007 * sin(.pi * max(0, (progress - 0.7) / 0.3))
+        // Keep the tiny settle, but join it with zero velocity at both ends.
+        let settle = 0.007 * pow(sin(.pi * max(0, (progress - 0.7) / 0.3)), 2)
         let eased = LyricMotion.overlayArrivalCurve.value(at: progress) + settle
         let weight = min(1, duration / 0.3)
-        let movingBlur = 1.15 * sin(.pi * progress) * weight
+        let movingBlur = 1.15 * pow(sin(.pi * progress), 2) * weight
         if let distance {
             return .init(offset: distance * (1 - eased), scale: nextScale + (1 - nextScale) * eased,
                          blur: 0.45 * (1 - min(1, eased)) + movingBlur, opacity: 0.85 + 0.15 * min(1, eased))
@@ -138,9 +139,9 @@ struct OverlayLyricsContent: View {
                                 continueFrames: { staged.needsFrames(at: animationTime(), reduced: reduced) }) { wallTime in
                 let time = playing ? (renderTime ?? lyricTime)() : sampledTime
                 let layoutTime = staged.layoutTime(at: wallTime, fallback: sampledTime)
-                let motion = OverlayMotionFrame.make(time: layoutTime, plan: plan, distance: staged.promotionDistance, nextScale: nextScale, reduced: reduced)
-                let translationMotion = OverlayAuxiliaryFrame.make(time: layoutTime, plan: plan, changed: previous.translation != content.translation, reduced: reduced)
-                let nextMotion = OverlayAuxiliaryFrame.make(time: layoutTime, plan: plan, changed: previous.next != content.next, reduced: reduced)
+                let motion = OverlayMotionFrame.make(time: layoutTime, plan: staged.motionPlan, distance: staged.promotionDistance, nextScale: nextScale, reduced: reduced)
+                let translationMotion = OverlayAuxiliaryFrame.make(time: layoutTime, plan: staged.motionPlan, changed: previous.translation != content.translation, reduced: reduced)
+                let nextMotion = OverlayAuxiliaryFrame.make(time: layoutTime, plan: staged.motionPlan, changed: previous.next != content.next, reduced: reduced)
                 ZStack {
                     if let departure = staged.departure, let exit = departure.frame(at: wallTime) {
                         let old = departure.cue
@@ -151,7 +152,8 @@ struct OverlayLyricsContent: View {
                             .frame(width: geometry.size.width, height: old.height, alignment: .bottom)
                             .scaleEffect(departure.pose.scale).blur(radius: departure.pose.blur + exit.blur)
                             .opacity(departure.pose.opacity * exit.opacity)
-                            .position(x: geometry.size.width / 2, y: old.height / 2 + departure.pose.offset + exit.offset)
+                            .offset(y: departure.pose.offset + exit.offset)
+                            .position(x: geometry.size.width / 2, y: old.height / 2)
                             .allowsHitTesting(false).accessibilityHidden(true)
                     }
                     // Once row movement settles, only the primary text receives
@@ -159,19 +161,25 @@ struct OverlayLyricsContent: View {
                     LyricRenderTimeline(running: playing && visible && !staged.needsFrames(at: wallTime, reduced: reduced) && LyricRenderTimelineActivity.needsFrames(line: line, time: time, arrival: arrival),
                                         sampledTime: time, preciseTime: renderTime ?? lyricTime,
                                         continueFrames: { LyricRenderTimelineActivity.needsFrames(line: line, time: (renderTime ?? lyricTime)(), arrival: arrival) }) { wordTime in
-                        OverlayLyricSurface(line: line, text: text, time: wordTime, arrival: arrival,
+                        // A plain LRC line has no changing ink during promotion.
+                        // Reuse its text surface while compositing the motion.
+                        let inkTime = OverlayInkClock.time(line: line, text: text, arrival: arrival, sampledTime: wordTime)
+                        OverlayLyricSurface(line: line, text: text, time: inkTime, arrival: arrival,
                             fontSize: primaryFont, effects: prefs.lyricEmphasis, typography: prefs.typography)
+                            .equatable()
                     }
                         .frame(width: geometry.size.width, height: primaryHeight, alignment: .bottom)
                         .scaleEffect(motion.scale).blur(radius: motion.blur)
                         .opacity(motion.opacity)
-                        .position(x: geometry.size.width / 2, y: primaryHeight / 2 + motion.offset)
+                        .offset(y: motion.offset)
+                        .position(x: geometry.size.width / 2, y: primaryHeight / 2)
                     if let translation = content.translation {
                         OverlayTranslationSurface(text: translation, fontSize: translationFont, typography: prefs.typography).equatable()
                             .frame(width: geometry.size.width, height: translationHeight)
                             .blur(radius: translationMotion.blur)
                             .opacity(translationMotion.opacity * motion.auxiliaryOpacity(top: translationTop, primaryHeight: primaryHeight, reduced: reduced))
-                            .position(x: geometry.size.width / 2, y: translationTop + translationHeight / 2 + translationMotion.offset)
+                            .offset(y: translationMotion.offset)
+                            .position(x: geometry.size.width / 2, y: translationTop + translationHeight / 2)
                     }
                     if let next = content.next, let nextLine {
                         // Preview and primary use identical wrapping. Transform
@@ -182,7 +190,8 @@ struct OverlayLyricsContent: View {
                             .frame(width: geometry.size.width, height: nextPrimaryHeight, alignment: .bottom)
                             .scaleEffect(nextScale).blur(radius: reduced ? 0 : 0.45 + nextMotion.blur)
                             .opacity(0.85 * nextMotion.opacity * motion.auxiliaryOpacity(top: nextY - nextHeight / 2, primaryHeight: primaryHeight, reduced: reduced))
-                            .position(x: geometry.size.width / 2, y: nextY + nextMotion.offset)
+                            .offset(y: nextMotion.offset)
+                            .position(x: geometry.size.width / 2, y: nextY)
                     }
                 }
                 .onChange(of: staged.departure.map { $0.frame(at: wallTime) == nil }) { _, finished in
@@ -207,6 +216,13 @@ struct OverlayLyricsContent: View {
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
 
+}
+
+enum OverlayInkClock {
+    static func time(line: LyricLine, text: String, arrival: LyricLinePresentation?, sampledTime: Double) -> Double {
+        let growing = arrival.map { $0.stablePrefixCount < text.count } ?? false
+        return line.hasWordTiming || growing ? sampledTime : line.time
+    }
 }
 
 private struct OverlayLyricSurface: View, Equatable {

@@ -34,13 +34,29 @@ import Testing
             #expect(GuideHistory(defaults: defaults, version: "2.0.34").pending == nil)
         }
     }
+    @Test func correctedIntroductionAppearsOnceForUsersWhoSawTheWithdrawnBuild() throws {
+        try fixture { defaults in
+            defaults.set("2.0.34", forKey: "guideLastVersion")
+            defaults.set(["2.0.34"], forKey: "guidePresentedVersions")
+            let corrected = GuideHistory(defaults: defaults, version: "2.0.34", revision: "complete-2")
+            #expect(corrected.pending == .update(previous: "2.0.34"))
+            #expect(GuideContent.updates(after: "2.0.34").count == 10)
+            corrected.didPresent()
+            #expect(GuideHistory(defaults: defaults, version: "2.0.34", revision: "complete-2").pending == nil)
+            let nextRevision = GuideHistory(defaults: defaults, version: "2.0.34", revision: "future-content")
+            #expect(nextRevision.pending == .update(previous: "2.0.34"))
+            nextRevision.didPresent()
+            // Going back to an already seen introduction must remain quiet.
+            #expect(GuideHistory(defaults: defaults, version: "2.0.34", revision: "complete-2").pending == nil)
+        }
+    }
     @Test func versionJumpContainsOnlyInterveningReleaseNotes() {
-        let current = ["r30", "color34", "theme34", "r29", "r33", "settings34"]
+        let current = ["font34", "color34", "word34", "theme34", "search34", "settings34", "guide34", "overlay34", "playback34", "compatibility34"]
         #expect(GuideContent.latestBaseline == "2.0.28")
         #expect(GuideContent.updates(after: "2.0.28").map(\.id) == current)
         #expect(GuideContent.updates(after: "2.0.33").map(\.id) == current)
-        #expect(GuideContent.updates(after: nil).count == 6)
-        #expect(GuideContent.tutorial.count == 10)
+        #expect(GuideContent.updates(after: nil).count == 10)
+        #expect(GuideContent.tutorial.count == 14)
         #expect(Set(GuideContent.tutorial.map(\.id)).count == GuideContent.tutorial.count)
     }
     @Test func manualGuideDoesNotConsumeAutomaticReceiptAndCloseReleasesPreviews() throws {

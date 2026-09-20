@@ -289,7 +289,7 @@ import LyricsXCore
             let renderer = ImageRenderer(content: view); renderer.scale = 1
             return NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
         }
-        let before = try render(index: 0, time: 2.99), after = try render(index: 1, time: 3)
+        let before = try render(index: 0, time: 2.99), after = try render(index: 1, time: 3.12)
         var oldInk = 0.0, remainingOldInk = 0.0, nextDifference = 0.0
         for y in 0..<before.pixelsHigh {
             for x in 0..<before.pixelsWide {
@@ -361,7 +361,7 @@ import LyricsXCore
             let renderer = ImageRenderer(content: view); renderer.scale = 1
             return NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
         }
-        let before = try render(index: 0, time: 2.99), after = try render(index: 1, time: 3)
+        let before = try render(index: 0, time: 2.99), after = try render(index: 1, time: 3.12)
         var oldInk = 0.0, oldRemaining = 0.0, nextDifference = 0.0
         for y in 0..<before.pixelsHigh {
             for x in 0..<before.pixelsWide {
