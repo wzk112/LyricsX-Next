@@ -238,7 +238,9 @@ private struct OverlayLyricSurface: View, Equatable {
     var typography = LyricTypography()
     var secondary = false
     var body: some View {
-        WordHighlight(line: line, time: time, active: true, text: text, effects: effects, arrival: arrival)
+        var overlayEffects = effects
+        overlayEffects.compactHalo = true
+        return WordHighlight(line: line, time: time, active: true, text: text, effects: overlayEffects, arrival: arrival)
             .environment(\.lyricWordColors, secondary ? nil : typography.wordColors)
             .font(typography.font(size: fontSize))
             .tracking(-0.4).multilineTextAlignment(.center).foregroundStyle(secondary ? typography.secondary : typography.primary)

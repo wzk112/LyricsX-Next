@@ -104,6 +104,15 @@ import LyricsXCore
         #expect(!LyricEmphasisOptions().usesHDR)
     }
 
+    @Test func compactOverlayHaloReducesBloomWithoutRemovingHDRInk() throws {
+        let full = try render(time: 1.6, effects: .init(lift: false, hdr: true, hdrBrightness: 3))
+        let compact = try render(time: 1.6, effects: .init(lift: false, hdr: true, hdrBrightness: 3, compactHalo: true))
+        let ordinary = try render(time: 1.6, effects: .init(lift: false))
+        #expect(compact.width == full.width && compact.height == full.height)
+        #expect(try energy(compact) < energy(full))
+        #expect(try energy(compact) > energy(ordinary))
+    }
+
     @Test func hdrRenderingProducesExtendedBrightnessOnlyWhenEnabled() throws {
         let sdr = try render(time: 1.6, effects: .init(lift: false, glow: true))
         let hdr = try render(time: 1.6, effects: .init(lift: false, glow: true, hdr: true))

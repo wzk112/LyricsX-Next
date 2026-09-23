@@ -3,6 +3,19 @@ import Testing
 import SwiftUI
 @testable import LyricsXApp
 
+@Test func brightnessEntryUsesTheSameNumericRangeAsTheEmitter() {
+    #expect(HDRBrightness.parsed("2.6") == 2.6)
+    #expect(HDRBrightness.parsed(" 1,8× ") == 1.8)
+    #expect(HDRBrightness.parsed("9") == 4)
+    #expect(HDRBrightness.parsed("0.3") == 1)
+    #expect(HDRBrightness.parsed("2.66") == 2.7)
+    for value in ["", "nan", "inf", "abc"] { #expect(HDRBrightness.parsed(value) == nil) }
+    for value in [1.0, 1.6, 2.5, 4] {
+        let ink = HeldNoteRenderer.hdrWhite(brightness: value).resolveHDR(in: EnvironmentValues())
+        #expect(abs(Double(ink.linearRed) - value) < 0.001)
+    }
+}
+
 @Test func outputHeadroomBelongsOnlyToVisibleHDREmitters() {
     let edr = HDRDisplayCapability(potential: 2, current: 1)
     #expect(LyricHDROutputRequest.headroom(requested: true, visible: true, content: 3.5, capability: edr) == 2)
@@ -55,6 +68,42 @@ import SwiftUI
 }
 
 @Suite(.serialized) @MainActor struct HDRWindowLifecycleTests {
+    @Test func windowOutputRequestsRemainIndependentAndStopOnDetach() async throws {
+        _ = NSApplication.shared
+        let first = NSPanel(contentRect: .init(x: 100, y: 100, width: 2, height: 2),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let second = NSPanel(contentRect: .init(x: 105, y: 100, width: 2, height: 2),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        first.isReleasedWhenClosed = false; second.isReleasedWhenClosed = false
+        defer { first.close(); second.close() }
+        let a = HDRWindowReaderView(), b = HDRWindowReaderView()
+        a.requestedHeadroom = 2; b.requestedHeadroom = 3
+        first.contentView = a; second.contentView = b
+        first.orderFrontRegardless(); second.orderFrontRegardless()
+        try await Task.sleep(for: .milliseconds(750))
+        #expect(a.edrSurface.requestedHeadroom == 2)
+        #expect(b.edrSurface.requestedHeadroom == 3)
+        let secondSubmissions = b.edrSurface.presentationCount
+        first.orderOut(nil)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(a.edrSurface.requestedHeadroom == 1)
+        #expect(!a.edrSurface.layer.wantsExtendedDynamicRangeContent)
+        #expect(b.edrSurface.requestedHeadroom == 3)
+        #expect(b.edrSurface.presentationCount == secondSubmissions)
+        first.orderFrontRegardless()
+        try await Task.sleep(for: .milliseconds(750))
+        #expect(a.edrSurface.requestedHeadroom == 2)
+        b.contentVisible = false
+        #expect(b.edrSurface.requestedHeadroom == 1)
+        b.contentVisible = true
+        try await Task.sleep(for: .milliseconds(260))
+        #expect(b.edrSurface.requestedHeadroom == 3)
+        second.contentView = nil
+        #expect(b.edrSurface.requestedHeadroom == 1)
+        #expect(b.edrSurface.layer.device == nil)
+        #expect(!b.observing)
+    }
+
     @Test func readerPublishesOnAttachmentRecoversAfterFocusAndCancelsOnDetach() async throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: .init(x: 100, y: 100, width: 150, height: 100),

@@ -7,6 +7,7 @@ struct LyricEmphasisOptions: Equatable, Sendable {
     var hdr = false
     var hdrBrightness = 1.6
     var reduced = false
+    var compactHalo = false
     var usesHDR: Bool { glow && hdr && !reduced }
 }
 
@@ -190,7 +191,7 @@ struct HeldNoteRenderer: TextRenderer {
     // Extra drawing space doesn't affect measured text size or window position.
     var displayPadding: EdgeInsets { .init(top: 12, leading: 12, bottom: 12, trailing: 12) }
     static func hdrWhite(brightness: Double) -> Color {
-        let value = brightness.isFinite ? min(4, max(1, brightness)) : 1.6
+        let value = HDRBrightness.clamped(brightness)
         return Color(.sRGBLinear, white: value, opacity: 1).headroom(value)
     }
 
@@ -263,8 +264,10 @@ struct HeldNoteRenderer: TextRenderer {
                     // close enough to the edge to retain a visible peak instead
                     // of averaging all the extra luminance away in a wide blur.
                     let radius = options.usesHDR && wordColors?.glow != nil ? 0.065 : 0.24
-                    bloom.addFilter(.shadow(color: halo,
-                        radius: min(9, bounds.height * radius)))
+                    // The desktop overlay sits over real content: keep its
+                    // outer halo smaller without reducing the HDR glyph emitter.
+                    bloom.addFilter(.shadow(color: halo.opacity(options.compactHalo ? 0.82 : 1),
+                        radius: min(9, bounds.height * radius) * (options.compactHalo ? 0.82 : 1)))
                     bloom.drawLayer { layer in
                         for (slice, box, frame, progress) in units where frame.glow > 0.001 && progress > 0 {
                             var ink = transformed(layer, bounds: box, referenceBounds: bounds, frame: frame)

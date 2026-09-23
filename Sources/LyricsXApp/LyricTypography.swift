@@ -109,7 +109,7 @@ struct LyricGlowInk: Equatable {
         red = rgb[0]; green = rgb[1]; blue = rgb[2]
     }
     func color(brightness: Double) -> Color {
-        let value = brightness.isFinite ? min(4, max(1, brightness)) : 1
+        let value = HDRBrightness.clamped(brightness)
         // Dark SDR ink gives the halo contrast on white glass. Multiplying that
         // ink by EDR headroom still leaves neutral palettes below SDR white.
         // Use a separate, lightly tinted emitter; the opaque dark glyph is

@@ -349,7 +349,7 @@ struct PreferencesView: View {
             SettingToggle(title: "HDR 辉光增强", detail: "默认开启，按所在屏幕能力增强长音辉光。普通屏幕自动使用普通亮度。需先开启长音辉光。", impact: "高亮效果可能更刺眼并增加能耗；实际亮度由屏幕和系统决定。", value: $p.lyricHDR)
                 .disabled(unavailable)
             if p.lyricHDR {
-            SettingSlider(title: "HDR 亮度", detail: "设置辉光的目标强度，自动限制在所在屏幕的能力内。不会改变屏幕亮度设置。", value: $p.lyricHDRBrightness, range: 1...4, step: 0.1, suffix: "×", decimals: 1)
+            HDRBrightnessControl(value: $p.lyricHDRBrightness)
                 .disabled(unavailable)
             }
         }

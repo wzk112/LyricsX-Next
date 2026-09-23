@@ -113,27 +113,34 @@ extension EnvironmentValues {
 /// One reader per surface, never per lyric or display frame.
 private struct WindowHDRReader: NSViewRepresentable {
     let visible: Bool
+    let headroom: Double
     let changed: (HDRWindowOutput) -> Void
     func makeNSView(context: Context) -> HDRWindowReaderView {
         let view = HDRWindowReaderView()
         view.changed = changed
         view.contentVisible = visible
+        view.requestedHeadroom = headroom
         return view
     }
     func updateNSView(_ view: HDRWindowReaderView, context: Context) {
         view.changed = changed
         view.contentVisible = visible
+        view.requestedHeadroom = headroom
     }
     static func dismantleNSView(_ view: HDRWindowReaderView, coordinator: ()) { view.stop(); view.changed = nil }
 }
 
 @MainActor final class HDRWindowReaderView: NSView {
     var changed: ((HDRWindowOutput) -> Void)?
+    let edrSurface = WindowEDRSurface()
+    var requestedHeadroom = 1.0 {
+        didSet { if requestedHeadroom != oldValue { updateSurface() } }
+    }
     var contentVisible = true {
         didSet {
             guard contentVisible != oldValue else { return }
             if contentVisible { recover() }
-            else { recovery?.cancel(); recovery = nil }
+            else { recovery?.cancel(); recovery = nil; updateSurface() }
         }
     }
     private(set) var output = HDRWindowOutput()
@@ -142,6 +149,30 @@ private struct WindowHDRReader: NSViewRepresentable {
     private var recovery: Task<Void, Never>?
     private var publication: Task<Void, Never>?
     private var published: HDRWindowOutput?
+    private var visibilityObservation: NSKeyValueObservation?
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private func updateSurface(redraw: Bool = false) {
+        let visible = observing && contentVisible && !NSApp.isHidden
+            && window?.isVisible == true && window?.isMiniaturized == false
+        let headroom = LyricHDROutputRequest.headroom(requested: requestedHeadroom > 1,
+            visible: visible, content: requestedHeadroom, capability: output.capability)
+        var attached = false
+        if headroom > 1, let root = window?.contentView {
+            root.wantsLayer = true
+            if let backing = root.layer, edrSurface.layer.superlayer !== backing {
+                // Own a native sibling of the hosting view's drawing layers.
+                // Do not put this output inside SwiftUI's offscreen snapshots,
+                // opacity groups, material graph, or ImageRenderer previews.
+                edrSurface.layer.removeFromSuperlayer()
+                edrSurface.layer.frame = CGRect(x: 1, y: 1, width: 1, height: 1)
+                backing.addSublayer(edrSurface.layer)
+                attached = true
+            }
+        }
+        edrSurface.update(headroom: headroom, visible: visible, redraw: redraw || attached)
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -149,14 +180,19 @@ private struct WindowHDRReader: NSViewRepresentable {
         output = HDRWindowOutput()
         guard let window else { return }
         observing = true
+        visibilityObservation = window.observe(\.isVisible, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in self?.recover() }
+        }
         for name in [NSWindow.didChangeScreenNotification, NSWindow.didChangeOcclusionStateNotification,
                      NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
-                     NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification] {
+                     NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
+                     NSWindow.willCloseNotification] {
             NotificationCenter.default.addObserver(self, selector: #selector(displayDidChange(_:)), name: name, object: window)
         }
         for name in [NSApplication.didChangeScreenParametersNotification,
-                     NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+                     NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+                     NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
             NotificationCenter.default.addObserver(self, selector: #selector(displayDidChange(_:)), name: name, object: nil)
         }
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification,
@@ -212,6 +248,7 @@ private struct WindowHDRReader: NSViewRepresentable {
         // Request a new display list after focus/restore without replacing the
         // hosting view, resetting the lyric clock, or toggling HDR off and on.
         output.refresh(capability, redraw: redraw && contentVisible && window?.isVisible == true && window?.isMiniaturized == false)
+        updateSurface(redraw: redraw)
         guard published != output else { return }
         publication?.cancel()
         let token = generation
@@ -228,6 +265,8 @@ private struct WindowHDRReader: NSViewRepresentable {
         recovery?.cancel(); recovery = nil
         publication?.cancel(); publication = nil
         published = nil
+        edrSurface.stop()
+        visibilityObservation?.invalidate(); visibilityObservation = nil
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
@@ -247,20 +286,10 @@ private struct HDRDisplayScope: ViewModifier {
             .allowedDynamicRange(requested && output.capability?.supported == true ? .high : .standard)
             .onPreferenceChange(LyricHDRContentHeadroomKey.self) { contentHeadroom = $0 }
             .background(alignment: .topLeading) {
-                if headroom > 1 {
-                    // Declare content metadata outside the lyric's filter and
-                    // hover-opacity passes. Black introduces no bright pixel.
-                    // Nonzero coverage prevents SwiftUI pruning the declaration.
-                    // Only this subpixel marker renews on wake; never the text,
-                    // its layout, the cue clock, or the native glass surface.
-                    Color(.sRGBLinear, white: 0, opacity: 0.01).headroom(headroom)
-                        .frame(width: 0.25, height: 0.25)
-                        .allowedDynamicRange(.high)
-                        .id(output.revision)
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
+                WindowHDRReader(visible: visible, headroom: headroom) { output = $0 }
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false).accessibilityHidden(true)
             }
-            .background(WindowHDRReader(visible: visible) { output = $0 }.frame(width: 0, height: 0))
     }
 }
 extension View {
