@@ -7,16 +7,16 @@ struct LyricsXApp: App {
     var body: some Scene {
         @Bindable var model = delegate.model
         Window("LyricsX Next", id: "main") {
-            MainView(model: model).hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR)
+            MainView(model: model).preferredColorScheme(model.preferences.appTheme.colorScheme).hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR)
         }
         .defaultSize(width: 1040, height: 720)
         .windowStyle(.hiddenTitleBar)
         .windowBackgroundDragBehavior(.disabled)
         .commands { LyricsXCommands(model: model) }
         Settings {
-            PreferencesView(model: model)
+            PreferencesView(model: model).preferredColorScheme(model.preferences.appTheme.colorScheme)
         }
-        Window("动效预览", id: "preview") { LyricsPreviewView(preferences: model.preferences) }
+        Window("动效预览", id: "preview") { LyricsPreviewView(preferences: model.preferences).preferredColorScheme(model.preferences.appTheme.colorScheme) }
             .defaultSize(width: 760, height: 480)
         MenuBarExtra(isInserted: $model.preferences.showMenuBarIcon) { MenuBarContent(model: model) } label: {
             if model.preferences.showMenubarLyrics && model.preferences.combinedMenubarLyrics {

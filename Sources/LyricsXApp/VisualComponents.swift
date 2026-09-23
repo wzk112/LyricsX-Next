@@ -5,18 +5,19 @@ struct AmbientBackground: View {
     var artwork: NSImage?
     var reduced = false
     @Environment(\.accessibilityReduceMotion) private var systemReduced
+    @Environment(\.colorScheme) private var colorScheme
     @State private var backdrop: CGImage?
     @State private var renderedArtwork: ObjectIdentifier?
     var body: some View {
         GeometryReader { geometry in
             let key = artwork.map { AmbientArtworkKey(artwork: $0, size: geometry.size) }
             ZStack {
-                LinearGradient(colors: [Color(white: 0.12), Color(white: 0.045)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: colorScheme == .dark ? [Color(white: 0.12), Color(white: 0.045)] : [Color(white: 0.98), Color(white: 0.91)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 if let backdrop {
-                    Image(decorative: backdrop, scale: 1).resizable().opacity(0.52)
+                    Image(decorative: backdrop, scale: 1).resizable().opacity(colorScheme == .dark ? 0.52 : 0.20)
                         .id(ObjectIdentifier(backdrop)).transition(.opacity)
                 }
-                LinearGradient(colors: [.black.opacity(0.01), .black.opacity(0.18)], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: colorScheme == .dark ? [.black.opacity(0.01), .black.opacity(0.18)] : [.white.opacity(0.06), .white.opacity(0.25)], startPoint: .top, endPoint: .bottom)
             }.clipped().task(id: key) {
                 // Keep the previous pixels while metadata is temporarily missing
                 // or the replacement blur is being prepared. Never flash a flat fill.
@@ -87,7 +88,7 @@ struct CoverArtwork: View {
                         Spacer()
                         Text(demo ? "夜航" : "声之所至").font(.system(size: size * 0.135, weight: .ultraLight)).tracking(8)
                         Text(demo ? "N I G H T F A L L" : "E V E R Y  W O R D").font(.system(size: size * 0.029, weight: .medium)).foregroundStyle(.white.opacity(0.7))
-                    }.padding(size * 0.085).frame(width: size, height: size)
+                    }.padding(size * 0.085).frame(width: size, height: size).foregroundStyle(.white)
                 } else {
                     Color(white: 0.13)
                     Image(systemName: "music.note").font(.system(size: size * 0.26, weight: .light)).foregroundStyle(.white.opacity(0.35))
@@ -143,12 +144,15 @@ struct LyricRenderTimeline<Content: View>: View {
     let preciseTime: () -> Double
     var continueFrames: () -> Bool = { true }
     @ViewBuilder let content: (Double) -> Content
-    @State private var frame: UInt64 = 0
+    @State private var frameTarget: Double?
 
     var body: some View {
-        let _ = frame
-        content(running ? preciseTime() : sampledTime)
-            .background(LyricFrameSource(running: running && continueFrames()) { frame &+= 1 }.frame(width: 0, height: 0))
+        let time = running
+            ? DisplayFrameTime.sample(preciseTime(), target: frameTarget, now: ProcessInfo.processInfo.systemUptime)
+            : sampledTime
+        content(time)
+            .background(LyricFrameSource(running: running && continueFrames()) { frameTarget = $0 }.frame(width: 0, height: 0))
+            .onChange(of: running) { _, _ in frameTarget = nil }
     }
 }
 
@@ -164,11 +168,12 @@ struct SymbolButton: View {
     let help: String
     var active = false
     var inactiveOpacity = 0.6
+    var ink: Color = .white
     let action: () -> Void
     var body: some View {
         Button(action: action) { Image(systemName: symbol).font(.system(size: 15, weight: .medium)).frame(width: 30, height: 30) }
-            .buttonStyle(.plain).foregroundStyle(active ? .white : .white.opacity(inactiveOpacity))
-            .background(active ? .white.opacity(0.1) : .clear, in: .circle)
+            .buttonStyle(.plain).foregroundStyle(active ? ink : ink.opacity(inactiveOpacity))
+            .background(active ? ink.opacity(0.1) : .clear, in: .circle)
             .contentShape(.circle).help(help).accessibilityLabel(help)
     }
 }

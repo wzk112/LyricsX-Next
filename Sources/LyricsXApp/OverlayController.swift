@@ -4,7 +4,7 @@ import Observation
 import QuartzCore
 import LyricsXCore
 
-final class DraggableOverlayPanel: NSPanel {
+final class DraggableOverlayPanel: OverlayMaterialPanel {
     var contentDragEnabled = true
     var onDragActivity: ((Bool) -> Void)?
     var onDragAnchor: ((NSPoint) -> Void)?
@@ -50,11 +50,11 @@ final class OverlayController: NSObject, NSWindowDelegate {
     let panel: DraggableOverlayPanel
     let controlPanel: NSPanel
     private let background = OverlayGlassBackground()
-    private let content: NSHostingView<OverlayView?>
+    private let content: NSHostingView<OverlayThemedRoot<OverlayView>?>
     private let root = NSView()
     private let viewport: OverlayViewport
     private let presentation = OverlayPresentation()
-    private let controls: NSHostingView<OverlayControlStrip?>
+    private let controls: NSHostingView<OverlayThemedRoot<OverlayControlStrip>?>
     private unowned let model: AppModel
     private let pointerLocation: () -> NSPoint
     private let frameAutosaveName: String?
@@ -104,12 +104,17 @@ final class OverlayController: NSObject, NSWindowDelegate {
         self.frameAutosaveName = frameAutosaveName
         panel = DraggableOverlayPanel(contentRect: NSRect(x: 0, y: 0, width: model.preferences.overlayWidth, height: 174),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        // AppKit may resolve glass activity while the hosting tree attaches.
+        // Set the optical appearance before any views enter the window.
+        panel.keepsGlassAppearanceActive = !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         controlPanel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 134, height: 34),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         let viewport = OverlayViewport(width: model.preferences.overlayWidth)
         self.viewport = viewport
-        content = NSHostingView(rootView: OverlayView(model: model, viewport: viewport, presentation: presentation))
-        controls = NSHostingView(rootView: OverlayControlStrip(model: model))
+        content = NSHostingView(rootView: OverlayThemedRoot(preferences: model.preferences,
+            content: OverlayView(model: model, viewport: viewport, presentation: presentation)))
+        controls = NSHostingView(rootView: OverlayThemedRoot(preferences: model.preferences,
+            content: OverlayControlStrip(model: model)))
         super.init()
         viewport.contentSizeChanged = { [weak self] _ in
             guard let self, !self.stopped else { return }
@@ -253,10 +258,24 @@ final class OverlayController: NSObject, NSWindowDelegate {
         panel.contentDragEnabled = !prefs.overlayLocked && !prefs.overlayClickThrough
         if panel.ignoresMouseEvents != prefs.overlayClickThrough { panel.ignoresMouseEvents = prefs.overlayClickThrough }
         setControlsDetached(prefs.overlayClickThrough)
-        background.configure(appearance: prefs.overlayAppearance, transparency: prefs.overlayTransparency,
+        // Set activity policy before AppKit resolves any new appearance/style.
+        // Reading glass also has an explicit ink palette and must not silently
+        // switch to an inactive/adaptive material when the main window closes.
+        panel.keepsGlassAppearanceActive = !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        let appearance = prefs.overlayEffectiveTheme.appearance
+        for window in [panel as NSPanel, controlPanel] {
+            if window.appearance?.name != appearance?.name { window.appearance = appearance }
+        }
+        // Scope the actual drawing surfaces too, including detached controls.
+        // The setting must not depend on activation or a future lyric update.
+        for view in [content, controls] as [NSView] {
+            if view.appearance?.name != appearance?.name { view.appearance = appearance }
+        }
+        background.configure(appearance: prefs.overlayAppearance, transparency: prefs.overlayMaterialTransparency,
                              frostAmount: prefs.overlayFrostAmount,
                              reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-                             reduceMotion: prefs.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+                             reduceMotion: prefs.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+                             theme: prefs.overlayEffectiveTheme)
         updateSizing()
         // Finish geometry while still hidden, then expose one coherent frame.
         if showing { panel.orderFrontRegardless() }
@@ -318,7 +337,6 @@ final class OverlayController: NSObject, NSWindowDelegate {
             hoverHidden = hidden
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = prefs.reduceMotion ? 0 : 0.16
-                content.animator().alphaValue = hidden ? 0 : 1
                 background.animator().alphaValue = hidden ? 0 : 1
             }
         }
@@ -551,7 +569,10 @@ struct OverlayView: View {
     @State private var windowVisible = false
     @State private var revealedSearchingHeader: UInt64?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
+        let lightGlass = colorScheme == .light
+        let ink = lightGlass ? Color(white: 0.16) : Color.white
         let maximum = model.preferences.overlayLayoutWidth
         let display = presentation?.held ?? OverlayDisplaySnapshot(model: model, at: ProcessInfo.processInfo.systemUptime)
         let compact = display.compact
@@ -585,9 +606,9 @@ struct OverlayView: View {
                     VStack(spacing: 0) {
                         Spacer(minLength: 4)
                         HStack(spacing: 6) {
-                            ForEach(0..<3) { _ in Circle().fill(.white.opacity(0.94)).frame(width: 5, height: 5) }
+                            ForEach(0..<3) { _ in Circle().fill(ink.opacity(0.94)).frame(width: 5, height: 5) }
                         }
-                        .shadow(color: .black.opacity(0.85), radius: 2, y: 1)
+                        .shadow(color: .black.opacity(lightGlass ? 0.12 : 0.85), radius: 2, y: 1)
                         .accessibilityElement(children: .ignore).accessibilityLabel("等待歌词")
                         Spacer(minLength: 10)
                     }
@@ -606,7 +627,7 @@ struct OverlayView: View {
                             if let artist = display.track?.artist, !artist.isEmpty {
                                 Text(artist).font(.system(size: card.artist, weight: .medium)).lineLimit(1).opacity(0.8)
                             }
-                        }.shadow(color: .black.opacity(0.8), radius: 2, y: 1)
+                        }.shadow(color: .black.opacity(lightGlass ? 0.12 : 0.8), radius: 2, y: 1)
                     }.frame(maxWidth: card.contentWidth, alignment: .center)
                 } else {
                     VStack(spacing: 0) {
@@ -622,8 +643,10 @@ struct OverlayView: View {
                             } else { Text(placeholder) }
                         }
                         .font(.system(size: model.preferences.fontSize, weight: .semibold))
-                        .shadow(color: .black.opacity(0.8), radius: 1.5, y: 1)
-                        .shadow(color: .black.opacity(0.35), radius: 5, y: 1)
+                        // A soft local backing protects dark ink over desktop detail
+                        // without the fuzzy white outline of a subpixel rim.
+                        .shadow(color: lightGlass ? .white.opacity(0.65) : .black.opacity(0.98), radius: lightGlass ? 3 : 1.1)
+                        .shadow(color: lightGlass ? .white.opacity(0.24) : .black.opacity(model.preferences.overlayAppearance == .glass ? 0.7 : 0.35), radius: 5, y: 1)
                         Spacer(minLength: 10)
                     }
                 }
@@ -639,10 +662,16 @@ struct OverlayView: View {
             .animation(modeAnimation, value: display.mode)
             .animation(modeAnimation, value: showsHeader)
             .padding(.horizontal, 24).padding(.vertical, 12)
-            .foregroundStyle(.white)
+            .foregroundStyle(ink)
             .padding(6)
             .frame(width: maximum, height: display.mode == .waiting ? OverlayPresentationMode.waitingHeight : compact ? card.height : height)
-            .hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR)
+            // Keep the NSHostingView itself at alpha 1. AppKit's host-wide
+            // fade sits outside SwiftUI's HDR output declaration and can cache
+            // the restored lyric as SDR. Fade inside the HDR scope instead.
+            .opacity(viewport.rendering ? 1 : 0)
+            .animation(model.preferences.reduceMotion || reduceMotion ? nil : .easeInOut(duration: 0.16), value: viewport.rendering)
+            .hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR,
+                visible: windowVisible && viewport.rendering)
             .environment(\.lyricFrameRateLimit, model.preferences.overlayFrameRate.limit)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             // SwiftUI and the controller observe the session independently.
@@ -671,8 +700,10 @@ struct OverlayView: View {
             if let artist = display.track?.artist, !artist.isEmpty { Text("· " + artist).lineLimit(1).opacity(0.85) }
             Spacer(minLength: 4)
             Color.clear.frame(width: 126, height: 30)
-        }.font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.92))
-            .shadow(color: .black.opacity(0.6), radius: 1, y: 1)
+        }.font(.system(size: 11, weight: .medium))
+            .foregroundStyle(colorScheme == .light
+                ? Color(white: 0.16) : .white.opacity(0.92))
+            .shadow(color: .black.opacity(colorScheme == .light ? 0.10 : 0.6), radius: 1, y: 1)
             .frame(width: max(260, viewport.width - 60), height: 30)
     }
     private func contentTransition(display: OverlayDisplaySnapshot) -> OverlayContentTransition {
@@ -708,24 +739,28 @@ private struct OverlaySearchingHeaderRequest: Hashable {
 private struct OverlayControlStrip: View {
     @Bindable var model: AppModel
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
+        let lightGlass = colorScheme == .light
+        let controlInk = lightGlass ? Color(white: 0.18) : Color.white
         HStack(spacing: 2) {
-            SymbolButton(symbol: "arrow.up.left.and.arrow.down.right", help: "打开主窗口", inactiveOpacity: 0.92) { model.showMainWindow?() }
-            SymbolButton(symbol: model.preferences.overlayLocked ? "lock.fill" : "lock.open", help: model.preferences.overlayLocked ? "解锁并恢复拖动" : "锁定位置", active: model.preferences.overlayLocked, inactiveOpacity: 0.92) {
+            SymbolButton(symbol: "arrow.up.left.and.arrow.down.right", help: "打开主窗口", inactiveOpacity: 0.92, ink: controlInk) { model.showMainWindow?() }
+            SymbolButton(symbol: model.preferences.overlayLocked ? "lock.fill" : "lock.open", help: model.preferences.overlayLocked ? "解锁并恢复拖动" : "锁定位置", active: model.preferences.overlayLocked, inactiveOpacity: 0.92, ink: controlInk) {
                 model.setOverlayLocked(!model.preferences.overlayLocked)
             }
-            SymbolButton(symbol: model.preferences.overlayClickThrough ? "cursorarrow.slash" : "cursorarrow.rays", help: model.preferences.overlayClickThrough ? "关闭点击穿透" : "开启点击穿透", active: model.preferences.overlayClickThrough, inactiveOpacity: 0.92) {
+            SymbolButton(symbol: model.preferences.overlayClickThrough ? "cursorarrow.slash" : "cursorarrow.rays", help: model.preferences.overlayClickThrough ? "关闭点击穿透" : "开启点击穿透", active: model.preferences.overlayClickThrough, inactiveOpacity: 0.92, ink: controlInk) {
                 model.setOverlayClickThrough(!model.preferences.overlayClickThrough)
             }
-            SymbolButton(symbol: "xmark", help: "隐藏悬浮歌词", inactiveOpacity: 0.92) { model.setOverlayVisible(false) }
+            SymbolButton(symbol: "xmark", help: "隐藏悬浮歌词", inactiveOpacity: 0.92, ink: controlInk) { model.setOverlayVisible(false) }
         }
-        .foregroundStyle(.white)
-        .shadow(color: .black.opacity(0.65), radius: 1, y: 1)
+        .shadow(color: .black.opacity(lightGlass ? 0.12 : 0.65), radius: 1, y: 1)
         .padding(2)
-        // A minimum local scrim keeps white controls legible over white pages.
-        // Keep this independent from the user's much lighter lyric glass tint.
-        .background(reduceTransparency ? Color(white: 0.16) : .black.opacity(max(0.52, 1 - model.preferences.overlayTransparency)), in: .capsule)
+        .background(reduceTransparency ? Color(white: lightGlass ? 0.91 : 0.16)
+            : lightGlass ? .white.opacity(0.24)
+            : .black.opacity(model.preferences.overlayAppearance == .glass
+                ? 0.16 + 0.12 * (1 - model.preferences.overlayGlassTintTransparency)
+                : max(0.52, 1 - model.preferences.overlayTransparency)), in: .capsule)
         .glassEffect(.clear, in: .capsule)
-        .overlay { Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.5).allowsHitTesting(false) }
+        .overlay { Capsule().strokeBorder(.white.opacity(lightGlass ? 0.25 : 0.16), lineWidth: 0.5).allowsHitTesting(false) }
     }
 }

@@ -8,20 +8,38 @@ import LyricsXServices
 final class Preferences {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored nonisolated let sourceConfigurationReader: SourceConfigurationReader
+    var appTheme: InterfaceTheme { didSet { save("appTheme", appTheme.rawValue) } }
+    var overlayTheme: InterfaceTheme { didSet { save("overlayTheme", overlayTheme.rawValue) } }
     var overlayVisible: Bool { didSet { save("overlayVisible", overlayVisible) } }
     var overlayLocked: Bool { didSet { save("overlayLocked", overlayLocked) } }
     var overlayClickThrough: Bool { didSet { save("overlayClickThrough", overlayClickThrough) } }
     var hideOverlayOnHover: Bool { didSet { save("hideOverlayOnHover", hideOverlayOnHover) } }
     var overlayAppearance: OverlayAppearance { didSet { save("overlayAppearance", overlayAppearance.rawValue) } }
     var overlayTransparency: Double { didSet { save("overlayTransparency", overlayTransparency) } }
+    var overlayGlassTintTransparency: Double { didSet { save("overlayGlassTintTransparency", overlayGlassTintTransparency) } }
+    var overlayMaterialTransparency: Double {
+        get { overlayAppearance == .glass ? overlayGlassTintTransparency : overlayTransparency }
+        set {
+            let value = overlayAppearance.clampedMaterialTransparency(newValue)
+            if overlayAppearance == .glass { overlayGlassTintTransparency = value }
+            else { overlayTransparency = value }
+        }
+    }
     var overlayGlassFrostAmount: Double { didSet { save("overlayGlassFrostAmount", overlayGlassFrostAmount) } }
     var overlayReadingFrostAmount: Double { didSet { save("overlayReadingFrostAmount", overlayReadingFrostAmount) } }
     var overlayFrostAmount: Double {
-        get { overlayAppearance == .glass ? overlayGlassFrostAmount : overlayReadingFrostAmount }
+        get {
+            switch overlayAppearance {
+            case .frosted: overlayReadingFrostAmount
+            case .glass: OverlayAppearance.glass.defaultFrost
+            }
+        }
         set {
             let amount = overlayAppearance.clampedFrost(newValue)
-            if overlayAppearance == .glass { overlayGlassFrostAmount = amount }
-            else { overlayReadingFrostAmount = amount }
+            switch overlayAppearance {
+            case .frosted: overlayReadingFrostAmount = amount
+            case .glass: break // Native regular glass owns its blur strength.
+            }
         }
     }
     var overlayWidth: Double { didSet { save("overlayWidth", overlayWidth) } }
@@ -37,14 +55,60 @@ final class Preferences {
     var separateWordColors: Bool { didSet { save("separateWordColors", separateWordColors) } }
     var sungWordColor: String { didSet { save("sungWordColor", sungWordColor) } }
     var unsungWordColor: String { didSet { save("unsungWordColor", unsungWordColor) } }
-    var typography: LyricTypography {
+    private struct TypographyKey: Equatable {
+        let font: String
+        let primary: String
+        let secondary: String
+        var sung: String?
+        var unsung: String?
+        var value: LyricTypography {
+            .init(fontName: font, primaryHex: primary, secondaryHex: secondary,
+                wordColors: sung.flatMap { sung in unsung.map {
+                    .init(sung: LyricTypography.color(sung), unsung: LyricTypography.color($0), plain: LyricTypography.color(primary))
+                } })
+        }
+    }
+    @ObservationIgnored private var typographyCache: (key: TypographyKey, value: LyricTypography)?
+    @ObservationIgnored private var lightTypographyCache: (key: TypographyKey, value: LyricTypography)?
+    @ObservationIgnored private var darkTypographyCache: (key: TypographyKey, value: LyricTypography)?
+    private var typographyKey: TypographyKey {
         if followArtworkColors {
             let theme = artworkTheme ?? .neutral
-            return .init(fontName: lyricFontName, primaryHex: theme.sung, secondaryHex: theme.secondary,
-                wordColors: .init(sung: LyricTypography.color(theme.sung), unsung: LyricTypography.color(theme.unsung), plain: LyricTypography.color(theme.sung)))
+            return .init(font: lyricFontName, primary: theme.sung, secondary: theme.secondary, sung: theme.sung, unsung: theme.unsung)
         }
-        return .init(fontName: lyricFontName, primaryHex: lyricPrimaryColor, secondaryHex: lyricSecondaryColor,
-            wordColors: separateWordColors ? .init(sung: LyricTypography.color(sungWordColor), unsung: LyricTypography.color(unsungWordColor), plain: LyricTypography.color(lyricPrimaryColor)) : nil)
+        return .init(font: lyricFontName, primary: lyricPrimaryColor, secondary: lyricSecondaryColor,
+            sung: separateWordColors ? sungWordColor : nil, unsung: separateWordColors ? unsungWordColor : nil)
+    }
+    var typography: LyricTypography {
+        let key = typographyKey
+        if let cache = typographyCache, cache.key == key { return cache.value }
+        let value = key.value
+        typographyCache = (key, value)
+        return value
+    }
+    func mainTypography(colorScheme: ColorScheme) -> LyricTypography {
+        colorScheme == .dark ? typography : adaptiveTypography(colorScheme: colorScheme)
+    }
+    var overlayEffectiveTheme: InterfaceTheme { overlayAppearance == .glass ? .dark : overlayTheme }
+    func overlayTypography(colorScheme: ColorScheme) -> LyricTypography {
+        if overlayAppearance == .glass { return adaptiveTypography(colorScheme: .dark) }
+        guard colorScheme == .light else { return typography }
+        return adaptiveTypography(colorScheme: colorScheme)
+    }
+    private func adaptiveTypography(colorScheme: ColorScheme) -> LyricTypography {
+        // The source accent has more hue than the pastel ink prepared for the
+        // dark main window. Generate glass ink from that accent directly.
+        let key: TypographyKey
+        if followArtworkColors {
+            let accent = (artworkTheme ?? .neutral).accent
+            key = .init(font: lyricFontName, primary: accent, secondary: accent)
+        } else { key = typographyKey }
+        let dark = colorScheme == .dark
+        if let cache = dark ? darkTypographyCache : lightTypographyCache, cache.key == key { return cache.value }
+        let adapted = key.value.adaptedForGlass(dark: dark)
+        if dark { darkTypographyCache = (key, adapted) }
+        else { lightTypographyCache = (key, adapted) }
+        return adapted
     }
     var translationFontSize: Double { didSet { save("translationFontSize", translationFontSize) } }
     var nextLineFontSize: Double { didSet { save("nextLineFontSize", nextLineFontSize) } }
@@ -82,6 +146,8 @@ final class Preferences {
     init(defaults d: UserDefaults = .standard) {
         defaults = d
         sourceConfigurationReader = SourceConfigurationReader(defaults: d)
+        appTheme = InterfaceTheme(rawValue: d.string(forKey: "appTheme") ?? "system") ?? .system
+        overlayTheme = InterfaceTheme(rawValue: d.string(forKey: "overlayTheme") ?? "system") ?? .system
         overlayVisible = d.object(forKey: "overlayVisible") as? Bool ?? true
         overlayLocked = d.bool(forKey: "overlayLocked")
         overlayClickThrough = d.bool(forKey: "overlayClickThrough")
@@ -92,6 +158,10 @@ final class Preferences {
         let transparency = OverlayAppearance.clampedTransparency(
             savedTransparency ?? legacyStrength.map { 1 - $0 } ?? OverlayAppearance.defaultTransparency)
         overlayTransparency = transparency
+        overlayGlassTintTransparency = OverlayAppearance.glass.clampedMaterialTransparency(
+            d.object(forKey: "overlayGlassTintTransparency") as? Double ??
+                ((savedTransparency != nil || legacyStrength != nil)
+                    ? OverlayAppearance.migratedGlassTint(transparency) : OverlayAppearance.defaultGlassTintTransparency))
         func frost(_ style: OverlayAppearance, key: String) -> Double {
             if let saved = d.object(forKey: key) as? Double { return style.clampedFrost(saved) }
             return savedTransparency != nil || legacyStrength != nil
@@ -158,6 +228,7 @@ final class Preferences {
         if savedTransparency != overlayTransparency {
             d.set(overlayTransparency, forKey: "overlayTransparency")
         }
+        d.set(overlayGlassTintTransparency, forKey: "overlayGlassTintTransparency")
         d.set(overlayGlassFrostAmount, forKey: "overlayGlassFrostAmount")
         d.set(overlayReadingFrostAmount, forKey: "overlayReadingFrostAmount")
     }

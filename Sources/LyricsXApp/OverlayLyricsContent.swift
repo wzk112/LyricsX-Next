@@ -72,6 +72,7 @@ struct OverlayLyricsContent: View {
     var adaptiveCanvasWidth: Double?
     var animationTime: () -> Double = { ProcessInfo.processInfo.systemUptime }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @State var transition = OverlayCueTransition()
 
     private var prefs: Preferences { preferences }
@@ -92,6 +93,7 @@ struct OverlayLyricsContent: View {
     }
 
     var body: some View {
+        let surfaceTypography = prefs.overlayTypography(colorScheme: colorScheme)
         let line = document.lines[index]
         let text = line.text.isEmpty ? "•••" : prefs.text(line.text)
         let content = secondary(at: index)
@@ -145,7 +147,7 @@ struct OverlayLyricsContent: View {
                         let old = departure.cue
                         OverlayLyricSurface(line: old.line, text: old.text, time: departure.time,
                             arrival: old.plan?.withoutEntry(text: old.text), fontSize: old.fontSize,
-                            effects: prefs.lyricEmphasis, typography: prefs.typography)
+                            effects: prefs.lyricEmphasis, typography: surfaceTypography)
                             .equatable()
                             .frame(width: geometry.size.width, height: old.height, alignment: .bottom)
                             .scaleEffect(departure.pose.scale).blur(radius: departure.pose.blur + exit.blur)
@@ -163,7 +165,7 @@ struct OverlayLyricsContent: View {
                         // Reuse its text surface while compositing the motion.
                         let inkTime = OverlayInkClock.time(line: line, text: text, arrival: arrival, sampledTime: wordTime)
                         OverlayLyricSurface(line: line, text: text, time: inkTime, arrival: arrival,
-                            fontSize: primaryFont, effects: prefs.lyricEmphasis, typography: prefs.typography)
+                            fontSize: primaryFont, effects: prefs.lyricEmphasis, typography: surfaceTypography)
                             .equatable()
                     }
                         .frame(width: geometry.size.width, height: primaryHeight, alignment: .bottom)
@@ -172,7 +174,7 @@ struct OverlayLyricsContent: View {
                         .offset(y: motion.offset)
                         .position(x: geometry.size.width / 2, y: primaryHeight / 2)
                     if let translation = content.translation {
-                        OverlayTranslationSurface(text: translation, fontSize: translationFont, typography: prefs.typography).equatable()
+                        OverlayTranslationSurface(text: translation, fontSize: translationFont, typography: surfaceTypography).equatable()
                             .frame(width: geometry.size.width, height: translationHeight)
                             .blur(radius: translationMotion.blur)
                             .opacity(translationMotion.opacity * motion.auxiliaryOpacity(top: translationTop, primaryHeight: primaryHeight, reduced: reduced))
@@ -183,7 +185,7 @@ struct OverlayLyricsContent: View {
                         // Preview and primary use identical wrapping. Transform
                         // the cached layout rather than re-typesetting each size.
                         OverlayLyricSurface(line: nextLine, text: next, time: nextLine.time, arrival: nextPlan,
-                            fontSize: nextFont, effects: .init(lift: prefs.lyricWordLift, glow: false, reduced: reduced), typography: prefs.typography, secondary: true)
+                            fontSize: nextFont, effects: .init(lift: prefs.lyricWordLift, glow: false, reduced: reduced), typography: surfaceTypography, secondary: true)
                             .equatable()
                             .frame(width: geometry.size.width, height: nextPrimaryHeight, alignment: .bottom)
                             .scaleEffect(nextScale).blur(radius: reduced ? 0 : 0.45 + nextMotion.blur)
@@ -250,7 +252,7 @@ private struct OverlayTranslationSurface: View, Equatable {
     var typography = LyricTypography()
     var body: some View {
         Text(text).font(typography.font(size: fontSize, weight: .medium))
-            .foregroundStyle(typography.secondary.opacity(0.95)).lineLimit(2).multilineTextAlignment(.center)
+            .foregroundStyle(typography.secondary).lineLimit(2).multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
     }
 }

@@ -151,7 +151,7 @@ import LyricsXCore
             let view = WordHighlight(line: line, time: 1, active: true, text: line.text,
                                      effects: .init(lift: false, glow: false), arrival: plan.withoutEntry(text: line.text))
                 .font(.system(size: 38)).foregroundStyle(.white)
-                .frame(width: 350, height: 130).background(.black)
+                .frame(width: 350, height: 130).background(.black).environment(\.colorScheme, .dark)
             let renderer = ImageRenderer(content: view)
             renderer.scale = 1
             let image = try #require(renderer.cgImage)
@@ -182,7 +182,7 @@ import LyricsXCore
                                       text: text, effects: .init(lift: false, glow: false))
                     } else { Text(text) }
                 }.font(.system(size: 28)).multilineTextAlignment(.center).foregroundStyle(.white)
-                    .frame(width: 350, height: 160).background(.black)
+                    .frame(width: 350, height: 160).background(.black).environment(\.colorScheme, .dark)
                 let renderer = ImageRenderer(content: view)
                 renderer.scale = 1
                 let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
@@ -214,7 +214,7 @@ import LyricsXCore
                         }.font(.system(size: 30, weight: .bold)).tracking(-0.4)
                         .multilineTextAlignment(alignment)
                         .fixedSize(horizontal: false, vertical: true).foregroundStyle(.white)
-                        .frame(width: 350, alignment: .leading).padding(30).background(.black)
+                        .frame(width: 350, alignment: .leading).padding(30).background(.black).environment(\.colorScheme, .dark)
                         .environment(\.layoutDirection, direction)
                         let renderer = ImageRenderer(content: view); renderer.scale = 1
                         let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
@@ -249,7 +249,7 @@ import LyricsXCore
             prefs.fontSize = font
             let height = OverlayLayoutMetrics.height(preferences: prefs) - OverlayLayoutMetrics.chromeHeight
             let view = OverlayLyricsContent(preferences: prefs, document: doc, index: 0, lyricTime: { 5 })
-                .frame(width: width - 60, height: height).background(.black)
+                .frame(width: width - 60, height: height).background(.black).environment(\.colorScheme, .dark)
             let renderer = ImageRenderer(content: view)
             renderer.scale = 1
             let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
@@ -285,7 +285,7 @@ import LyricsXCore
             let history = index == 0 ? OverlayCueTransition() : OverlayCueTransition().updating(to: old, lyricTime: 2.99, at: 99.99, animated: true)
             let view = OverlayLyricsContent(preferences: prefs, document: doc, index: index, lyricTime: { time },
                 animationTime: { 100 }, transition: history)
-                .frame(width: 500, height: height).background(.black)
+                .frame(width: 500, height: height).background(.black).environment(\.colorScheme, .dark)
             let renderer = ImageRenderer(content: view); renderer.scale = 1
             return NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
         }
@@ -320,7 +320,7 @@ import LyricsXCore
             prefs.overlayWidth = width; prefs.fontSize = font
             let height = OverlayTextMeasure.height(document: doc, index: 0, preferences: prefs, maximumWidth: width)
             let view = OverlayView(model: model, viewport: .init(width: width))
-                .frame(width: width, height: height).background(.black)
+                .frame(width: width, height: height).background(.black).environment(\.colorScheme, .dark)
             let renderer = ImageRenderer(content: view); renderer.scale = 1
             let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
             var bands: [ClosedRange<Int>] = [], begin: Int?
@@ -357,7 +357,7 @@ import LyricsXCore
             let history = index == 0 ? OverlayCueTransition() : OverlayCueTransition().updating(to: old, lyricTime: 2.99, at: 99.99, animated: true)
             let view = OverlayLyricsContent(preferences: prefs, document: doc, index: index,
                 lyricTime: { time }, adaptiveCanvasWidth: 500, animationTime: { 100 }, transition: history)
-                .frame(width: 500).frame(height: 240, alignment: .top).background(.black)
+                .frame(width: 500).frame(height: 240, alignment: .top).background(.black).environment(\.colorScheme, .dark)
             let renderer = ImageRenderer(content: view); renderer.scale = 1
             return NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
         }
@@ -406,7 +406,99 @@ import LyricsXCore
         }
     }
 
-    private func render(time: Double, effects: LyricEmphasisOptions, hdrSupported: Bool = true, hdrHeadroom: Double = 4, wordColors: LyricWordColors? = nil) throws -> CGImage {
+    @Test func darkGlassInkKeepsTheKaraokeWipeAndSeparateHalo() throws {
+        let palette = LyricTypography(primaryHex: "000000").adaptedForGlass(dark: false)
+        let words = try #require(palette.wordColors)
+        let plainEffects = LyricEmphasisOptions(lift: false, glow: false)
+        let before = try render(time: 0, effects: plainEffects, wordColors: words, background: .white)
+        let plain = try render(time: 1.6, effects: plainEffects, wordColors: words, background: .white)
+        let after = try render(time: 4, effects: plainEffects, wordColors: words, background: .white)
+        let coverage = NSBitmapImageRep(cgImage: try render(time: 1.6, effects: plainEffects,
+            wordColors: words, background: .clear))
+        #expect(try energy(before) > energy(plain))
+        #expect(try energy(plain) > energy(after))
+        for hdr in [false, true] {
+            let glow = try render(time: 1.6, effects: .init(lift: false, glow: true, hdr: hdr),
+                                  wordColors: words, background: .white)
+            let a = NSBitmapImageRep(cgImage: plain), b = NSBitmapImageRep(cgImage: glow)
+            var darkCore = 0, changedHalo = 0, washedCore = 0
+            for y in 0..<a.pixelsHigh {
+                for x in 0..<a.pixelsWide {
+                    let p = a.colorAt(x: x, y: y)?.redComponent ?? 1
+                    let q = b.colorAt(x: x, y: y)?.redComponent ?? 1
+                    if p < 0.025 && q < 0.035 { darkCore += 1 }
+                    if p < 0.025 && (coverage.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.999 && q - p > 0.01 { washedCore += 1 }
+                    if p > 0.995 && abs(q - p) > 0.004 { changedHalo += 1 }
+                }
+            }
+            #expect(darkCore > 60, "The glow must not wash out the black glyph core")
+            #expect(washedCore == 0)
+            #expect(changedHalo > 30, "The halo must extend beyond the glyph")
+            if let directory = ProcessInfo.processInfo.environment["LYRICSX_GLOW_QA"] {
+                try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+                let data = try #require(b.representation(using: .png, properties: [:]))
+                try data.write(to: URL(fileURLWithPath: directory).appendingPathComponent("dark-ink-\(hdr ? "edr" : "sdr").png"))
+            }
+        }
+    }
+
+    @Test func lightGlassHDRHaloExceedsWhiteWithoutBrighteningTheDarkGlyphCore() throws {
+        for seed in ["000000", "FFFFFF", "F03868", "1020C0"] {
+            let words = LyricTypography(primaryHex: seed).adaptedForGlass(dark: false).wordColors
+            let glyph = try linearPixels(render(time: 1.6, effects: .init(lift: false, glow: false),
+                wordColors: words, background: .clear))
+            for background in [Color.white, Color(.sRGBLinear, white: 0.65, opacity: 1)] {
+                func pixels(_ effects: LyricEmphasisOptions, headroom: Double = 4) throws -> [Float] {
+                    try linearPixels(render(time: 1.6, effects: effects, hdrHeadroom: headroom,
+                                            wordColors: words, background: background))
+                }
+                let plain = try pixels(.init(lift: false, glow: false))
+                let sdr = try pixels(.init(lift: false, glow: true))
+                let hdr = try pixels(.init(lift: false, glow: true, hdr: true, hdrBrightness: 3.5))
+                let limited = try pixels(.init(lift: false, glow: true, hdr: true, hdrBrightness: 3.5), headroom: 1)
+                let channels = stride(from: 0, to: hdr.count, by: 4).flatMap { [$0, $0 + 1, $0 + 2] }
+                #expect(channels.map { sdr[$0] }.max()! <= 1.01)
+                #expect(channels.map { hdr[$0] }.max()! > 1.1, "No EDR halo for \(seed)")
+                print("Light ink \(seed): SDR peak=\(channels.map { sdr[$0] }.max()!), EDR peak=\(channels.map { hdr[$0] }.max()!)")
+                #expect(channels.map { limited[$0] }.max()! <= 1.01)
+                for index in stride(from: 0, to: hdr.count, by: 4) {
+                    // Check opaque sung cores, not antialiased boundary pixels
+                    // that intentionally blend with the surrounding halo.
+                    let core = glyph[index + 3] > 0.999 &&
+                        plain[index] * 0.2126 + plain[index + 1] * 0.7152 + plain[index + 2] * 0.0722 < 0.035
+                    if core { #expect((0..<3).allSatisfy { hdr[index + $0] - plain[index + $0] < 0.015 }) }
+                }
+            }
+        }
+    }
+
+    @Test func lowHeadroomHDRRetainsTheOrdinaryHaloInsteadOfMakingItWeaker() throws {
+        let words = LyricTypography().adaptedForGlass(dark: true).wordColors
+        let plain = try linearPixels(render(time: 1.6, effects: .init(lift: false, glow: false), wordColors: words))
+        let sdr = try linearPixels(render(time: 1.6, effects: .init(lift: false, glow: true), wordColors: words))
+        let hdr = try linearPixels(render(time: 1.6, effects: .init(lift: false, glow: true, hdr: true, hdrBrightness: 3.5),
+            hdrHeadroom: 1.2, wordColors: words))
+        var sdrHalo = 0.0, hdrHalo = 0.0
+        for i in stride(from: 0, to: plain.count, by: 4) where plain[i] < 0.02 {
+            sdrHalo += Double(sdr[i]); hdrHalo += Double(hdr[i])
+        }
+        print("LOW HEADROOM HALO SDR=\(sdrHalo), HDR=\(hdrHalo)")
+        #expect(hdrHalo >= sdrHalo * 0.95, "Enabling HDR must retain a visible halo when macOS has little headroom")
+        #expect(stride(from: 0, to: hdr.count, by: 4).map { hdr[$0] }.max()! > 1.02)
+    }
+
+    private func linearPixels(_ image: CGImage) throws -> [Float] {
+        let space = try #require(CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        let context = CIContext(options: [.workingColorSpace: space, .outputColorSpace: space])
+        var pixels = [Float](repeating: 0, count: image.width * image.height * 4)
+        pixels.withUnsafeMutableBytes {
+            context.render(CIImage(cgImage: image), toBitmap: $0.baseAddress!, rowBytes: image.width * 16,
+                bounds: CGRect(x: 0, y: 0, width: image.width, height: image.height), format: .RGBAf, colorSpace: space)
+        }
+        return pixels
+    }
+
+    private func render(time: Double, effects: LyricEmphasisOptions, hdrSupported: Bool = true, hdrHeadroom: Double = 4, wordColors: LyricWordColors? = nil, background: Color = .black) throws -> CGImage {
         let line = LyricLine(id: 0, time: 0, text: "Stay 光", words: [
             .init(text: "Stay", start: 0.1, end: 3.2), .init(text: "光", start: 3.2, end: 4)
         ])
@@ -415,7 +507,7 @@ import LyricsXCore
             .environment(\.lyricHDRSupported, hdrSupported)
             .environment(\.lyricHDRHeadroom, hdrHeadroom)
             .font(.system(size: 38, weight: .semibold)).foregroundStyle(.white)
-            .padding(24).frame(width: 350, height: 130).background(.black)
+            .padding(24).frame(width: 350, height: 130).background(background)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 1
         renderer.colorMode = .extendedLinear

@@ -35,7 +35,9 @@ struct LyricEmphasisFrame: Equatable {
         scale = options.lift && !options.reduced
             ? 0.985 + 0.015 * Self.smoother(motion / 0.22) + smallLift + 0.055 * emphasis : 1
         lift = options.lift && !options.reduced ? 0.035 * emphasis + smallLift * 0.5 : 0
-        glow = options.glow && !options.reduced ? (options.usesHDR ? 0.8 : 1.0) * emphasis : 0
+        // EDR adds brightness; it must not weaken the ordinary halo when
+        // macOS has little extra headroom and tone-maps the highlight down.
+        glow = options.glow && !options.reduced ? emphasis : 0
     }
 
     // Zero velocity and acceleration at both ends avoid a visible kick when
@@ -115,7 +117,7 @@ private struct HiddenLyricAttribute: TextAttribute {}
 /// This subtree is independent of playback time, so timestamps don't rebuild
 /// the string or its custom attributes on each tick. Native Text keeps kerning,
 /// ligatures, emoji, bidi layout, selection and wrapping together.
-private struct TimedLyricLabel: View, Equatable {
+struct TimedLyricLabel: View, Equatable {
     let line: LyricLine
     let text: String
     var arrival: LyricLinePresentation?
@@ -156,6 +158,7 @@ struct WordHighlight: View {
     @Environment(\.lyricHDRSupported) private var hdrSupported
     @Environment(\.lyricWordColors) private var wordColors
     @Environment(\.lyricHDRHeadroom) private var hdrHeadroom
+    @Environment(\.lyricHDRRevision) private var hdrRevision
 
     var body: some View {
         var options = effects
@@ -165,9 +168,12 @@ struct WordHighlight: View {
         return LyricLayoutBoundary(text: text + (arrival?.layoutTail ?? "")) {
             TimedLyricLabel(line: line, text: text, arrival: arrival, ink: active && wordColors != nil ? .white : nil).equatable()
                 .textRenderer(HeldNoteRenderer(time: time, options: options, arrival: arrival,
-                    alignment: alignment, direction: direction, active: active, wordColors: wordColors))
+                    alignment: alignment, direction: direction, active: active, wordColors: wordColors,
+                    displayRevision: options.usesHDR ? hdrRevision : 0))
                 .allowedDynamicRange(options.usesHDR ? .high : .standard)
         }
+        .preference(key: LyricHDRContentHeadroomKey.self,
+                    value: active && line.hasWordTiming && options.usesHDR ? options.hdrBrightness : 1)
     }
 }
 
@@ -179,6 +185,8 @@ struct HeldNoteRenderer: TextRenderer {
     var direction: LayoutDirection = .leftToRight
     var active = true
     var wordColors: LyricWordColors?
+    // Invalidates the native drawing after focus/wake without changing cue time.
+    var displayRevision: UInt64 = 0
     // Extra drawing space doesn't affect measured text size or window position.
     var displayPadding: EdgeInsets { .init(top: 12, leading: 12, bottom: 12, trailing: 12) }
     static func hdrWhite(brightness: Double) -> Color {
@@ -243,6 +251,33 @@ struct HeldNoteRenderer: TextRenderer {
                 }
                 offset += bounds.width
                 let base = arrivalContext(context, run: run)
+                // One bloom surface per native run, shared by every moving
+                // character. Dark ink is drawn over its halo so an EDR halo
+                // cannot wash out the glyph core or its karaoke boundary.
+                func drawBloom() {
+                    guard units.contains(where: { $0.2.glow > 0.001 && $0.3 > 0 }) else { return }
+                    let white = options.usesHDR ? Self.hdrWhite(brightness: options.hdrBrightness) : .white
+                    let halo = wordColors?.glow?.color(brightness: options.usesHDR ? options.hdrBrightness : 1) ?? white
+                    var bloom = base
+                    // A dark core covers the emitter itself. Keep its EDR halo
+                    // close enough to the edge to retain a visible peak instead
+                    // of averaging all the extra luminance away in a wide blur.
+                    let radius = options.usesHDR && wordColors?.glow != nil ? 0.065 : 0.24
+                    bloom.addFilter(.shadow(color: halo,
+                        radius: min(9, bounds.height * radius)))
+                    bloom.drawLayer { layer in
+                        for (slice, box, frame, progress) in units where frame.glow > 0.001 && progress > 0 {
+                            var ink = transformed(layer, bounds: box, referenceBounds: bounds, frame: frame)
+                            // Bloom the glyph alpha, never the rectangular
+                            // karaoke mask (which would glow as a capsule).
+                            ink.opacity *= frame.glow * LyricEmphasisFrame.smoother(progress)
+                            if let wordColors { ink.addFilter(.colorMultiply(wordColors.sung)) }
+                            if options.usesHDR && wordColors?.glow == nil { ink.addFilter(.colorMultiply(white)) }
+                            ink.draw(slice, options: .disablesSubpixelQuantization)
+                        }
+                    }
+                }
+                if wordColors?.glow != nil { drawBloom() }
                 for (slice, box, frame, progress) in units {
                     let drawing = transformed(base, bounds: box, referenceBounds: bounds, frame: frame)
                     if progress >= 1 {
@@ -262,25 +297,7 @@ struct HeldNoteRenderer: TextRenderer {
                         }
                     }
                 }
-                // One bloom surface per native run, shared by every moving
-                // character. Do not allocate a blur layer for each letter.
-                if units.contains(where: { $0.2.glow > 0.001 && $0.3 > 0 }) {
-                    let white = options.usesHDR ? Self.hdrWhite(brightness: options.hdrBrightness) : .white
-                    var bloom = base
-                    bloom.addFilter(.shadow(color: white.opacity(options.usesHDR ? 0.85 : 1),
-                        radius: min(9, bounds.height * (options.usesHDR ? 0.19 : 0.24))))
-                    bloom.drawLayer { layer in
-                        for (slice, box, frame, progress) in units where frame.glow > 0.001 && progress > 0 {
-                            var ink = transformed(layer, bounds: box, referenceBounds: bounds, frame: frame)
-                            // Bloom the glyph alpha, never the rectangular
-                            // karaoke mask (which would glow as a capsule).
-                            ink.opacity *= frame.glow * LyricEmphasisFrame.smoother(progress)
-                            if let wordColors { ink.addFilter(.colorMultiply(wordColors.sung)) }
-                            if options.usesHDR { ink.addFilter(.colorMultiply(white)) }
-                            ink.draw(slice, options: .disablesSubpixelQuantization)
-                        }
-                    }
-                }
+                if wordColors?.glow == nil { drawBloom() }
             }
         }
     }

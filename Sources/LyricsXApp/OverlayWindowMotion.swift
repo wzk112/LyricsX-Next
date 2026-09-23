@@ -15,7 +15,7 @@ import SwiftUI
     init(window: NSWindow) { self.window = window }
     @MainActor private final class Target: NSObject {
         weak var owner: OverlayWindowMotion?
-        @objc func tick(_ link: CADisplayLink) { owner?.advance(at: ProcessInfo.processInfo.systemUptime) }
+        @objc func tick(_ link: CADisplayLink) { owner?.advance(at: DisplayFrameTime.sample(ProcessInfo.processInfo.systemUptime, target: link.targetTimestamp, now: ProcessInfo.processInfo.systemUptime)) }
     }
     func start(to target: NSRect, duration: Double, frameRateLimit: Int, completion: @escaping () -> Void) {
         cancel()
@@ -39,7 +39,7 @@ import SwiftUI
         let progress = max(0, (now - startedAt) / duration)
         guard progress < 1 else { finish(); return }
         let fraction = LyricMotion.arrivalCurve.value(at: progress)
-        let rect = NSRect(x: origin.minX + (target.minX - origin.minX) * fraction,
+        let interpolated = NSRect(x: origin.minX + (target.minX - origin.minX) * fraction,
             y: origin.minY + (target.minY - origin.minY) * fraction,
             width: origin.width + (target.width - origin.width) * fraction,
             height: origin.height + (target.height - origin.height) * fraction)
@@ -47,6 +47,12 @@ import SwiftUI
         // native frame as well. Geometry-only writes leave AppKit's previous
         // backing pixels stretched between occasional redraws, which looks
         // like a low-frame-rate resize even though the frame clock is running.
+        // AppKit commits whole-point window sizes. Skip duplicate native
+        // sizes near the easing endpoints instead of forcing a redraw for
+        // each fractional target. Keep the interpolated top-center anchor.
+        let size = NSSize(width: interpolated.width.rounded(), height: interpolated.height.rounded())
+        let rect = NSRect(x: interpolated.midX - size.width / 2, y: interpolated.maxY - size.height,
+                          width: size.width, height: size.height)
         if window.frame != rect { window.setFrame(rect, display: true) }
     }
     func moveTopCenter(to point: NSPoint) {

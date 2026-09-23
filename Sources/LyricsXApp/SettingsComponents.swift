@@ -60,7 +60,7 @@ struct SettingRow<Control: View>: View {
                 Label(impact, systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-        }.padding(16)
+        }.padding(14)
     }
 }
 
@@ -94,7 +94,7 @@ struct SettingSlider: View {
                     .monospacedDigit().foregroundStyle(.secondary)
             }
             Slider(value: $value, in: range, step: step).accessibilityLabel(title).accessibilityHint(detail)
-                .padding(.horizontal, 16).padding(.bottom, 16)
+                .padding(.horizontal, 14).padding(.bottom, 14)
         }
     }
 }

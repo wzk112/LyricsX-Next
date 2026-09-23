@@ -47,8 +47,8 @@ struct GuidePage: Identifiable {
 
 enum GuideContent {
     // Changed only when the introduction itself is revised, never for a routine rebuild.
-    static let revision = "complete-2"
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.34"
+    static let revision = "glass-35"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.35"
     static let tutorial: [GuidePage] = [
         .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
             "打开 Apple Music、Spotify、网易云或 QQ 音乐播放歌曲，即可自动同步歌词。自动识别不包含浏览器。",
@@ -66,9 +66,9 @@ enum GuideContent {
             "悬浮窗显示在其他窗口上方，可随长句自动换行、调整高度。关闭自动高度后可手动调整宽度。",
             "解锁后拖动窗口，锁定后避免误拖。“点击穿透”让你直接操作后面的应用，并自动锁定位置。",
             "锁定时可开启“鼠标经过时隐藏”，离开后恢复。也可以选择暂停播放时隐藏。"], illustration: "overlay"),
-        .init(id: "style", title: "选择喜欢的背景", subtitle: "Liquid Glass · 磨砂阅读", symbol: "square.on.square", points: [
-            "Liquid Glass 更通透；磨砂阅读能柔化背景，让歌词更清楚。点击图例切换。",
-            "透明度越高，越能看清后方；磨砂越强，背景越柔和。两种样式会分别记住磨砂程度。",
+        .init(id: "style", title: "选择喜欢的背景", subtitle: "两种材质，实时预览", symbol: "square.on.square", points: [
+            "Liquid Glass 使用高透玻璃、原生亮边与边缘折射，保持统一外观；磨砂阅读可单独选择深色、浅色或跟随系统。",
+            "Liquid Glass 的透明度调节用于减淡底色，保留完整折射；磨砂阅读还可调节磨砂强度。",
             "实际效果会随桌面背景变化。系统开启“降低透明度”时，会使用实色背景。"], illustration: "style"),
         .init(id: "fonts", title: "换上喜欢的字体", subtitle: "设置 → 歌词 → 字体与颜色", symbol: "textformat", points: [
             "选择此 Mac 已安装的字体，主窗口和悬浮窗会一起更换，下方可实时预览排版。",
@@ -110,6 +110,26 @@ enum GuideContent {
     // Add new release entries here; a version jump includes every intervening
     // entry, while a first upgrade from versions without receipts gets a recap.
     static let releases: [(version: String, page: GuidePage)] = [
+        ("2.0.35", .init(id: "glass35", title: "更通透的 Liquid Glass", subtitle: "更新 · 悬浮窗材质", symbol: "square.on.square", points: [
+            "换用高透原生玻璃，边缘亮光与背景折射更清晰；保留磨砂阅读，适合背景复杂时使用。",
+            "透明度只调整玻璃底色，不会削弱折射亮边。新安装默认 60%；升级会保留并换算原有设置。",
+            "这里使用与应用相同的歌词和材质渲染。也可以打开独立悬浮窗，放到自己的桌面背景上比较。"], illustration: "liveGlass")),
+        ("2.0.35", .init(id: "appearance35", title: "深浅外观，分别设置", subtitle: "新增 · 通用与悬浮窗设置", symbol: "circle.lefthalf.filled", points: [
+            "主窗口与设置可选择深色、浅色或跟随系统；磨砂悬浮窗可以单独设置。Liquid Glass 保持统一的高透外观。",
+            "优化浅色背景、自定义配色和封面配色的可读性，让已唱与未唱的文字更容易区分。",
+            "调整设置页比例与间距；切换材质或外观时，减少底色残留和透明度没有更新的问题。"], illustration: "liveAppearance")),
+        ("2.0.35", .init(id: "motion35", title: "切歌时，界面保持稳定", subtitle: "修复 · 排版与动画", symbol: "waveform", points: [
+            "固定主窗口进度条与播放按钮的位置，长短歌名切换、专辑信息补全和歌词加载时不再下沉回弹。",
+            "保留封面与文字的模糊过渡，改善悬浮窗高度变化、下一句上移和逐字动画的连贯性。",
+            "按屏幕刷新时刻绘制，减少帧间抖动；隐藏的演示停止刷新，避免额外后台开销。"], illustration: "livePlayer")),
+        ("2.0.35", .init(id: "highlight35", title: "辉光与窗口恢复", subtitle: "改进 · 长音与 EDR", symbol: "sparkles", points: [
+            "增强普通亮度下的长音辉光；支持 EDR 的屏幕会根据可用亮度显示更亮的高光。",
+            "改善失去焦点、隐藏后恢复、切换屏幕或材质时的高亮恢复，保留逐字提亮和柔和放大。",
+            "实际高亮由屏幕、系统和歌词逐字时间决定；开启系统“减少动态效果”后会暂停辉光。"], illustration: "liveGlow")),
+        ("2.0.35", .init(id: "upgrade35", title: "升级后，原有设置继续使用", subtitle: "兼容 · 设置与更新介绍", symbol: "checkmark.circle", points: [
+            "保留字体、颜色、歌词来源、偏移和悬浮窗位置。两种材质分别记住参数，无需重新设置。",
+            "本次介绍会在升级后首次打开时自动出现，关闭后不再重复。新安装仍显示完整教程。",
+            "以后在“设置 → 关于”可重看教程或本次更新；关闭介绍会回到原来的窗口。"], illustration: "liveGlass")),
         ("2.0.34", .init(id: "font34", title: "自定义字体与实时预览", subtitle: "新增 · 设置 → 歌词", symbol: "textformat", points: [
             "选择本机字体，主窗口与悬浮窗一起更换；原文、翻译和下一句的字号可分别调整。",
             "设置里可实时查看排版，也能一键恢复默认字体与颜色。缺少字符时自动使用系统字体。"], illustration: "font")),
@@ -144,13 +164,13 @@ enum GuideContent {
             "改善部分 QQ 音乐歌词的读取、搜索与封面显示；修复缓存文件变化及异常设置值引起的显示问题。"], illustration: "conversion"))
     ]
     // Last release actually published on GitHub, not a local test build.
-    static let latestBaseline: String? = "2.0.28"
+    static let latestBaseline: String? = "2.0.34"
     static func updates(after previous: String?) -> [GuidePage] {
         let pages = releases.filter { entry in
             guard let previous else { return true }
             return entry.version.compare(previous, options: .numeric) == .orderedDescending
         }.map(\.page)
-        return pages.isEmpty ? releases.filter { $0.version == "2.0.34" }.map(\.page) : pages
+        return pages.isEmpty ? releases.filter { $0.version == version }.map(\.page) : pages
     }
 }
 
@@ -263,6 +283,7 @@ struct FeatureGuideView: View {
     let model: AppModel?
     let close: () -> Void
     @State private var index = 0
+    @State private var scrollHeight: CGFloat = 600
     init(mode: GuideHistory.Presentation, initialPage: Int = 0, preferences: Preferences? = nil, model: AppModel? = nil, close: @escaping () -> Void) {
         self.mode = mode
         self.preferences = preferences
@@ -309,8 +330,15 @@ struct FeatureGuideView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         Text(page.subtitle).font(.subheadline).foregroundStyle(.secondary)
                         Text(page.title).font(.system(size: 27, weight: .bold)).fixedSize(horizontal: false, vertical: true)
-                        GuideIllustration(kind: page.illustration, appReduced: preferences?.reduceMotion == true).id(page.id)
-                            .frame(height: 190).clipShape(.rect(cornerRadius: 20))
+                        Group {
+                            if page.illustration.hasPrefix("live") || ["style", "overlay"].contains(page.illustration) {
+                                GuideLiveDemo(kind: page.illustration, reduced: preferences?.reduceMotion == true, viewportHeight: scrollHeight)
+                                    .frame(height: 330)
+                            } else {
+                                GuideIllustration(kind: page.illustration, appReduced: preferences?.reduceMotion == true)
+                                    .frame(height: 190)
+                            }
+                        }.id(page.id).clipShape(.rect(cornerRadius: 20))
                         ForEach(Array(page.points.enumerated()), id: \.offset) { item in
                             HStack(alignment: .top, spacing: 12) {
                                 Text("\(item.offset + 1)").font(.caption.bold()).foregroundStyle(Color.accentColor)
@@ -323,6 +351,8 @@ struct FeatureGuideView: View {
                         }
                     }.padding(26)
                 }.id(index)
+                    .coordinateSpace(name: "guideContent")
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { scrollHeight = $0 }
                 Divider()
                 HStack {
                     Button("稍后再看", action: close)
@@ -335,6 +365,7 @@ struct FeatureGuideView: View {
                 }.padding(20)
             }
         }.frame(minWidth: 800, minHeight: 600).background(.background)
+            .preferredColorScheme(preferences?.appTheme.colorScheme)
     }
 }
 
@@ -405,8 +436,8 @@ private struct GuideQuickSettings: View {
                 }.padding(.horizontal, 16).padding(.vertical, 10)
             }
         case "style":
-            OverlayAppearancePicker(selection: $preferences.overlayAppearance, transparency: preferences.overlayTransparency,
-                glassFrostAmount: preferences.overlayGlassFrostAmount, readingFrostAmount: preferences.overlayReadingFrostAmount)
+            OverlayAppearancePicker(selection: $preferences.overlayAppearance, transparency: preferences.overlayTransparency, glassTintTransparency: preferences.overlayGlassTintTransparency,
+                readingFrostAmount: preferences.overlayReadingFrostAmount)
         case "theme":
             SettingToggle(title: "跟随封面主题色", detail: "自动生成已唱／未唱明暗配色；关闭恢复手动颜色。", value: $preferences.followArtworkColors)
         case "text":

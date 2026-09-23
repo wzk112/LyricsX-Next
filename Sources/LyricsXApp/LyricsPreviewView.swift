@@ -33,7 +33,7 @@ struct LyricsPreviewView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }.padding(40).frame(minWidth: 680, minHeight: 380)
-            .background(Color(white: 0.08)).preferredColorScheme(.dark)
+            .background(Color(nsColor: .windowBackgroundColor))
             .hdrDisplayScope(requested: preferences.lyricEmphasis.usesHDR)
             .background(WindowVisibilityReader { visible = $0 })
     }

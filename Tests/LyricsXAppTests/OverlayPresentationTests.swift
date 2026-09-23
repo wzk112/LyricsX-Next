@@ -114,7 +114,7 @@ private func whiteInkBounds(_ bitmap: NSBitmapImageRep, columns: Range<Int>? = n
                 model.preferences.overlayWidth = width
                 let height = OverlayPresentationMode.waitingHeight
                 let renderer = ImageRenderer(content: OverlayView(model: model, viewport: .init(width: width))
-                    .frame(width: width, height: height).background(.black))
+                    .frame(width: width, height: height).background(.black).environment(\.colorScheme, .dark))
                 renderer.scale = 1
                 let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
                 let ink = try whiteInkBounds(bitmap, columns: (Int(width / 2) - 20)..<(Int(width / 2) + 20))
@@ -187,7 +187,7 @@ private func whiteInkBounds(_ bitmap: NSBitmapImageRep, columns: Range<Int>? = n
                 model.preferences.overlayWidth = width
                 let cardWidth = width, height = OverlaySongCardLayout(width: width).height
                 let view = OverlayView(model: model, viewport: .init(width: cardWidth))
-                    .frame(width: cardWidth, height: height).background(.black)
+                    .frame(width: cardWidth, height: height).background(.black).environment(\.colorScheme, .dark)
                 let renderer = ImageRenderer(content: view); renderer.scale = 1
                 let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
                 let ink = try whiteInkBounds(bitmap)
@@ -208,7 +208,7 @@ private func whiteInkBounds(_ bitmap: NSBitmapImageRep, columns: Range<Int>? = n
                 model.preferences.overlayWidth = width
                 let card = OverlaySongCardLayout(width: width)
                 let renderer = ImageRenderer(content: OverlayView(model: model, viewport: .init(width: width))
-                    .frame(width: width, height: card.height).background(.black))
+                    .frame(width: width, height: card.height).background(.black).environment(\.colorScheme, .dark))
                 renderer.scale = 1
                 let ink = try whiteInkBounds(NSBitmapImageRep(cgImage: try #require(renderer.cgImage)))
                 #expect(ink.minX >= 24 && ink.maxX <= width - 24)

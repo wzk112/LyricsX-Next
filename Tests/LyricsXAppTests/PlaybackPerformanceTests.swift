@@ -88,7 +88,7 @@ import LyricsXCore
         let probe = LyricFrameView(frame: .zero)
         main.contentView?.addSubview(probe)
         var intervals: [Double] = [], previous = 0.0
-        probe.frameCallback = {
+        probe.frameCallback = { _ in
             let now = ProcessInfo.processInfo.systemUptime
             if previous > 0 { intervals.append((now - previous) * 1000) }
             previous = now
@@ -136,7 +136,7 @@ import LyricsXCore
         let overlayProbe = LyricFrameView(frame: .zero)
         overlay.lyricHostingView.addSubview(overlayProbe)
         var overlayTimes: [Double] = []
-        overlayProbe.frameCallback = { overlayTimes.append(ProcessInfo.processInfo.systemUptime) }
+        overlayProbe.frameCallback = { _ in overlayTimes.append(ProcessInfo.processInfo.systemUptime) }
         overlayProbe.running = true
         defer { overlayProbe.stop(); overlayProbe.removeFromSuperview() }
         prefs.followArtworkColors = true

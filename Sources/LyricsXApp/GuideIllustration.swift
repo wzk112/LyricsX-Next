@@ -9,7 +9,6 @@ struct GuideIllustration: View {
     @State private var visible = false
     @State private var inViewport = false
     @State private var anchor = ProcessInfo.processInfo.systemUptime
-    @State private var appearance: OverlayAppearance = .glass
     @State private var fontName = ""
     @State private var palette = 0
     @Environment(\.accessibilityReduceMotion) private var reduced
@@ -49,11 +48,7 @@ struct GuideIllustration: View {
     }
     private var lyricExample: some View {
         VStack(spacing: 10) {
-            if kind == "style" {
-                Picker("材质示例", selection: $appearance) {
-                    ForEach(OverlayAppearance.allCases) { Text($0.title).tag($0) }
-                }.pickerStyle(.segmented).frame(maxWidth: 330)
-            } else if kind == "font" {
+            if kind == "font" {
                 Picker("字体示例", selection: $fontName) {
                     Text("系统字体").tag("")
                     Text("Georgia").tag("Georgia")
@@ -91,6 +86,7 @@ struct GuideIllustration: View {
                             effects: .init(glow: kind == "effects", reduced: reduced || appReduced))
                             .environment(\.lyricWordColors, colored ? colors : nil)
                             .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(.white)
                             .frame(maxWidth: .infinity).multilineTextAlignment(.center)
                     }
                 }
@@ -101,16 +97,10 @@ struct GuideIllustration: View {
                     }.font(.caption)
                 } else {
                     Text(kind == "conversion" ? "简繁转换 · 保留逐字进度" : kind == "timing" ? "− 0.1 s     同步偏移     + 0.1 s" : "翻译 / 下一句 · 辅助文字示例")
-                        .font(.callout).foregroundStyle(colored ? LyricTypography.color(Self.palettes[palette].secondary) : .white.opacity(0.8))
+                        .font(.callout).foregroundStyle(colored ? LyricTypography.color(Self.palettes[palette].secondary)
+                            : .white.opacity(0.8))
                 }
-            }.padding(14).background {
-                if kind == "overlay" || kind == "style" {
-                    OverlayMaterialPreview(appearance: appearance, transparency: 0.35, frostAmount: 0.5)
-                    Color.black.opacity(0.35)
-                } else {
-                    Color.black.opacity(0.72)
-                }
-            }.clipShape(.rect(cornerRadius: 18))
+            }.padding(14).background(Color.black.opacity(0.72), in: .rect(cornerRadius: 18))
         }.padding(12)
     }
     private var navigationExample: some View {

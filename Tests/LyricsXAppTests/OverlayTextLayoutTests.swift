@@ -21,7 +21,7 @@ import LyricsXCore
                 let doc = LyricsDocument(lines: [.init(id: 0, time: 0, text: text)])
                 let layout = OverlayTextMeasure.primaryLayout(document: doc, index: 0, preferences: prefs, canvasWidth: width)
                 let view = OverlayLyricsContent(preferences: prefs, document: doc, index: 0, lyricTime: { 5 }, adaptiveCanvasWidth: width)
-                    .frame(width: width).padding(.vertical, 12).background(.black)
+                    .frame(width: width).padding(.vertical, 12).background(.black).environment(\.colorScheme, .dark)
                 let renderer = ImageRenderer(content: view); renderer.scale = 1
                 let image = try #require(renderer.cgImage)
                 let context = try #require(CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))

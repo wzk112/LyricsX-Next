@@ -25,7 +25,7 @@ struct LyricTypographySettings: View {
                     }
                 }.labelsHidden().frame(width: 220)
             }
-            SettingToggle(title: "跟随封面主题色", detail: "从当前封面提取主题色并提高文字亮度。已唱部分明亮、未唱部分使用同色系暗色，翻译保留较浅色调。", impact: "无封面时使用中性白色。自动配色优先于手动配色；关闭即可恢复原来的颜色。复杂背景仍建议使用磨砂阅读。", value: $preferences.followArtworkColors)
+            SettingToggle(title: "跟随封面主题色", detail: "从当前封面提取配色，并按界面深浅调整对比度。已唱、未唱和翻译保持区分。", impact: "无封面时使用中性配色。自动配色优先于手动配色；关闭即可恢复原来的颜色。复杂背景仍建议使用磨砂阅读。", value: $preferences.followArtworkColors)
             if preferences.followArtworkColors {
                 HStack(spacing: 12) {
                     ForEach(Array([preferences.artworkTheme?.accent ?? "BFC7D5", preferences.typography.primaryHex,
@@ -75,6 +75,7 @@ struct LyricTypographySettings: View {
             }.frame(height: OverlayTextMeasure.height(document: Self.sample, index: 0,
                     preferences: preferences, maximumWidth: previewWidth + 60) - OverlayLayoutMetrics.chromeHeight + 32)
                 .background(.black.opacity(0.85), in: .rect(cornerRadius: 18))
+                .environment(\.colorScheme, .dark)
                 .padding(16)
             HStack {
                 Text("预览使用实际歌词绘制方式；修改后立即生效并保存。").font(.caption).foregroundStyle(.secondary)
@@ -111,6 +112,7 @@ private struct WordColorPreview: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, minHeight: 90).padding(16)
                 .background(.black.opacity(0.85), in: .rect(cornerRadius: 18))
+                .environment(\.colorScheme, .dark)
         }
         .environment(\.lyricFrameRateLimit, 30)
         .onScrollVisibilityChange(threshold: 0.1) { visible = $0 }

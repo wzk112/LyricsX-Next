@@ -11,6 +11,33 @@ private struct CustomizationRepository: LyricsRepository {
 }
 
 @Suite @MainActor struct CustomizationTests {
+    @Test func glassInkKeepsCueStatesDistinctForBlackWhiteAndArtworkColors() throws {
+        for seed in ["000000", "FFFFFF", "777777", "FFE000", "1020C0", "F03868", "009933"] {
+            let source = LyricTypography(primaryHex: seed, secondaryHex: seed,
+                wordColors: .init(sung: LyricTypography.color(seed), unsung: LyricTypography.color(seed), plain: .white))
+            for dark in [false, true] {
+                let adapted = source.adaptedForGlass(dark: dark)
+                let words = try #require(adapted.wordColors)
+                let sung = LyricTypography.luminance(LyricTypography.hex(words.sung))
+                let unsung = LyricTypography.luminance(LyricTypography.hex(words.unsung))
+                let background = dark ? 0.03 : 0.85
+                func contrast(_ a: Double, _ b: Double) -> Double { (max(a, b) + 0.05) / (min(a, b) + 0.05) }
+                #expect(contrast(sung, unsung) > 2.2, "Indistinct cue states: \(seed), dark=\(dark)")
+                #expect(contrast(sung, background) > 7)
+                #expect(contrast(unsung, background) > 2.9)
+                if !dark {
+                    #expect(contrast(unsung, background) >= 4.4)
+                    let secondary = LyricTypography.luminance(adapted.secondaryHex)
+                    #expect(contrast(secondary, 0.3) >= 4.5, "Translation should also survive middle-gray glass")
+                    #expect(contrast(sung, 0.3) >= 4.5)
+                }
+                #expect(dark ? sung > unsung : sung < unsung)
+                #expect((words.glow != nil) == !dark)
+                #expect(source.primaryHex == seed)
+            }
+        }
+    }
+
     @Test func cachedLineMetricsPreserveNativeFontSizesAndMeasurements() {
         for name in ["", "Georgia", "Menlo-Regular", "PingFangSC-Regular"] {
             let type = LyricTypography(fontName: name)
@@ -37,6 +64,7 @@ private struct CustomizationRepository: LyricsRepository {
             prefs.lyricFontName = name
             let view = OverlayLyricsContent(preferences: prefs, document: document, index: 0,
                 lyricTime: { 2 }, adaptiveCanvasWidth: 400).frame(width: 400).padding(16).background(.black)
+                .environment(\.colorScheme, .dark)
             let renderer = ImageRenderer(content: view)
             let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
             var main = CGRect.null, translation = CGRect.null
@@ -44,8 +72,10 @@ private struct CustomizationRepository: LyricsRepository {
                 for x in 0..<bitmap.pixelsWide {
                     guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                     let pixel = CGRect(x: x, y: y, width: 1, height: 1)
-                    if color.redComponent > 0.4 && color.blueComponent < 0.2 { main = main.union(pixel) }
-                    if color.blueComponent > 0.4 && color.redComponent < 0.2 { translation = translation.union(pixel) }
+                    // Adaptive ink changes lightness; identify the requested hue
+                    // instead of assuming saturated RGB survives adaptation.
+                    if color.redComponent > color.blueComponent + 0.08 && color.redComponent > color.greenComponent + 0.08 { main = main.union(pixel) }
+                    if color.blueComponent > color.redComponent + 0.08 && color.blueComponent > color.greenComponent + 0.08 { translation = translation.union(pixel) }
                 }
             }
             #expect(!main.isNull && !translation.isNull)

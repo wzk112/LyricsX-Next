@@ -43,14 +43,14 @@ private struct SettingsSidebarItem: View {
                     .font(.system(size: 14, weight: .medium))
                     .symbolRenderingMode(.monochrome)
                     .foregroundStyle(selected ? Color.accentColor : Color.secondary)
-                    .frame(width: 26, height: 26)
+                    .frame(width: 24, height: 24)
                     .background(selected ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.06),
                                 in: .rect(cornerRadius: 7))
                 Text(section.rawValue).font(.system(size: 13, weight: selected ? .semibold : .regular))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .padding(.horizontal, 10).padding(.vertical, 7)
+            .padding(.horizontal, 9).padding(.vertical, 6)
             .background(selected ? Color.accentColor.opacity(0.10) : .clear, in: .rect(cornerRadius: 9))
             .contentShape(.rect(cornerRadius: 9))
         }
@@ -64,8 +64,10 @@ private struct SettingsSidebarItem: View {
 enum SettingsLayout {
     // Keep the reading column independent of the sidebar's animated width.
     // Only a real window resize changes wrapping and preview geometry.
+    static let sidebarWidth = 176.0
+    static let inset = 20.0
     static func readingWidth(windowWidth: Double) -> Double {
-        min(680, max(480, windowWidth - 196 - 48))
+        min(660, max(480, windowWidth - sidebarWidth - inset * 2))
     }
 }
 
@@ -93,8 +95,8 @@ struct PreferencesView: View {
         GeometryReader { window in
             HStack(spacing: 0) {
                 sidebar
-                    .frame(width: 196)
-                    .frame(width: sidebarVisible ? 196 : 0, alignment: .leading)
+                    .frame(width: SettingsLayout.sidebarWidth)
+                    .frame(width: sidebarVisible ? SettingsLayout.sidebarWidth : 0, alignment: .leading)
                     .clipped()
                     .allowsHitTesting(sidebarVisible)
                     .accessibilityHidden(!sidebarVisible)
@@ -113,18 +115,18 @@ struct PreferencesView: View {
                         .accessibilityLabel(sidebarVisible ? "收起设置边栏" : "展开设置边栏")
                         .help(sidebarVisible ? "收起设置边栏" : "展开设置边栏")
                         VStack(alignment: .leading, spacing: 4) {
-                            Text((selection ?? .general).rawValue).font(.title2.weight(.semibold))
-                            Text((selection ?? .general).summary).font(.callout).foregroundStyle(.secondary)
+                            Text((selection ?? .general).rawValue).font(.system(size: 19, weight: .semibold))
+                            Text((selection ?? .general).summary).font(.system(size: 12)).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 12)
                         Button("完成") { dismiss() }
                     }
-                    .padding(.horizontal, 24).padding(.vertical, 20)
+                    .padding(.horizontal, SettingsLayout.inset).padding(.vertical, 14)
                     Divider()
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 24) { settingsContent }
+                        VStack(alignment: .leading, spacing: 20) { settingsContent }
                             .frame(width: SettingsLayout.readingWidth(windowWidth: window.size.width), alignment: .leading)
-                            .padding(24).frame(maxWidth: .infinity)
+                            .padding(SettingsLayout.inset).frame(maxWidth: .infinity)
                     }
                     .id(selection)
                     .scrollBounceBehavior(.basedOnSize)
@@ -133,7 +135,8 @@ struct PreferencesView: View {
                 .background(Color(nsColor: .windowBackgroundColor))
             }
         }
-        .frame(minWidth: 760, idealWidth: 880, minHeight: 580, idealHeight: 700)
+        .frame(minWidth: 760, idealWidth: 860, minHeight: 580, idealHeight: 700)
+        .preferredColorScheme(model.preferences.appTheme.colorScheme)
         .task { model.displays.refresh(); refreshLoginStatus() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshLoginStatus() }
         .sheet(isPresented: $showMotionPreview) {
@@ -157,7 +160,7 @@ struct PreferencesView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("偏好设置").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 14)
+                .padding(.horizontal, 18).padding(.top, 20).padding(.bottom, 10)
             ScrollView {
                 VStack(spacing: 3) {
                     ForEach(SettingsSection.allCases) { section in
@@ -189,9 +192,12 @@ struct PreferencesView: View {
     private var generalSettings: some View {
         @Bindable var p = model.preferences
         return Group {
+            SettingsCard(title: "外观") {
+                InterfaceThemePicker(title: "应用界面", detail: "主窗口、设置和其他应用页面的颜色。悬浮窗可单独设置。", selection: $p.appTheme)
+            }
             SettingsCard(title: "应用入口") {
                 SettingToggle(title: "在 Dock 中显示", detail: "显示屏幕底部的 LyricsX Next 图标。关闭后仍可用 ⌥⌘O 打开主窗口。", value: $p.showDockIcon)
-                Divider().padding(.horizontal, 16)
+                Divider().padding(.horizontal, 14)
                 SettingToggle(title: "菜单栏图标", detail: "在屏幕顶部保留播放器、歌词搜索和设置入口。", value: $p.showMenuBarIcon)
                 SettingToggle(title: "菜单栏歌词", detail: "在屏幕顶部显示当前一句；长句会截短，完整歌词不受影响。", value: $p.showMenubarLyrics)
                 SettingToggle(title: "合并图标与歌词", detail: "让两者共用一个菜单栏位置，减少横向占用。", value: $p.combinedMenubarLyrics)
@@ -236,7 +242,7 @@ struct PreferencesView: View {
                 Button("重新连接") { model.bridge.restart() }
             }
             if let error = model.playerError {
-                Label(error, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.orange).padding(16)
+                Label(error, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.orange).padding(14)
             }
         }
     }
@@ -252,14 +258,28 @@ struct PreferencesView: View {
                 SettingToggle(title: "暂停时隐藏", detail: "暂停音乐时隐藏悬浮窗，继续播放后恢复。", value: $p.hideWhenPaused)
             }
             SettingsCard(title: "外观") {
+                if p.overlayAppearance == .frosted {
+                    InterfaceThemePicker(title: "悬浮窗颜色", detail: "独立设置磨砂悬浮窗与控制条的深浅。", selection: $p.overlayTheme)
+                    Divider().padding(.horizontal, 14)
+                }
                 if systemReduceTransparency {
                     Label("系统已开启降低透明度，当前使用实色背景；下方数值会保留。", systemImage: "info.circle")
-                        .font(.callout).foregroundStyle(.secondary).padding(16)
+                        .font(.callout).foregroundStyle(.secondary).padding(14)
                 }
-                OverlayAppearancePicker(selection: $p.overlayAppearance, transparency: p.overlayTransparency,
-                    glassFrostAmount: p.overlayGlassFrostAmount, readingFrostAmount: p.overlayReadingFrostAmount)
-                SettingSlider(title: "透明度", detail: "数值越高越通透，越低越容易看清歌词；图例与悬浮窗同步变化。", impact: "范围 20–80%。高透明度在浅色或复杂背景上会降低对比度；可选择磨砂阅读。系统“降低透明度”开启时使用实色背景。", value: $p.overlayTransparency, range: OverlayAppearance.transparencyRange, step: 0.02, suffix: "%", multiplier: 100).disabled(systemReduceTransparency)
-                SettingSlider(title: "磨砂程度", detail: "柔化后方文字与图案，歌词文字保持清晰。两种样式分别记住调节值。", impact: "数值越高，背景细节越少；0% 仍保留材质自带的柔化效果。系统“降低透明度”开启时此调节不生效。", value: $p.overlayFrostAmount, range: OverlayAppearance.frostRange, step: 0.02, suffix: "%", multiplier: 100).disabled(systemReduceTransparency)
+                OverlayAppearancePicker(selection: $p.overlayAppearance, transparency: p.overlayTransparency, glassTintTransparency: p.overlayGlassTintTransparency,
+                    readingFrostAmount: p.overlayReadingFrostAmount, theme: p.overlayTheme)
+                SettingSlider(title: p.overlayAppearance == .glass ? "底色透明度" : "透明度",
+                    detail: p.overlayAppearance == .glass ? "0% 底色最浓，100% 去除额外底色；始终保留原生玻璃高光与折射。" : "数值越高，玻璃背景越透明；歌词不变淡。图例与悬浮窗同步变化。",
+                    impact: "两种样式分别记忆。背景复杂时可降低透明度，让文字更清晰。系统“降低透明度”开启时使用实色背景。",
+                    value: $p.overlayMaterialTransparency,
+                    range: p.overlayAppearance == .glass ? OverlayAppearance.glassTintRange : OverlayAppearance.transparencyRange,
+                    step: 0.02, suffix: "%", multiplier: 100).disabled(systemReduceTransparency)
+                if p.overlayAppearance == .glass {
+                    Label("此滑块只调整额外的渐变底色，原生玻璃的透光与折射保持不变；在部分背景下，滑动后的变化可能不明显。需要调节磨砂强度时，可选择磨砂阅读。", systemImage: "info.circle")
+                        .font(.callout).foregroundStyle(.secondary).padding(14)
+                } else {
+                    SettingSlider(title: "磨砂程度", detail: "柔化后方文字与图案，歌词文字保持清晰。", impact: "数值越高，背景细节越少；0% 仍保留材质自带的柔化效果。系统“降低透明度”开启时此调节不生效。", value: $p.overlayFrostAmount, range: OverlayAppearance.frostRange, step: 0.02, suffix: "%", multiplier: 100).disabled(systemReduceTransparency)
+                }
             }
             SettingsCard(title: "尺寸") {
                 SettingToggle(title: "自动调整高度", detail: "宽度固定，只随当前歌词换行调整高度；顶部位置保持不变。", value: $p.overlayAdaptiveSize)
@@ -305,7 +325,7 @@ struct PreferencesView: View {
             SettingsCard(title: "动态效果") {
                 if systemReduceMotion {
                     Label("macOS 已开启减少动态效果，应用内动效暂时受系统设置限制。", systemImage: "info.circle")
-                        .font(.callout).foregroundStyle(.secondary).padding(16)
+                        .font(.callout).foregroundStyle(.secondary).padding(14)
                 }
                 SettingToggle(title: "减少动态效果", detail: "关闭位移、回弹、模糊和辉光，保留歌词同步提亮。", impact: "也会遵循 macOS 的减少动态效果设置。", value: $p.reduceMotion)
                 SettingToggle(title: "逐字轻微放大", detail: "演唱中的字词柔和放大并上浮；长音中的字符依次起伏，未唱部分保持接近原字号。", impact: "需要歌词自带逐字时间；开启动效会增加少量绘制开销。", value: $p.lyricWordLift)
@@ -348,7 +368,7 @@ struct PreferencesView: View {
             }
             SettingsCard(title: "来源顺序") {
                 Text("越靠上越优先。拖动手柄或使用箭头排序，关闭的来源不参与搜索。联网时会向启用的来源发送歌名、歌手和时长。")
-                    .font(.callout).foregroundStyle(.secondary).padding(16)
+                    .font(.callout).foregroundStyle(.secondary).padding(14)
                 ForEach(p.sourceOrder, id: \.self) { source in sourceRow(source, prefs: p) }
                 SettingRow(title: "恢复默认顺序", detail: "只恢复来源排序，保留各来源开关和版本偏好。") {
                     Button("恢复顺序") { p.sourceOrder = SourceConfiguration.defaultOrder }
@@ -376,7 +396,7 @@ struct PreferencesView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("当前路径").font(.body.weight(.medium))
                     Text(p.directory.path).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(4).truncationMode(.middle)
-                }.padding(16)
+                }.padding(14)
                 SettingRow(title: "更换缓存文件夹", detail: "复用已有 LRC / LRCX 文件，新下载默认保存为 LRCX。", impact: "只切换读写位置，不搬迁或删除原文件；空文件夹会重新下载歌词。") {
                     Button("选择…") { model.chooseCacheDirectory() }
                 }
@@ -413,7 +433,7 @@ struct PreferencesView: View {
                     }
                     Text("令牌保存在系统钥匙串中，只用于访问该来源。不要分享令牌；保存空内容会移除它。")
                         .font(.caption).foregroundStyle(.secondary)
-                }.padding(16).task { token = TokenStore.read() ?? "" }
+                }.padding(14).task { token = TokenStore.read() ?? "" }
             }
             SettingsCard(title: "显示诊断") {
                 ForEach(model.displays.displays) { display in
@@ -483,7 +503,7 @@ struct PreferencesView: View {
                 .disabled(prefs.sourceOrder.first == source).accessibilityLabel("提高 " + sourceName(source) + " 的优先级")
             Button { prefs.moveSource(source, by: 1) } label: { Image(systemName: "chevron.down").frame(width: 22, height: 22) }
                 .disabled(prefs.sourceOrder.last == source).accessibilityLabel("降低 " + sourceName(source) + " 的优先级")
-        }.buttonStyle(.borderless).padding(.horizontal, 16).padding(.vertical, 10).contentShape(.rect)
+        }.buttonStyle(.borderless).padding(.horizontal, 14).padding(.vertical, 10).contentShape(.rect)
             .dropDestination(for: String.self) { items, _ in
                 guard let item = items.first else { return false }
                 return prefs.moveSource(item, before: source)

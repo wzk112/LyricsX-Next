@@ -228,6 +228,10 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         let prefs = Preferences(defaults: defaults)
         prefs.overlayVisible = true; prefs.hideWhenPaused = false; prefs.hideOverlayOnHover = false
         prefs.reduceMotion = false; prefs.overlayTransparency = 0.6
+        if let accent = ProcessInfo.processInfo.environment["LYRICSX_CONTROL_QA_ACCENT"] {
+            prefs.followArtworkColors = true
+            prefs.artworkTheme = .init(accent: accent, sung: "FFFFFF", unsung: "777777", secondary: "FFFFFF")
+        }
         let model = AppModel(repository: EmptyRepository(), preferences: prefs)
         model.session.accept(.init(track: overlayTrack, position: 1, isPlaying: false), shouldSearch: false)
         model.session.use(LyricsDocument(title: overlayTrack.title, artist: overlayTrack.artist,
@@ -236,6 +240,12 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
                     .init(id: 1, time: 20, text: "And the words stay clear")]), persist: false)
         let overlay = OverlayController(model: model, frameAutosaveName: nil)
         defer { overlay.stop(); model.stop() }
+        if ProcessInfo.processInfo.environment["LYRICSX_CONTROL_QA_FOREGROUND"] == "1" {
+            // Keep an opt-in compositing capture above unrelated front windows.
+            // This does not activate the panel or change production levels.
+            overlay.panel.level = .statusBar
+            overlay.controlPanel.level = .statusBar
+        }
         overlay.panel.onDragActivity?(true)
         let directory = try #require(ProcessInfo.processInfo.environment["LYRICSX_CONTROL_QA"])
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
@@ -246,16 +256,28 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         compiler.arguments = [fixture.path, "-o", executable]
         try compiler.run(); compiler.waitUntilExit()
         try #require(compiler.terminationStatus == 0)
-        let examples = OverlayAppearance.allCases.flatMap { appearance in
-            ["light", "dark", "color"].map { (appearance, $0, 0.6, appearance.defaultFrost) }
+        let focusedStyle = ProcessInfo.processInfo.environment["LYRICSX_CONTROL_QA_STYLE"]
+        var examples = OverlayAppearance.allCases.filter { focusedStyle == nil || $0.rawValue == focusedStyle }.flatMap { appearance in
+            ["light", "dark", "color", "reference-light", "reference-dark"].map { (appearance, $0, 0.6, appearance.defaultFrost) }
                 + [0.2, 0.8].flatMap { transparency in ["light", "text"].map { (appearance, $0, transparency, appearance.defaultFrost) } }
                 + [0.0, 1.0].map { (appearance, "text", 0.8, $0) }
         }
-        for hdr in [false, true] {
+        if focusedStyle == "glass" {
+            examples += [0.0, 1.0].map { (OverlayAppearance.glass, "light", $0, OverlayAppearance.glass.defaultFrost) }
+        }
+        if let surfaces = ProcessInfo.processInfo.environment["LYRICSX_CONTROL_QA_SURFACES"] {
+            let selected = Set(surfaces.split(separator: ",").map(String.init))
+            examples = examples.filter { selected.contains($0.1) }
+        }
+        try #require(!examples.isEmpty)
+        let themeProbe = ProcessInfo.processInfo.environment["LYRICSX_CONTROL_QA_THEME"].flatMap(InterfaceTheme.init(rawValue:))
+        let ranges = ProcessInfo.processInfo.environment["LYRICSX_CONTROL_QA_HDR"] == "1" ? [true] : themeProbe == nil ? [false, true] : [false]
+        for hdr in ranges {
+            prefs.lyricHDRBrightness = 3.5
             prefs.lyricHDR = hdr
             for (appearance, surface, transparency, frost) in examples {
                 prefs.overlayAppearance = appearance
-                prefs.overlayTransparency = transparency
+                prefs.overlayMaterialTransparency = transparency
                 prefs.overlayFrostAmount = frost
                 // Reproduce a compact waiting card expanding into timed lyrics.
                 // Fixed-size material previews miss stale content-mask bounds.
@@ -268,9 +290,8 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
                 resized.size.height = 196
                 resized.origin.y = top - resized.height
                 overlay.panel.setFrame(resized, display: true)
-                let dark = surface == "dark"
-                overlay.panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-                overlay.controlPanel.appearance = overlay.panel.appearance
+                let dark = surface == "dark" || surface == "reference-dark"
+                prefs.overlayTheme = themeProbe ?? (dark ? .dark : .light)
                 let frame = overlay.panel.frame.insetBy(dx: -20, dy: -20)
                 let ready = directory + "/" + UUID().uuidString + ".ready"
                 let backdrop = Process(); backdrop.executableURL = URL(fileURLWithPath: executable)
@@ -288,11 +309,16 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
                 }
                 try #require(FileManager.default.fileExists(atPath: ready))
                 overlay.panel.orderFrontRegardless()
-                for detached in [false, true] {
+                for detached in themeProbe == nil ? [false, true] : [false] {
                     model.setOverlayClickThrough(detached)
                     try await Task.sleep(for: .milliseconds(100))
                     overlay.refreshAppearance(at: NSPoint(x: overlay.panel.frame.midX, y: overlay.panel.frame.midY))
                     try await Task.sleep(for: .milliseconds(500))
+                    if themeProbe != nil {
+                        let material = overlay.panel.contentView!.subviews.compactMap { $0 as? OverlayGlassBackground }.first!
+                        let native = material.subviews.first as! NSGlassEffectView
+                        print("THEME probe pref=\(prefs.overlayTheme) window=\(String(describing: overlay.panel.appearance?.name)) bg=\(material.effectiveAppearance.name) glass=\(native.effectiveAppearance.name) host=\(overlay.lyricHostingView.effectiveAppearance.name) alpha=\(native.alphaValue)")
+                    }
                     let window = detached ? overlay.controlPanel : overlay.panel
                     let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
                     let frostSuffix = frost == appearance.defaultFrost ? "" : "-frost-\(Int(frost * 100))"
@@ -308,6 +334,8 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
                 }
             }
         }
+        // A focused capture is for visual comparison, not the two-style blur ratio.
+        if focusedStyle != nil { return }
         // Measure fine background detail away from the foreground lyrics. A
         // successful screenshot alone cannot detect an opaque grey fallback.
         func backgroundDetail(_ style: String, _ range: String, frostSuffix: String = "") throws -> Double {
@@ -326,17 +354,10 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
             return energy / samples
         }
         for range in ["sdr", "hdr"] {
-            let clear = try backgroundDetail("glass", range)
-            let frosted = try backgroundDetail("frosted", range)
-            #expect(clear > 0.015)
-            // Reading glass now intentionally lets a little detail through,
-            // while still softening it substantially more than clear glass.
-            #expect(clear > frosted * 2)
-            for style in OverlayAppearance.allCases {
-                let low = try backgroundDetail(style.rawValue, range, frostSuffix: "-frost-0")
-                let high = try backgroundDetail(style.rawValue, range, frostSuffix: "-frost-100")
-                #expect(low > high * 1.5)
-            }
+            // Only reading glass exposes a blur-strength adjustment now.
+            let low = try backgroundDetail("frosted", range, frostSuffix: "-frost-0")
+            let high = try backgroundDetail("frosted", range, frostSuffix: "-frost-100")
+            #expect(low > high * 1.5)
             // A mask left at the compact height creates a horizontal tint seam
             // after expansion. Sample the blank area between header and lyrics.
             let path = directory + "/controls-glass-light-20-\(range)-inline.png"
@@ -344,7 +365,10 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
             let scale = Double(bitmap.pixelsWide) / overlay.panel.frame.width
             let x = Int(82 * scale)
             var largestStep = 0.0
-            for y in Int(50 * scale)..<Int(170 * scale) {
+            // The real overlay may settle to its measured lyric height after
+            // the forced resize. Stay within its reading area, excluding the
+            // bottom optical edge and the desktop beyond the rounded panel.
+            for y in Int(50 * scale)..<min(Int(170 * scale), bitmap.pixelsHigh - Int(20 * scale)) {
                 let first = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
                 let next = try #require(bitmap.colorAt(x: x, y: y + 1)?.usingColorSpace(.deviceRGB))
                 largestStep = max(largestStep, abs(first.redComponent - next.redComponent))
@@ -486,7 +510,7 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         let suite = "LyricsXTests-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        for (oldStyle, expectedStyle) in [("native", OverlayAppearance.glass), ("glass", .glass), ("dark", .frosted)] {
+        for (oldStyle, expectedStyle) in [("native", OverlayAppearance.glass), ("glass", .glass), ("petGlass", .glass), ("dark", .frosted)] {
             defaults.removePersistentDomain(forName: suite)
             defaults.set(oldStyle, forKey: "overlayAppearance")
             defaults.set(0.28, forKey: "overlayBackgroundStrength")
@@ -498,7 +522,7 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
             let restored = Preferences(defaults: defaults)
             #expect(restored.overlayAppearance == expectedStyle)
             #expect(restored.overlayTransparency == 0.42)
-            #expect(restored.overlayFrostAmount == 0.24)
+            #expect(restored.overlayFrostAmount == (expectedStyle == .frosted ? 0.24 : OverlayAppearance.glass.defaultFrost))
         }
         defaults.set(0.95, forKey: "overlayTransparency")
         #expect(Preferences(defaults: defaults).overlayTransparency == 0.8)
@@ -516,9 +540,13 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         prefs.overlayAppearance = .frosted
         prefs.overlayFrostAmount = 0.72
         prefs.overlayAppearance = .glass
-        prefs.overlayFrostAmount = 0.26
+        prefs.overlayGlassFrostAmount = 0.26 // Legacy value survives replacement for rollback.
+        prefs.overlayFrostAmount = 0.43 // Must not change either adjustable material.
         prefs.overlayAppearance = .frosted
         #expect(prefs.overlayFrostAmount == 0.72)
+        prefs.overlayAppearance = .glass
+        #expect(prefs.overlayFrostAmount == OverlayAppearance.glass.defaultFrost)
+        prefs.overlayAppearance = .frosted
         prefs.overlayTransparency = 0.34
         prefs.showDockIcon = false
         prefs.showMenubarLyrics = true
@@ -537,7 +565,7 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         #expect(restored.overlayAppearance == .frosted && restored.overlayTransparency == 0.34)
         #expect(restored.overlayFrostAmount == 0.72 && restored.overlayGlassFrostAmount == 0.26)
         restored.overlayAppearance = .glass
-        #expect(restored.overlayFrostAmount == 0.26)
+        #expect(restored.overlayFrostAmount == OverlayAppearance.glass.defaultFrost)
         let liveConfiguration = prefs.sourceConfigurationReader.read()
         #expect(liveConfiguration.sourceOrder == prefs.sourceOrder)
         #expect(!liveConfiguration.preferBilingual && !liveConfiguration.preferWordTiming && !liveConfiguration.strictMatching)
@@ -548,6 +576,39 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         #expect(restored.overlaySecondaryMode == .both)
         #expect(restored.sourceOrder == ["NetEase", "QQMusic", "LRCLIB", "Kugou", "Musixmatch"])
         #expect(!restored.preferBilingual && !restored.preferWordTiming && !restored.strictLyricsMatching && restored.disabledSources.contains("Kugou"))
+    }
+
+    @Test func clearGlassUsesOnePaletteAcrossAppearancesWithoutChangingSavedColors() throws {
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.overlayAppearance = .glass
+        let original = prefs.typography
+        let light = prefs.overlayTypography(colorScheme: .light)
+        #expect(light.primaryHex == original.primaryHex)
+        #expect(light == prefs.overlayTypography(colorScheme: .dark))
+        #expect(light.wordColors != nil)
+        #expect(prefs.overlayTypography(colorScheme: .dark).wordColors != nil)
+        #expect(prefs.typography == original)
+        prefs.lyricPrimaryColor = "EFAA7A"
+        #expect(prefs.overlayTypography(colorScheme: .light).primaryHex != light.primaryHex)
+        #expect(prefs.lyricPrimaryColor == "EFAA7A")
+        prefs.followArtworkColors = true
+        var lightAccents = Set<String>(), darkAccents = Set<String>()
+        for accent in ["FFDA20", "1122CC", "F03868"] {
+            let theme = ArtworkTheme(accent: accent, sung: "FFFFFF", unsung: "777777", secondary: "FFFFFF")
+            prefs.artworkTheme = theme
+            lightAccents.insert(prefs.overlayTypography(colorScheme: .light).primaryHex)
+            darkAccents.insert(prefs.overlayTypography(colorScheme: .dark).primaryHex)
+            #expect(prefs.artworkTheme == theme && prefs.lyricPrimaryColor == "EFAA7A")
+        }
+        #expect(lightAccents.count == 3 && darkAccents.count == 3)
+        for style in [OverlayAppearance.frosted] {
+            prefs.overlayAppearance = style
+            #expect(LyricTypography.luminance(prefs.overlayTypography(colorScheme: .light).primaryHex) < 0.1)
+            #expect(prefs.overlayTypography(colorScheme: .dark) == prefs.typography)
+        }
     }
 }
 

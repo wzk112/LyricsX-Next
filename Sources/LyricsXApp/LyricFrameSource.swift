@@ -21,7 +21,7 @@ extension EnvironmentValues {
 /// modes keep frames eligible while AppKit is tracking a window interaction.
 struct LyricFrameSource: NSViewRepresentable {
     var running: Bool
-    var frame: () -> Void
+    var frame: (Double) -> Void
     @Environment(\.lyricFrameRateLimit) private var frameRateLimit
 
     func makeNSView(context: Context) -> LyricFrameView { LyricFrameView() }
@@ -34,7 +34,7 @@ struct LyricFrameSource: NSViewRepresentable {
 }
 
 @MainActor final class LyricFrameView: NSView {
-    var frameCallback: (() -> Void)?
+    var frameCallback: ((Double) -> Void)?
     var frameRateLimit = 0 { didSet { if frameRateLimit != oldValue { updateFrameRate() } } }
     var running = false { didSet { if running != oldValue { updateActivity(nil) } } }
     private var link: CADisplayLink?
@@ -48,7 +48,7 @@ struct LyricFrameSource: NSViewRepresentable {
         weak var view: LyricFrameView?
         @objc func tick(_ sender: CADisplayLink) {
             guard let view, view.deliveringFrames else { return }
-            view.frameCallback?()
+            view.frameCallback?(sender.targetTimestamp)
         }
     }
     override func viewDidMoveToWindow() {

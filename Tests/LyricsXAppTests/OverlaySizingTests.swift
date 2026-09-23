@@ -83,7 +83,7 @@ private struct SizingRepository: LyricsRepository {
     }
 }
 
-@MainActor @Test func glassMasksFollowResizesWithoutWaitingForDisplayOrHover() throws {
+@MainActor @Test func glassGeometryFollowsResizesWithoutWaitingForDisplayOrHover() throws {
     let background = OverlayGlassBackground(frame: .init(x: 0, y: 0, width: 608, height: 84))
     background.configure(appearance: .glass, transparency: 0.26, frostAmount: 0.8,
                          reduceTransparency: false, reduceMotion: false)
@@ -94,9 +94,72 @@ private struct SizingRepository: LyricsRepository {
         // No layoutIfNeeded, redraw, visibility toggle, or run-loop delay.
         #expect(glass.frame == background.bounds)
         #expect(scrim.frame == glass.bounds)
-        #expect(glass.layer?.mask?.frame == glass.bounds)
-        #expect(glass.layer?.mask?.sublayers?.first?.frame == glass.bounds)
-        #expect(scrim.layer?.mask?.frame == scrim.bounds)
+        #expect(glass.layer?.mask == nil)
+        #expect(glass.alphaValue == 1)
+        #expect(scrim.layer?.mask == nil)
+    }
+}
+
+@MainActor @Test func nativeGlassSwitchKeepsOneNativeSurfaceAlignedThroughResizes() throws {
+    let background = OverlayGlassBackground(frame: .init(x: 0, y: 0, width: 608, height: 84))
+    background.appearance = NSAppearance(named: .darkAqua)
+    background.configure(appearance: .frosted, transparency: 0.26, frostAmount: 0.8,
+                         reduceTransparency: false, reduceMotion: true)
+    let initial = try #require(background.subviews.first as? NSGlassEffectView)
+    let scrim = try #require(initial.contentView)
+    func adaptiveAppearance(_ glass: NSGlassEffectView) -> Int? {
+        let selector = NSSelectorFromString("_adaptiveAppearance")
+        guard glass.responds(to: selector), let implementation = glass.method(for: selector) else { return nil }
+        typealias Query = @convention(c) (AnyObject, Selector) -> Int
+        return unsafeBitCast(implementation, to: Query.self)(glass, selector)
+    }
+    for appearance in [OverlayAppearance.glass, .frosted, .glass, .frosted, .glass] {
+        background.configure(appearance: appearance, transparency: 0.34,
+                             frostAmount: appearance.defaultFrost,
+                             reduceTransparency: false, reduceMotion: true)
+        let glass = try #require(background.subviews.first as? NSGlassEffectView)
+        #expect(background.subviews.count == 1)
+        #expect(glass.contentView === scrim)
+        if let mode = adaptiveAppearance(glass) {
+            #expect(mode == 1, "Both explicit ink palettes need fixed material appearance")
+        }
+        if appearance == .glass {
+            #expect(glass.style == .clear)
+            #expect(glass.alphaValue == 1 && glass.layer?.mask == nil)
+            #expect(glass.cornerRadius == 32 && scrim.layer?.mask == nil)
+            for theme in [NSAppearance.Name.aqua, .darkAqua] {
+                background.appearance = NSAppearance(named: theme)
+                #expect(glass.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            }
+        }
+        for height in [84.0, 196, 120] {
+            background.setFrameSize(.init(width: 608, height: height))
+            // A material switch must not leave the previous lyric height in
+            // the native surface, even before the next display pass.
+            #expect(glass.frame == background.bounds)
+            #expect(scrim.frame == glass.bounds)
+            if let mask = glass.layer?.mask { #expect(mask.frame == glass.bounds) }
+            if let mask = scrim.layer?.mask { #expect(mask.frame == scrim.bounds) }
+        }
+    }
+}
+
+@MainActor @Test func nativeGlassAppearanceOverrideKeepsThePanelNonactivating() throws {
+    let panel = OverlayMaterialPanel(contentRect: .init(x: 0, y: 0, width: 400, height: 100),
+                                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    let keyWindow = NSApp.keyWindow
+    typealias Query = @convention(c) (AnyObject, Selector) -> Bool
+    for name in ["_hasActiveAppearance", "_hasActiveAppearanceIgnoringKeyFocus"] {
+        let selector = NSSelectorFromString(name)
+        let implementation = try #require(panel.method(for: selector))
+        let query = unsafeBitCast(implementation, to: Query.self)
+        let original = query(panel, selector)
+        panel.keepsGlassAppearanceActive = true
+        #expect(query(panel, selector))
+        #expect(!panel.isKeyWindow && NSApp.keyWindow === keyWindow)
+        #expect(panel.styleMask.contains(.nonactivatingPanel))
+        panel.keepsGlassAppearanceActive = false
+        #expect(query(panel, selector) == original)
     }
 }
 
@@ -158,7 +221,7 @@ private struct SizingRepository: LyricsRepository {
     #expect(abs(overlay.panel.frame.height - lyricHeight) < 1)
     let material = try #require(overlay.panel.contentView?.subviews.first as? OverlayGlassBackground)
     let glass = try #require(material.subviews.first as? NSGlassEffectView)
-    #expect(glass.layer?.mask?.frame == glass.bounds)
+    #expect(glass.layer?.mask == nil)
 }
 
 @MainActor @Test func nativeHeightResizeKeepsWidthHostingBoundsAndTopEdge() async throws {
@@ -206,9 +269,9 @@ private struct SizingRepository: LyricsRepository {
         let glass = try #require(material.subviews.first as? NSGlassEffectView)
         #expect(material.frame == root.bounds.insetBy(dx: 6, dy: 6))
         #expect(glass.frame == material.bounds)
-        #expect(glass.layer?.mask?.frame == glass.bounds)
+        #expect(glass.layer?.mask == nil)
         let scrim = try #require(glass.contentView)
-        #expect(scrim.layer?.mask?.frame == scrim.bounds)
+        #expect(scrim.layer?.mask == nil)
         #expect(abs(frame.maxY - top) <= 1 && abs(frame.midX - center) <= 1)
         #expect(overlay.lyricHostingView === host && host.bounds == bounds)
         #expect(abs(host.frame.maxY - (overlay.panel.contentView?.bounds.maxY ?? 0)) <= 1)
@@ -412,6 +475,32 @@ private struct SizingStreamRepository: LyricsRepository {
     #expect(abs(overlay.panel.frame.height - expected) < 1)
     #expect(abs(overlay.panel.frame.midX - anchor.x) < 1)
     #expect(abs(overlay.panel.frame.maxY - anchor.y) < 1)
+}
+
+@MainActor @Test func smallResizesSkipDuplicateNativeRedrawsWithoutMovingTheAnchor() {
+    final class CountingPanel: NSPanel {
+        var writes = 0
+        override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+            writes += 1
+            super.setFrame(frameRect, display: flag)
+        }
+    }
+    let window = CountingPanel(contentRect: .init(x: 100, y: 300, width: 620, height: 100),
+        styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    defer { window.close() }
+    let motion = OverlayWindowMotion(window: window)
+    let now = ProcessInfo.processInfo.systemUptime
+    var completed = 0
+    motion.start(to: .init(x: 100, y: 296, width: 620, height: 104), duration: 1, frameRateLimit: 0) { completed += 1 }
+    window.writes = 0
+    for step in 1...120 {
+        motion.advance(at: now + Double(step) / 120)
+        #expect(window.frame.maxY == 400 && window.frame.midX == 410)
+    }
+    motion.finish()
+    #expect(window.writes <= 5 && window.writes >= 4)
+    #expect(window.frame.height == 104 && completed == 1)
 }
 
 @MainActor @Test func cancelledWindowMotionCannotMoveTheWindowOrInvokeOldCompletion() {

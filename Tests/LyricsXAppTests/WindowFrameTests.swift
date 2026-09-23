@@ -108,7 +108,7 @@ import LyricsXCore
         overlay.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let mainFrames = LyricFrameView(), overlayFrames = LyricFrameView()
         var mainCount = 0, overlayCount = 0
-        mainFrames.frameCallback = { mainCount += 1 }; overlayFrames.frameCallback = { overlayCount += 1 }
+        mainFrames.frameCallback = { _ in mainCount += 1 }; overlayFrames.frameCallback = { _ in overlayCount += 1 }
         mainFrames.running = true; overlayFrames.running = true
         main.contentView = mainFrames; overlay.contentView = overlayFrames
         main.orderFrontRegardless(); overlay.orderFrontRegardless()

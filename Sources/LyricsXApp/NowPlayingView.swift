@@ -31,23 +31,23 @@ struct NowPlayingView: View {
     private func expandedPlayer(_ size: CGSize) -> some View {
         let columnWidth = min(330, max(220, size.width * 0.31))
         return HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
+            PlayerColumnLayout {
                 CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion)
-                    .frame(width: min(columnWidth, max(150, size.height - 230)))
                     .shadow(color: .black.opacity(0.35), radius: 30, y: 20)
                     .scaleEffect(model.session.isPlaying ? 1 : 0.94)
                     .animation(model.preferences.reduceMotion || reduceMotion ? nil : .spring(response: 0.65, dampingFraction: 0.8), value: model.session.isPlaying)
-                    .padding(.bottom, 20)
                 ZStack(alignment: .topLeading) {
                     TrackMetadata(track: model.session.track).id(model.session.trackRevision)
                         .transition(model.preferences.reduceMotion || reduceMotion ? .identity : .artworkBlur)
                 }
                     .animation(model.preferences.reduceMotion || reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.trackRevision)
-                Spacer(minLength: 18)
-                PlaybackProgressView(model: model)
-                playbackButtons(compact: false).frame(maxWidth: .infinity).padding(.top, 12)
-            }.frame(width: columnWidth).padding(.horizontal, 28).padding(.vertical, 20)
-            Rectangle().fill(LinearGradient(colors: [.clear, .white.opacity(0.08), .clear], startPoint: .top, endPoint: .bottom)).frame(width: 1).padding(.vertical, 30)
+                VStack(spacing: 12) {
+                    PlaybackProgressView(model: model)
+                    playbackButtons(compact: false).frame(maxWidth: .infinity)
+                }
+            }.frame(width: columnWidth, height: max(0, size.height - 40))
+                .padding(.horizontal, 28).padding(.vertical, 20)
+            Rectangle().fill(LinearGradient(colors: [.clear, Color.primary.opacity(0.08), .clear], startPoint: .top, endPoint: .bottom)).frame(width: 1).padding(.vertical, 30)
             LyricsScrollView(model: model)
         }
     }
@@ -68,14 +68,14 @@ private struct PlaybackProgressView: View {
         VStack(spacing: 4) {
                     Slider(value: Binding(get: { position }, set: { scrubPosition = $0 }), in: 0...max(1, model.session.track?.duration ?? 1), onEditingChanged: { editing in
                         if !editing, let position = scrubPosition { model.seek(position); scrubPosition = nil }
-                    }).tint(.white.opacity(0.8)).controlSize(.mini).disabled((model.session.track?.duration ?? 0) <= 0)
+                    }).tint(Color.primary.opacity(0.8)).controlSize(.mini).disabled((model.session.track?.duration ?? 0) <= 0)
                         .accessibilityLabel("播放进度")
                         .onChange(of: model.session.trackRevision) { _, _ in scrubPosition = nil }
                     HStack {
                         Text(timeString(position))
                         Spacer()
                         Text("−" + timeString(max(0, (model.session.track?.duration ?? 0) - position)))
-                    }.font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(.white.opacity(0.35))
+                    }.font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(Color.primary.opacity(0.35))
         }
     }
 }
@@ -103,6 +103,8 @@ struct LyricsScrollView: View {
 private struct LyricsScrollContent: View {
     @Bindable var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    private var typography: LyricTypography { model.preferences.mainTypography(colorScheme: colorScheme) }
     @State private var browsing = false
     @State private var position = ScrollPosition(edge: .top)
     @State private var followState = MainLyricFollowState()
@@ -117,7 +119,7 @@ private struct LyricsScrollContent: View {
                 } else if doc.isSynced {
                     syncedLyrics(doc)
                 } else {
-                    ScrollView { Text(model.preferences.text(doc.plainText ?? "")).font(model.preferences.typography.font(size: 26)).foregroundStyle(model.preferences.typography.primary).lineSpacing(16).frame(maxWidth: .infinity, alignment: .leading).padding(45).textSelection(.enabled) }
+                    ScrollView { Text(model.preferences.text(doc.plainText ?? "")).font(typography.font(size: 26)).foregroundStyle(typography.primary).lineSpacing(16).frame(maxWidth: .infinity, alignment: .leading).padding(45).textSelection(.enabled) }
                         .scrollPosition($position)
                         .safeAreaInset(edge: .top) { Text("此歌词暂无时间轴").font(.caption).foregroundStyle(.secondary).padding(12) }
                 }
@@ -143,7 +145,7 @@ private struct LyricsScrollContent: View {
         VStack(spacing: 18) {
             Text(model.session.track?.title ?? "LyricsX Next")
                 .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.9)).lineLimit(2).multilineTextAlignment(.center)
+                .foregroundStyle(Color.primary.opacity(0.9)).lineLimit(2).multilineTextAlignment(.center)
                 .accessibilityLabel("当前歌曲：\(model.session.track?.title ?? "LyricsX Next")")
             if model.session.isSearching {
                 HStack(spacing: 8) {
@@ -156,9 +158,9 @@ private struct LyricsScrollContent: View {
 
     private func emptyState(symbol: String, title: String, detail: String) -> some View {
         VStack(spacing: 18) {
-            Image(systemName: symbol).font(.system(size: 42, weight: .ultraLight)).foregroundStyle(.white.opacity(0.4))
+            Image(systemName: symbol).font(.system(size: 42, weight: .ultraLight)).foregroundStyle(Color.primary.opacity(0.4))
             Text(title).font(.system(size: 23, weight: .medium))
-            Text(detail).font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
+            Text(detail).font(.system(size: 12)).foregroundStyle(Color.primary.opacity(0.4))
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     private func syncedLyrics(_ doc: LyricsDocument) -> some View {
@@ -216,11 +218,11 @@ private struct LyricsScrollContent: View {
             VStack(alignment: .leading, spacing: 9) {
                 LiveLyricText(session: model.session, line: line, document: doc, active: appearance.active, rendering: { model.mainWindowVisible && !model.showSearch && !model.showLibrary },
                               text: line.text.isEmpty ? "•••" : model.preferences.text(line.text), effects: model.preferences.lyricEmphasis)
-                    .environment(\.lyricWordColors, model.preferences.typography.wordColors)
-                    .font(model.preferences.typography.font(size: model.preferences.mainLyricFontSize * min(1, max(0.8, width / 480)), weight: .bold)).tracking(-0.4).fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(model.preferences.typography.primary.opacity(appearance.primaryOpacity))
+                    .environment(\.lyricWordColors, typography.wordColors)
+                    .font(typography.font(size: model.preferences.mainLyricFontSize * min(1, max(0.8, width / 480)), weight: .bold)).tracking(-0.4).fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(typography.primary.opacity(appearance.primaryOpacity))
                 if model.preferences.showTranslation, let translation = line.translation {
-                    Text(model.preferences.text(translation)).font(model.preferences.typography.font(size: model.preferences.mainTranslationFontSize, weight: .medium)).foregroundStyle(model.preferences.typography.secondary.opacity(appearance.translationOpacity)).fixedSize(horizontal: false, vertical: true)
+                    Text(model.preferences.text(translation)).font(typography.font(size: model.preferences.mainTranslationFontSize, weight: .medium)).foregroundStyle(typography.secondary.opacity(appearance.translationOpacity)).fixedSize(horizontal: false, vertical: true)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
                 .modifier(MainLyricRowMotion(appearance: appearance,
@@ -231,18 +233,42 @@ private struct LyricsScrollContent: View {
     }
 }
 
-private struct TrackMetadata: View {
+/// The transport owns the bottom anchor. Measure metadata first, then fit the
+/// artwork into the remaining space, even while both transition views exist.
+struct PlayerColumnLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions(by: .init(width: 300, height: 560))
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let fullWidth = ProposedViewSize(width: bounds.width, height: nil)
+        let metadata = subviews[1].sizeThatFits(fullWidth)
+        let transport = subviews[2].sizeThatFits(fullWidth)
+        let artwork = max(0, min(bounds.width, bounds.height - metadata.height - transport.height - 38))
+        subviews[0].place(at: bounds.origin, anchor: .topLeading,
+                          proposal: .init(width: artwork, height: artwork))
+        subviews[1].place(at: .init(x: bounds.minX, y: bounds.minY + artwork + 20),
+                          anchor: .topLeading, proposal: fullWidth)
+        subviews[2].place(at: .init(x: bounds.minX, y: bounds.maxY),
+                          anchor: .bottomLeading, proposal: fullWidth)
+    }
+}
+
+struct TrackMetadata: View {
     let track: Track?
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(track?.title ?? "还没有音乐在播放")
-                .font(.system(size: 24, weight: .bold)).lineLimit(2).textSelection(.enabled)
-            Text(track?.artist.isEmpty == false ? track!.artist : "打开播放器并播放歌曲")
-                .font(.system(size: 15)).foregroundStyle(.white.opacity(0.55)).padding(.top, 6).lineLimit(2)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(track?.title ?? "还没有音乐在播放")
+                    .font(.system(size: 24, weight: .bold)).lineLimit(2).textSelection(.enabled)
+                Text(track?.artist.isEmpty == false ? track!.artist : "打开播放器并播放歌曲")
+                    .font(.system(size: 15)).foregroundStyle(Color.primary.opacity(0.55)).lineLimit(2)
+            }.frame(height: 106, alignment: .topLeading)
             HStack(spacing: 5) {
                 Image(systemName: "music.note")
-                if let album = track?.album, !album.isEmpty { Text(album) }
-            }.font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.32)).lineLimit(1).padding(.top, 14)
+                Text(track?.album.isEmpty == false ? track!.album : " ")
+            }.font(.system(size: 10, weight: .medium)).foregroundStyle(Color.primary.opacity(0.32)).lineLimit(1)
+                .frame(height: 14, alignment: .leading).padding(.top, 14)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }

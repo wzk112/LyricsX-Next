@@ -7,6 +7,8 @@ struct SearchLyricPreview: View {
     let model: AppModel
     let document: LyricsDocument?
     let isPreview: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    private var typography: LyricTypography { model.preferences.mainTypography(colorScheme: colorScheme) }
     @State private var visible = false
     @Environment(\.accessibilityReduceMotion) private var systemReduced
     var body: some View {
@@ -23,8 +25,8 @@ struct SearchLyricPreview: View {
                 } else {
                     ScrollView {
                         Text(model.preferences.text(document.plainText ?? "纯音乐"))
-                            .font(model.preferences.typography.font(size: 18))
-                            .foregroundStyle(model.preferences.typography.primary)
+                            .font(typography.font(size: 18))
+                            .foregroundStyle(typography.primary)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10)
                     }
                 }
@@ -32,8 +34,7 @@ struct SearchLyricPreview: View {
                 ContentUnavailableView("选择一个版本", systemImage: "text.quote", description: Text("点击左侧“预览”，在这里查看歌词。"))
             }
         }.padding(16).frame(maxHeight: .infinity)
-            .background(Color(white: 0.075), in: .rect(cornerRadius: 16))
-            .preferredColorScheme(.dark)
+            .background(Color(white: colorScheme == .dark ? 0.075 : 0.97), in: .rect(cornerRadius: 16))
             .hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR)
             .background(WindowVisibilityReader { visible = $0 })
             .onDisappear { visible = false }
@@ -49,13 +50,13 @@ struct SearchLyricPreview: View {
                             LiveLyricText(session: model.session, line: line, document: document,
                                 active: active, rendering: { visible },
                                 text: line.text.isEmpty ? "•••" : model.preferences.text(line.text), effects: model.preferences.lyricEmphasis)
-                                .font(model.preferences.typography.font(size: 21))
-                                .environment(\.lyricWordColors, model.preferences.typography.wordColors)
-                                .foregroundStyle(model.preferences.typography.primary.opacity(active ? 1 : 0.55))
+                                .font(typography.font(size: 21))
+                                .environment(\.lyricWordColors, typography.wordColors)
+                                .foregroundStyle(typography.primary.opacity(active ? 1 : 0.55))
                             if model.preferences.showTranslation, let translation = line.translation {
                                 Text(model.preferences.text(translation))
-                                    .font(model.preferences.typography.font(size: 12, weight: .medium))
-                                    .foregroundStyle(model.preferences.typography.secondary.opacity(active ? 0.8 : 0.45))
+                                    .font(typography.font(size: 12, weight: .medium))
+                                    .foregroundStyle(typography.secondary.opacity(active ? 0.8 : 0.45))
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading).id(line.id)
                     }

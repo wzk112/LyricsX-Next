@@ -10,10 +10,12 @@ let surface = values[5]
 let ready = values[6]
 let window = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
 window.title = "LyricsX glass QA backdrop"
-window.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue - 1)
+let captureLevel: NSWindow.Level = ProcessInfo.processInfo.environment["LYRICSX_CONTROL_QA_FOREGROUND"] == "1" ? .statusBar : .floating
+window.level = NSWindow.Level(rawValue: captureLevel.rawValue - 1)
 window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 window.hidesOnDeactivate = false
-window.backgroundColor = surface == "dark" ? NSColor(white: 0.04, alpha: 1) : .white
+let dark = surface == "dark" || surface == "reference-dark"
+window.backgroundColor = dark ? NSColor(white: 0.04, alpha: 1) : .white
 let scene = NSView(frame: NSRect(origin: .zero, size: frame.size))
 scene.wantsLayer = true
 if surface == "color" {
@@ -26,11 +28,22 @@ if surface == "color" {
         scene.layer?.addSublayer(band)
     }
 }
-if surface == "text" {
+if surface.hasPrefix("reference-") {
+    scene.layer?.backgroundColor = (dark ? NSColor(white: 0.08, alpha: 1)
+        : NSColor(red: 1, green: 0.89, blue: 0.69, alpha: 1)).cgColor
+    for row in 0..<8 {
+        let stripe = CALayer()
+        stripe.frame = NSRect(x: 0, y: Double(row) * 34, width: frame.width, height: 17)
+        stripe.backgroundColor = (dark ? NSColor.systemTeal.withAlphaComponent(0.22)
+            : NSColor.white.withAlphaComponent(0.55)).cgColor
+        scene.layer?.addSublayer(stripe)
+    }
+}
+if surface == "text" || surface.hasPrefix("reference-") {
     for row in 0..<8 {
         let label = NSTextField(labelWithString: "Background text · 后方文字 · 0123456789     Background text · 后方文字")
         label.font = .systemFont(ofSize: 15, weight: .medium)
-        label.textColor = .black
+        label.textColor = dark ? .white : .black
         label.frame = NSRect(x: 12, y: Double(row) * 30, width: frame.width - 24, height: 22)
         scene.addSubview(label)
     }
