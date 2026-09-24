@@ -275,7 +275,7 @@ struct PreferencesView: View {
                     range: p.overlayAppearance == .glass ? OverlayAppearance.glassTintRange : OverlayAppearance.transparencyRange,
                     step: 0.02, suffix: "%", multiplier: 100).disabled(systemReduceTransparency)
                 if p.overlayAppearance == .glass {
-                    SettingToggle(title: "自动调整歌词颜色", detail: "在玻璃背景上提高歌词可读性；关闭后完全使用自定义颜色。", value: $p.glassColorOptimization)
+                    SettingToggle(title: "自动优化歌词颜色", detail: "仅用于玻璃悬浮窗。手动改色会关闭；重新开启会恢复自适应显示，且保留手动颜色。跟随封面主题色开启时，关闭后仍使用封面配色。", value: $p.glassColorOptimization)
                     Label("此滑块只调整额外的渐变底色，原生玻璃的透光与折射保持不变；在部分背景下，滑动后的变化可能不明显。需要调节磨砂强度时，可选择磨砂阅读。", systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary).padding(14)
                 } else {

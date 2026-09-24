@@ -15,7 +15,7 @@ final class Preferences {
     var overlayClickThrough: Bool { didSet { save("overlayClickThrough", overlayClickThrough) } }
     var hideOverlayOnHover: Bool { didSet { save("hideOverlayOnHover", hideOverlayOnHover) } }
     var overlayAppearance: OverlayAppearance { didSet { save("overlayAppearance", overlayAppearance.rawValue) } }
-    /// 玻璃模式下智能调整歌词颜色以提高可读性；关闭后完全使用用户设置的原始颜色。
+    /// Apply readable ink to the glass overlay without changing saved manual colors.
     var glassColorOptimization: Bool { didSet { save("glassColorOptimization", glassColorOptimization) } }
     var overlayTransparency: Double { didSet { save("overlayTransparency", overlayTransparency) } }
     var overlayGlassTintTransparency: Double { didSet { save("overlayGlassTintTransparency", overlayGlassTintTransparency) } }
@@ -57,6 +57,27 @@ final class Preferences {
     var separateWordColors: Bool { didSet { save("separateWordColors", separateWordColors) } }
     var sungWordColor: String { didSet { save("sungWordColor", sungWordColor) } }
     var unsungWordColor: String { didSet { save("unsungWordColor", unsungWordColor) } }
+    enum ManualLyricColor {
+        case primary, secondary, sung, unsung
+    }
+    func setManualLyricColor(_ hex: String, for role: ManualLyricColor) {
+        let color = LyricTypography.normalizedHex(hex)
+        let saved: String
+        switch role {
+        case .primary: saved = lyricPrimaryColor
+        case .secondary: saved = lyricSecondaryColor
+        case .sung: saved = sungWordColor
+        case .unsung: saved = unsungWordColor
+        }
+        guard color != saved else { return }
+        switch role {
+        case .primary: lyricPrimaryColor = color
+        case .secondary: lyricSecondaryColor = color
+        case .sung: sungWordColor = color
+        case .unsung: unsungWordColor = color
+        }
+        if overlayAppearance == .glass { glassColorOptimization = false }
+    }
     private struct TypographyKey: Equatable {
         let font: String
         let primary: String
@@ -94,7 +115,6 @@ final class Preferences {
     var overlayEffectiveTheme: InterfaceTheme { overlayAppearance == .glass ? .dark : overlayTheme }
     func overlayTypography(colorScheme: ColorScheme) -> LyricTypography {
         if overlayAppearance == .glass {
-            // 玻璃模式下，根据用户设置决定是否优化颜色可读性
             return glassColorOptimization ? adaptiveTypography(colorScheme: .dark) : typography
         }
         guard colorScheme == .light else { return typography }
