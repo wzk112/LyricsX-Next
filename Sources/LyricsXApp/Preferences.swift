@@ -76,7 +76,7 @@ final class Preferences {
         case .sung: sungWordColor = color
         case .unsung: unsungWordColor = color
         }
-        if overlayAppearance == .glass { glassColorOptimization = false }
+        if overlayAppearance == .glass && glassColorOptimization { glassColorOptimization = false }
     }
     private struct TypographyKey: Equatable {
         let font: String
