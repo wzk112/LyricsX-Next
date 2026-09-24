@@ -55,7 +55,7 @@ private final class GuideVisibilityTestWindow: NSWindow {
             defaults.set(["2.0.34"], forKey: "guidePresentedVersions")
             let corrected = GuideHistory(defaults: defaults, version: "2.0.34", revision: "complete-2")
             #expect(corrected.pending == .update(previous: "2.0.34"))
-            #expect(GuideContent.updates(after: "2.0.34").count == 5)
+            #expect(GuideContent.updates(after: "2.0.34").count == 6)
             corrected.didPresent()
             #expect(GuideHistory(defaults: defaults, version: "2.0.34", revision: "complete-2").pending == nil)
             let nextRevision = GuideHistory(defaults: defaults, version: "2.0.34", revision: "future-content")
@@ -66,14 +66,26 @@ private final class GuideVisibilityTestWindow: NSWindow {
         }
     }
     @Test func versionJumpContainsOnlyInterveningReleaseNotes() {
+        let latest = ["glassColor36"]
         let current = ["glass35", "appearance35", "motion35", "highlight35", "upgrade35"]
-        #expect(GuideContent.latestBaseline == "2.0.34")
-        #expect(GuideContent.updates(after: "2.0.34").map(\.id) == current)
-        #expect(GuideContent.updates(after: "2.0.35").map(\.id) == current)
-        #expect(GuideContent.updates(after: "2.0.28").count == 15)
-        #expect(GuideContent.updates(after: nil).count == 15)
+        #expect(GuideContent.latestBaseline == "2.0.35")
+        #expect(GuideContent.updates(after: "2.0.35").map(\.id) == latest)
+        #expect(GuideContent.updates(after: "2.0.34").map(\.id) == latest + current)
+        #expect(GuideContent.updates(after: "2.0.28").count == 16)
+        #expect(GuideContent.updates(after: nil).count == 16)
         #expect(GuideContent.tutorial.count == 14)
         #expect(Set(GuideContent.tutorial.map(\.id)).count == GuideContent.tutorial.count)
+    }
+    @Test func build269ShowsOnlyNewGlassColorUpdateOnce() throws {
+        try fixture { defaults in
+            defaults.set("2.0.35", forKey: "guideLastVersion")
+            defaults.set(["2.0.35:glass-35"], forKey: "guidePresentedEditions")
+            let history = GuideHistory(defaults: defaults, version: "2.0.36", revision: GuideContent.revision)
+            #expect(history.pending == .update(previous: "2.0.35"))
+            #expect(GuideContent.updates(after: "2.0.35").map(\.id) == ["glassColor36"])
+            history.didPresent()
+            #expect(GuideHistory(defaults: defaults, version: "2.0.36", revision: GuideContent.revision).pending == nil)
+        }
     }
     @Test func manualGuideDoesNotConsumeAutomaticReceiptAndCloseReleasesPreviews() throws {
         _ = NSApplication.shared
