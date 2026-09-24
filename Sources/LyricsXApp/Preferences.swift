@@ -15,6 +15,8 @@ final class Preferences {
     var overlayClickThrough: Bool { didSet { save("overlayClickThrough", overlayClickThrough) } }
     var hideOverlayOnHover: Bool { didSet { save("hideOverlayOnHover", hideOverlayOnHover) } }
     var overlayAppearance: OverlayAppearance { didSet { save("overlayAppearance", overlayAppearance.rawValue) } }
+    /// 玻璃模式下智能调整歌词颜色以提高可读性；关闭后完全使用用户设置的原始颜色。
+    var glassColorOptimization: Bool { didSet { save("glassColorOptimization", glassColorOptimization) } }
     var overlayTransparency: Double { didSet { save("overlayTransparency", overlayTransparency) } }
     var overlayGlassTintTransparency: Double { didSet { save("overlayGlassTintTransparency", overlayGlassTintTransparency) } }
     var overlayMaterialTransparency: Double {
@@ -91,7 +93,10 @@ final class Preferences {
     }
     var overlayEffectiveTheme: InterfaceTheme { overlayAppearance == .glass ? .dark : overlayTheme }
     func overlayTypography(colorScheme: ColorScheme) -> LyricTypography {
-        if overlayAppearance == .glass { return adaptiveTypography(colorScheme: .dark) }
+        if overlayAppearance == .glass {
+            // 玻璃模式下，根据用户设置决定是否优化颜色可读性
+            return glassColorOptimization ? adaptiveTypography(colorScheme: .dark) : typography
+        }
         guard colorScheme == .light else { return typography }
         return adaptiveTypography(colorScheme: colorScheme)
     }
@@ -153,6 +158,7 @@ final class Preferences {
         overlayClickThrough = d.bool(forKey: "overlayClickThrough")
         hideOverlayOnHover = d.object(forKey: "hideOverlayOnHover") as? Bool ?? true
         overlayAppearance = OverlayAppearance(savedValue: d.string(forKey: "overlayAppearance"))
+        glassColorOptimization = d.object(forKey: "glassColorOptimization") as? Bool ?? true
         let savedTransparency = d.object(forKey: "overlayTransparency") as? Double
         let legacyStrength = d.object(forKey: "overlayBackgroundStrength") as? Double
         let transparency = OverlayAppearance.clampedTransparency(
