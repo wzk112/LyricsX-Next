@@ -275,9 +275,12 @@ struct PreferencesView: View {
                     range: p.overlayAppearance == .glass ? OverlayAppearance.glassTintRange : OverlayAppearance.transparencyRange,
                     step: 0.02, suffix: "%", multiplier: 100).disabled(systemReduceTransparency)
                 if p.overlayAppearance == .glass {
-                    SettingToggle(title: "自动优化歌词颜色", detail: "仅用于玻璃悬浮窗。手动改色会关闭；重新开启会恢复自适应显示，且保留手动颜色。跟随封面主题色开启时，关闭后仍使用封面配色。", value: $p.glassColorOptimization)
                     Label("此滑块只调整额外的渐变底色，原生玻璃的透光与折射保持不变；在部分背景下，滑动后的变化可能不明显。需要调节磨砂强度时，可选择磨砂阅读。", systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary).padding(14)
+                    SettingRow(title: "歌词配色", detail: "默认配色自动优化可读性；自定义颜色或跟随封面时不额外改色。恢复默认配色后自动恢复优化。") {
+                        Text(p.glassColorOptimization ? "默认配色 · 自动优化" : p.followArtworkColors ? "跟随封面 · 原色显示" : "自定义 · 原色显示")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
                 } else {
                     SettingSlider(title: "磨砂程度", detail: "柔化后方文字与图案，歌词文字保持清晰。", impact: "数值越高，背景细节越少；0% 仍保留材质自带的柔化效果。系统“降低透明度”开启时此调节不生效。", value: $p.overlayFrostAmount, range: OverlayAppearance.frostRange, step: 0.02, suffix: "%", multiplier: 100).disabled(systemReduceTransparency)
                 }

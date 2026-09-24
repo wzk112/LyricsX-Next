@@ -47,7 +47,7 @@ struct GuidePage: Identifiable {
 
 enum GuideContent {
     // Changed only when the introduction itself is revised, never for a routine rebuild.
-    static let revision = "glass-color-36"
+    static let revision = "glass-color-36-auto"
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.36"
     static let tutorial: [GuidePage] = [
         .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
@@ -76,7 +76,7 @@ enum GuideContent {
             "点击“恢复字体与颜色”可回到默认外观。"], illustration: "font"),
         .init(id: "colors", title: "原文与辅助文字分别选色", subtitle: "设置 → 歌词 → 字体与颜色", symbol: "paintpalette", points: [
             "“当前歌词颜色”控制原文；“翻译与下一句颜色”控制辅助文字，两组颜色可分别设置。",
-            "修改后立即生效并保存。Liquid Glass 悬浮窗手动改色时会关闭自动优化；需要恢复优化可到“设置 → 悬浮窗”重新开启。",
+            "修改后立即生效并保存。Liquid Glass 使用自定义颜色或封面配色时不额外改色，恢复默认配色后自动优化可读性。",
             "若手动颜色选项变灰，请先关闭“跟随封面主题色”。"], illustration: "colors"),
         .init(id: "wordColors", title: "已唱与未唱，用不同颜色", subtitle: "设置 → 歌词 → 逐字独立配色", symbol: "character.cursor.ibeam", points: [
             "开启“逐字独立配色”，分别选择已唱到和未唱到的颜色，演唱进度会在两种颜色间推进。",
@@ -111,9 +111,9 @@ enum GuideContent {
     // entry, while a first upgrade from versions without receipts gets a recap.
     static let releases: [(version: String, page: GuidePage)] = [
         ("2.0.36", .init(id: "glassColor36", title: "玻璃歌词配色，由你选择", subtitle: "新增 · 悬浮窗与歌词颜色", symbol: "paintpalette", points: [
-            "Liquid Glass 增加“自动优化歌词颜色”，默认开启，让歌词在玻璃背景上更容易看清。",
-            "手动更改歌词颜色时，自动优化会关闭；开关变灰后仍能点击，重新开启即可恢复优化显示。",
-            "已选颜色会保留，主窗口和磨砂阅读继续使用。开启“跟随封面主题色”时，仍优先使用封面配色。"], illustration: "liveGlass")),
+            "Liquid Glass 使用默认配色时自动优化可读性，无需手动开关。",
+            "使用自定义颜色、逐字独立配色或跟随封面时，按当前配色原样显示，不再额外调整颜色。",
+            "恢复默认配色后自动恢复优化。主窗口和磨砂阅读沿用原有配色方式，已有颜色设置继续保留。"], illustration: "liveGlass")),
         ("2.0.35", .init(id: "glass35", title: "更通透的 Liquid Glass", subtitle: "更新 · 悬浮窗材质", symbol: "square.on.square", points: [
             "换用高透原生玻璃，边缘亮光与背景折射更清晰；保留磨砂阅读，适合背景复杂时使用。",
             "透明度只调整玻璃底色，不会削弱折射亮边。新安装默认 60%；升级会保留并换算原有设置。",

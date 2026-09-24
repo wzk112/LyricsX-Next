@@ -87,6 +87,16 @@ private final class GuideVisibilityTestWindow: NSWindow {
             #expect(GuideHistory(defaults: defaults, version: "2.0.36", revision: GuideContent.revision).pending == nil)
         }
     }
+    @Test func correctedGlassPolicyIntroductionAppearsOnceForBuild270() throws {
+        try fixture { defaults in
+            defaults.set("2.0.36", forKey: "guideLastVersion")
+            defaults.set(["2.0.36:glass-color-36"], forKey: "guidePresentedEditions")
+            let history = GuideHistory(defaults: defaults, version: "2.0.36")
+            #expect(history.pending == .update(previous: "2.0.36"))
+            history.didPresent()
+            #expect(GuideHistory(defaults: defaults, version: "2.0.36").pending == nil)
+        }
+    }
     @Test func manualGuideDoesNotConsumeAutomaticReceiptAndCloseReleasesPreviews() throws {
         _ = NSApplication.shared
         try fixture { defaults in

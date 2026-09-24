@@ -15,8 +15,11 @@ final class Preferences {
     var overlayClickThrough: Bool { didSet { save("overlayClickThrough", overlayClickThrough) } }
     var hideOverlayOnHover: Bool { didSet { save("hideOverlayOnHover", hideOverlayOnHover) } }
     var overlayAppearance: OverlayAppearance { didSet { save("overlayAppearance", overlayAppearance.rawValue) } }
-    /// Apply readable ink to the glass overlay without changing saved manual colors.
-    var glassColorOptimization: Bool { didSet { save("glassColorOptimization", glassColorOptimization) } }
+    /// Derived from the active palette; legacy saved switch values are ignored.
+    var glassColorOptimization: Bool {
+        !followArtworkColors && !separateWordColors
+            && lyricPrimaryColor == "FFFFFF" && lyricSecondaryColor == "FFFFFF"
+    }
     var overlayTransparency: Double { didSet { save("overlayTransparency", overlayTransparency) } }
     var overlayGlassTintTransparency: Double { didSet { save("overlayGlassTintTransparency", overlayGlassTintTransparency) } }
     var overlayMaterialTransparency: Double {
@@ -57,27 +60,6 @@ final class Preferences {
     var separateWordColors: Bool { didSet { save("separateWordColors", separateWordColors) } }
     var sungWordColor: String { didSet { save("sungWordColor", sungWordColor) } }
     var unsungWordColor: String { didSet { save("unsungWordColor", unsungWordColor) } }
-    enum ManualLyricColor {
-        case primary, secondary, sung, unsung
-    }
-    func setManualLyricColor(_ hex: String, for role: ManualLyricColor) {
-        let color = LyricTypography.normalizedHex(hex)
-        let saved: String
-        switch role {
-        case .primary: saved = lyricPrimaryColor
-        case .secondary: saved = lyricSecondaryColor
-        case .sung: saved = sungWordColor
-        case .unsung: saved = unsungWordColor
-        }
-        guard color != saved else { return }
-        switch role {
-        case .primary: lyricPrimaryColor = color
-        case .secondary: lyricSecondaryColor = color
-        case .sung: sungWordColor = color
-        case .unsung: unsungWordColor = color
-        }
-        if overlayAppearance == .glass && glassColorOptimization { glassColorOptimization = false }
-    }
     private struct TypographyKey: Equatable {
         let font: String
         let primary: String
@@ -178,7 +160,6 @@ final class Preferences {
         overlayClickThrough = d.bool(forKey: "overlayClickThrough")
         hideOverlayOnHover = d.object(forKey: "hideOverlayOnHover") as? Bool ?? true
         overlayAppearance = OverlayAppearance(savedValue: d.string(forKey: "overlayAppearance"))
-        glassColorOptimization = d.object(forKey: "glassColorOptimization") as? Bool ?? true
         let savedTransparency = d.object(forKey: "overlayTransparency") as? Double
         let legacyStrength = d.object(forKey: "overlayBackgroundStrength") as? Double
         let transparency = OverlayAppearance.clampedTransparency(

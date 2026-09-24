@@ -603,7 +603,8 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
             darkAccents.insert(prefs.overlayTypography(colorScheme: .dark).primaryHex)
             #expect(prefs.artworkTheme == theme && prefs.lyricPrimaryColor == "EFAA7A")
         }
-        #expect(lightAccents.count == 3 && darkAccents.count == 3)
+        #expect(lightAccents == ["FFFFFF"] && darkAccents == ["FFFFFF"])
+        #expect(prefs.overlayTypography(colorScheme: .dark) == prefs.typography)
         for style in [OverlayAppearance.frosted] {
             prefs.overlayAppearance = style
             #expect(LyricTypography.luminance(prefs.overlayTypography(colorScheme: .light).primaryHex) < 0.1)
