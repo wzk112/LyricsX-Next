@@ -47,8 +47,8 @@ struct GuidePage: Identifiable {
 
 enum GuideContent {
     // Changed only when the introduction itself is revised, never for a routine rebuild.
-    static let revision = "glass-color-36-auto"
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.36"
+    static let revision = "glass-hdr-37"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.37"
     static let tutorial: [GuidePage] = [
         .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
             "打开 Apple Music、Spotify、网易云或 QQ 音乐播放歌曲，即可自动同步歌词。自动识别不包含浏览器。",
@@ -110,6 +110,10 @@ enum GuideContent {
     // Add new release entries here; a version jump includes every intervening
     // entry, while a first upgrade from versions without receipts gets a recap.
     static let releases: [(version: String, page: GuidePage)] = [
+        ("2.0.37", .init(id: "glassHDR37", title: "玻璃歌词，高亮更到位", subtitle: "修复 · HDR 与长音辉光", symbol: "sparkles", points: [
+            "修复 Liquid Glass 悬浮窗的 HDR 高亮偏暗、调高亮度后变化不明显的问题。",
+            "默认配色、逐字独立配色和跟随封面颜色都能正确使用高亮，实际亮度仍由屏幕和系统决定。",
+            "长音外围光晕适度收紧，保留逐字放大和发光效果。已有设置与歌词缓存继续保留。"], illustration: "liveGlass")),
         ("2.0.36", .init(id: "glassColor36", title: "玻璃歌词配色，由你选择", subtitle: "新增 · 悬浮窗与歌词颜色", symbol: "paintpalette", points: [
             "Liquid Glass 使用默认配色时自动优化可读性，无需手动开关。",
             "使用自定义颜色、逐字独立配色或跟随封面时，按当前配色原样显示，不再额外调整颜色。",
@@ -168,7 +172,7 @@ enum GuideContent {
             "改善部分 QQ 音乐歌词的读取、搜索与封面显示；修复缓存文件变化及异常设置值引起的显示问题。"], illustration: "conversion"))
     ]
     // Last release actually published on GitHub, not a local test build.
-    static let latestBaseline: String? = "2.0.35"
+    static let latestBaseline: String? = "2.0.36"
     static func updates(after previous: String?) -> [GuidePage] {
         let pages = releases.filter { entry in
             guard let previous else { return true }

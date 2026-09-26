@@ -113,6 +113,21 @@ import LyricsXCore
         #expect(try energy(compact) > energy(ordinary))
     }
 
+    @Test func defaultGlassAndMainUseTheSameHDRGlyphPeak() throws {
+        let glass = LyricTypography().adaptedForGlass(dark: true).wordColors
+        for brightness in [1.6, 2.5, 4.0] {
+            let main = try linearPixels(render(time: 1.6,
+                effects: .init(lift: false, hdr: true, hdrBrightness: brightness)))
+            let overlay = try linearPixels(render(time: 1.6,
+                effects: .init(lift: false, hdr: true, hdrBrightness: brightness, compactHalo: true), wordColors: glass))
+            let mainPeak = stride(from: 0, to: main.count, by: 4).map { main[$0] }.max()!
+            let overlayPeak = stride(from: 0, to: overlay.count, by: 4).map { overlay[$0] }.max()!
+            print("MATCHED HDR \(brightness): main=\(mainPeak) overlay=\(overlayPeak)")
+            #expect(abs(mainPeak - overlayPeak) < 0.03,
+                "Changing the outer halo must not change the bright glyph core")
+        }
+    }
+
     @Test func hdrRenderingProducesExtendedBrightnessOnlyWhenEnabled() throws {
         let sdr = try render(time: 1.6, effects: .init(lift: false, glow: true))
         let hdr = try render(time: 1.6, effects: .init(lift: false, glow: true, hdr: true))

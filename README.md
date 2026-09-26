@@ -69,7 +69,7 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
 
 2.0.35 的更新介绍使用正式应用的材质、歌词与主窗口组件实时渲染，也可打开独立演示悬浮窗。演示不连接播放器、不保存歌词、不改动个人配置；退出介绍后释放演示窗口与刷新任务。首次安装显示完整教程，升级后首次打开显示更新介绍，之后可从“设置 → 关于”重看。
 
-2.0.36 的 Liquid Glass 歌词配色按当前设置自动处理：默认配色优化可读性，自定义颜色、逐字独立配色或跟随封面时不额外改色；恢复默认配色后自动恢复优化，无需手动开关。升级后首次打开会显示本次更新介绍。
+2.0.37 修复 Liquid Glass 悬浮窗 HDR 高亮偏暗、调高亮度后变化不明显的问题，兼容默认配色、逐字独立配色和跟随封面颜色；长音光晕适度收紧，保留逐字动画。升级后首次打开会显示本次更新介绍。
 
 主窗口的歌词滚动位置按歌曲和歌词版本独立管理。切歌或重新载入歌词后，前奏尚未进入第一句时停在列表顶部；进入歌词后平滑跟随当前句，清除上一首的手动浏览状态与延迟返回任务。
 
@@ -79,7 +79,7 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
 
 ## 安装
 
-从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载最新的 `LyricsX-Next-2.0.36.zip`，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
+从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载最新的 `LyricsX-Next-2.0.37.zip`，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
 
 本次包使用本机 ad-hoc 签名，没有 Developer ID 公证票据。首次打开时如果 macOS 提示无法验证开发者：
 
@@ -91,7 +91,7 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
    xattr -dr com.apple.quarantine "/Applications/LyricsX Next.app"
    ```
 
-完整的安装、签名和版本说明见 [`docs/releases/v2.0.36.md`](docs/releases/v2.0.36.md)。
+完整的安装、签名和版本说明见 [`docs/releases/v2.0.37.md`](docs/releases/v2.0.37.md)。
 
 ## 播放器权限
 

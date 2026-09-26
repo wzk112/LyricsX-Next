@@ -46,3 +46,13 @@ System display headroom is shared across onscreen apps and can ramp or decay gra
 - Installed application UI verified direct entry of 2.5×, reverse synchronization from the slider, rejection of invalid text, and preserved 4× user setting after testing. The setting reports current availability separately from the screen's potential limit.
 - Release package CRC and strict ad-hoc code signing passed. Executable SHA-256: `7442d3b02ce8422ba949568cc1bb476e941baed2557563044e5b2a36cbdc5938`.
 - Native social-post screenshots use isolated demo data and real production windows. No real playback commands or display-brightness changes were sent.
+
+## 2026-09-26: native glass palette HDR compression
+
+A separate reproducible defect remained despite valid window-local EDR requests. At the same held-note time, with reported display headroom 4, production `MainView` captured linear peaks of 1.000 / 2.499 / 4.002 at requested 1 / 2.5 / 4×. The default Liquid Glass overlay captured 1.000 / 1.690 / 1.705; dark frosted reached 1.000 / 2.499 / 4.002.
+
+Hiding the native glass background or changing the owning container's dynamic-range properties did not restore output. Selecting a near-white custom primary color (bypassing the default glass palette) restored it, while enabling separate word colors reproduced it. The affected path chained an SDR sung-color multiply with an HDR white multiply. Native composition compressed the result even though an extended-linear `ImageRenderer` test returned the requested peak.
+
+`HeldNoteRenderer` now resolves sung color × HDR brightness once per text draw into one tagged linear color and applies one multiply to each glowing glyph. The dark-ink halo path is unchanged. With this change, native Liquid Glass output at 2.5 / 4× captures 2.499 / 4.002, matching the main window in the controlled fixture. The broad compact halo radius also changes from 82% to 72% of the shared radius (about 12% narrower than before), preserving opacity, glyph emission, cue timing and the narrow dark-ink HDR rim.
+
+`NativeHDRParityTests` uses the actual `MainView` and `OverlayController`, fixed cue time, separate temporary preferences and floating-point ScreenCaptureKit output. It checks default glass, dark frosted, separate-word and artwork palettes, including return to 1×. Run with `LYRICSX_HDR_PARITY_QA=1 swift test --no-parallel --filter NativeHDRParityTests` on an EDR display with screen-capture permission. Window-lifecycle recovery remains covered separately by `NativeHDRLifecycleTests`. Ordinary rendered screenshots alone cannot catch this defect. Values above are compositor linear pixels, not measured panel nits.

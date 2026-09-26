@@ -195,6 +195,14 @@ struct HeldNoteRenderer: TextRenderer {
         return Color(.sRGBLinear, white: value, opacity: 1).headroom(value)
     }
 
+    static func hdrInk(_ color: Color, brightness: Double) -> Color {
+        let value = HDRBrightness.clamped(brightness)
+        let ink = color.resolveHDR(in: EnvironmentValues())
+        return Color(.sRGBLinear, red: Double(ink.linearRed) * value,
+                     green: Double(ink.linearGreen) * value, blue: Double(ink.linearBlue) * value,
+                     opacity: Double(ink.opacity)).headroom(value)
+    }
+
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
         // Keep fractional glyph positions during scrolling, lift and scaling.
         // Native text quantization is useful for still text but makes small
@@ -211,6 +219,13 @@ struct HeldNoteRenderer: TextRenderer {
         guard active else {
             for line in layout { context.draw(line, options: .disablesSubpixelQuantization) }
             return
+        }
+        // Resolve once per text draw, not per character. Chaining an SDR
+        // color-multiply and an HDR multiply can compress native window output
+        // even though ImageRenderer preserves both filters' extended pixels.
+        let bloomTint = wordColors.map {
+            options.usesHDR && $0.glow == nil
+                ? Self.hdrInk($0.sung, brightness: options.hdrBrightness) : $0.sung
         }
         var groups: [Int: [Text.Layout.Run]] = [:]
         var order: [Int] = []
@@ -264,18 +279,21 @@ struct HeldNoteRenderer: TextRenderer {
                     // close enough to the edge to retain a visible peak instead
                     // of averaging all the extra luminance away in a wide blur.
                     let radius = options.usesHDR && wordColors?.glow != nil ? 0.065 : 0.24
-                    // The desktop overlay sits over real content: keep its
-                    // outer halo smaller without reducing the HDR glyph emitter.
+                    // Tighten only the broad desktop halo (about 12% versus
+                    // the previous compact radius). Keep its opacity/emitter
+                    // unchanged so the brightness control retains its meaning.
+                    // Dark lettering already has a narrow HDR rim: preserve it.
+                    let compactRadius = options.compactHalo ? (wordColors?.glow != nil ? 0.82 : 0.72) : 1
                     bloom.addFilter(.shadow(color: halo.opacity(options.compactHalo ? 0.82 : 1),
-                        radius: min(9, bounds.height * radius) * (options.compactHalo ? 0.82 : 1)))
+                        radius: min(9, bounds.height * radius) * compactRadius))
                     bloom.drawLayer { layer in
                         for (slice, box, frame, progress) in units where frame.glow > 0.001 && progress > 0 {
                             var ink = transformed(layer, bounds: box, referenceBounds: bounds, frame: frame)
                             // Bloom the glyph alpha, never the rectangular
                             // karaoke mask (which would glow as a capsule).
                             ink.opacity *= frame.glow * LyricEmphasisFrame.smoother(progress)
-                            if let wordColors { ink.addFilter(.colorMultiply(wordColors.sung)) }
-                            if options.usesHDR && wordColors?.glow == nil { ink.addFilter(.colorMultiply(white)) }
+                            if let bloomTint { ink.addFilter(.colorMultiply(bloomTint)) }
+                            else if options.usesHDR { ink.addFilter(.colorMultiply(white)) }
                             ink.draw(slice, options: .disablesSubpixelQuantization)
                         }
                     }
