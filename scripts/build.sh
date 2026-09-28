@@ -9,7 +9,10 @@ if [[ "$CONFIGURATION" != "release" && "$CONFIGURATION" != "debug" ]]; then
 fi
 swift build --configuration "$CONFIGURATION"
 BIN_DIR="$(swift build --configuration "$CONFIGURATION" --show-bin-path)"
-APP="$PROJECT_ROOT/build/LyricsX Next.app"
+mkdir -p "$PROJECT_ROOT/build"
+STAGE_ROOT="$(mktemp -d "$PROJECT_ROOT/build/.lyricsx-stage.XXXXXX")"
+trap 'rm -rf "$STAGE_ROOT"' EXIT
+APP="$STAGE_ROOT/LyricsX Next.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN_DIR/LyricsX" "$APP/Contents/MacOS/LyricsX"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
@@ -33,4 +36,7 @@ for dylib in "$APP/Contents/Frameworks"/*.dylib; do
 done
 codesign --force --sign "$SIGN_IDENTITY" --entitlements Resources/LyricsX.entitlements "$APP"
 codesign --verify --deep --strict "$APP"
-echo "Built: $APP"
+TARGET_APP="$PROJECT_ROOT/build/LyricsX Next.app"
+rm -rf "$TARGET_APP"
+mv "$APP" "$TARGET_APP"
+echo "Built: $TARGET_APP"

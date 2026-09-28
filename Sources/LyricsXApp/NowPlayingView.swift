@@ -8,53 +8,77 @@ struct NowPlayingView: View {
     var body: some View {
         GeometryReader { geometry in
             let compact = geometry.size.width < 780 || geometry.size.height < 430
-            Group {
-                if compact {
-                    VStack(spacing: 12) {
-                        HStack(spacing: 16) {
-                            CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion).frame(width: 64)
-                            ZStack(alignment: .leading) {
-                                CompactTrackMetadata(track: model.session.track).id(model.session.trackRevision)
-                                    .transition(reduceMotion || model.preferences.reduceMotion ? .identity : .artworkBlur)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                                .animation(reduceMotion || model.preferences.reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.trackRevision)
-                            playbackButtons(compact: true)
-                        }
-                        PlaybackProgressView(model: model)
-                        LyricsScrollView(model: model)
-                    }.padding(.horizontal, 22).padding(.top, 8)
-                } else { expandedPlayer(geometry.size) }
+            let layout = compact ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 0))
+            if model.session.track == nil {
+                // The lyric empty state already has playback actions. A second
+                // placeholder cover/player column duplicated the message.
+                LyricsScrollView(model: model)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                layout {
+                    playerPane(compact: compact, size: geometry.size)
+                    // Keep one lyric viewport across the compact/expanded boundary.
+                    // Its own song/document ID still resets browsing on a real change.
+                    LyricsScrollView(model: model)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .padding(.horizontal, compact ? 22 : 0)
+                .padding(.top, compact ? 8 : 0)
             }
-
         }
     }
-    private func expandedPlayer(_ size: CGSize) -> some View {
-        let columnWidth = min(330, max(220, size.width * 0.31))
-        return HStack(spacing: 0) {
-            PlayerColumnLayout {
-                CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion)
-                    .shadow(color: .black.opacity(0.35), radius: 30, y: 20)
-                    .scaleEffect(model.session.isPlaying ? 1 : 0.94)
-                    .animation(model.preferences.reduceMotion || reduceMotion ? nil : .spring(response: 0.65, dampingFraction: 0.8), value: model.session.isPlaying)
-                ZStack(alignment: .topLeading) {
-                    TrackMetadata(track: model.session.track).id(model.session.trackRevision)
-                        .transition(model.preferences.reduceMotion || reduceMotion ? .identity : .artworkBlur)
+
+    @ViewBuilder private func playerPane(compact: Bool, size: CGSize) -> some View {
+        if compact {
+            VStack(spacing: 12) {
+                HStack(spacing: 16) {
+                    CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion).frame(width: 64)
+                    ZStack(alignment: .leading) {
+                        CompactTrackMetadata(track: model.session.track).id(model.session.trackRevision)
+                            .transition(reduceMotion || model.preferences.reduceMotion ? .identity : .artworkBlur)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                        .animation(reduceMotion || model.preferences.reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.trackRevision)
+                    playbackButtons(compact: true)
                 }
-                    .animation(model.preferences.reduceMotion || reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.trackRevision)
-                VStack(spacing: 12) {
-                    PlaybackProgressView(model: model)
-                    playbackButtons(compact: false).frame(maxWidth: .infinity)
-                }
-            }.frame(width: columnWidth, height: max(0, size.height - 40))
-                .padding(.horizontal, 28).padding(.vertical, 20)
-            Rectangle().fill(LinearGradient(colors: [.clear, Color.primary.opacity(0.08), .clear], startPoint: .top, endPoint: .bottom)).frame(width: 1).padding(.vertical, 30)
-            LyricsScrollView(model: model)
+                PlaybackProgressView(model: model)
+            }
+        } else {
+            expandedPane(size)
         }
+    }
+
+    private func expandedPane(_ size: CGSize) -> some View {
+        let columnWidth = min(330, max(220, size.width * 0.31))
+        return PlayerColumnLayout {
+            CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion)
+                .shadow(color: .black.opacity(0.35), radius: 30, y: 20)
+                .scaleEffect(model.session.isPlaying ? 1 : 0.94)
+                .animation(model.preferences.reduceMotion || reduceMotion ? nil : .spring(response: 0.65, dampingFraction: 0.8), value: model.session.isPlaying)
+            ZStack(alignment: .topLeading) {
+                TrackMetadata(track: model.session.track).id(model.session.trackRevision)
+                    .transition(model.preferences.reduceMotion || reduceMotion ? .identity : .artworkBlur)
+            }
+                .animation(model.preferences.reduceMotion || reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.trackRevision)
+            VStack(spacing: 12) {
+                PlaybackProgressView(model: model)
+                playbackButtons(compact: false).frame(maxWidth: .infinity)
+            }
+        }.frame(width: columnWidth, height: max(0, size.height - 40))
+            .padding(.horizontal, 28).padding(.vertical, 20)
+            .overlay(alignment: .trailing) {
+                Rectangle().fill(LinearGradient(colors: [.clear, Color.primary.opacity(0.08), .clear], startPoint: .top, endPoint: .bottom))
+                    .frame(width: 1).padding(.vertical, 30)
+            }
     }
     private func playbackButtons(compact: Bool) -> some View {
                 HStack(spacing: compact ? 12 : 30) {
                     Button { model.skip(next: false) } label: { Image(systemName: "backward.fill").font(.system(size: 23)) }.accessibilityLabel("上一首")
-                    Button { model.playPause() } label: { Image(systemName: model.session.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 27)).contentTransition(.symbolEffect(.replace)).frame(width: 40, height: 42) }.accessibilityLabel(model.session.isPlaying ? "暂停" : "播放")
+                    Button { model.playPause() } label: {
+                        Image(systemName: model.session.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 27))
+                            .contentTransition(model.preferences.reduceMotion || reduceMotion ? .identity : .symbolEffect(.replace))
+                            .frame(width: 40, height: 42)
+                    }.accessibilityLabel(model.session.isPlaying ? "暂停" : "播放")
                     Button { model.skip(next: true) } label: { Image(systemName: "forward.fill").font(.system(size: 23)) }.accessibilityLabel("下一首")
                 }.buttonStyle(.plain).disabled(model.session.track == nil)
     }
@@ -82,6 +106,7 @@ private struct PlaybackProgressView: View {
 
 struct LyricsScrollView: View {
     let model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     private struct ContentID: Hashable, Sendable {
         var track: UInt64
         var document: UUID?
@@ -96,7 +121,8 @@ struct LyricsScrollView: View {
             // rebuilding for the later document still resets scrolling, but
             // must not replay a second full-window blur.
             .lyricArrival(trigger: model.session.trackRevision,
-                reduced: model.preferences.reduceMotion, distance: 5, visible: { model.mainWindowVisible })
+                reduced: model.preferences.reduceMotion || systemReduceMotion,
+                distance: 5, visible: { model.mainWindowVisible })
     }
 }
 
@@ -135,10 +161,13 @@ private struct LyricsScrollContent: View {
             } else {
                 trackTitlePlaceholder
             }
-            if browsing {
-                Button { browsing = false } label: { Label("回到当前歌词", systemImage: "location.fill") }
-                    .buttonStyle(.glass).padding(.bottom, 20).transition(.opacity)
-            }
+            Button { browsing = false } label: { Label("回到当前歌词", systemImage: "location.fill") }
+                .buttonStyle(.glass).padding(.bottom, 20)
+                .opacity(browsing ? 1 : 0)
+                .allowsHitTesting(browsing)
+                .disabled(!browsing)
+                .accessibilityHidden(!browsing)
+                .animation(reduced ? nil : .easeInOut(duration: 0.16), value: browsing)
         }.onDisappear { returnTask?.cancel(); returnTask = nil }
     }
     private var trackTitlePlaceholder: some View {
@@ -147,13 +176,32 @@ private struct LyricsScrollContent: View {
                 .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(Color.primary.opacity(0.9)).lineLimit(2).multilineTextAlignment(.center)
                 .accessibilityLabel("当前歌曲：\(model.session.track?.title ?? "LyricsX Next")")
-            if model.session.isSearching {
+            if model.lyricsBlocked {
+                placeholderStatus("此歌曲歌词已停用", action: "恢复搜索") { model.restoreLyricsSearch() }
+            } else if model.session.isSearching {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("正在加载歌词…").font(.system(size: 13)).foregroundStyle(.secondary)
                 }
+            } else if model.session.document == nil {
+                switch model.session.phase {
+                case .failed(let error):
+                    placeholderStatus("歌词搜索失败", action: "重试") { model.refreshLyrics() }
+                        .help(error)
+                case .notFound:
+                    placeholderStatus("未找到歌词", action: "手动搜索") { model.showSearch = true }
+                default:
+                    EmptyView()
+                }
             }
         }.padding(40).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func placeholderStatus(_ title: String, action: String, perform: @escaping () -> Void) -> some View {
+        HStack(spacing: 10) {
+            Text(title).foregroundStyle(.secondary)
+            Button(action, action: perform).buttonStyle(.glass)
+        }.font(.system(size: 13))
     }
 
     private func emptyState(symbol: String, title: String, detail: String) -> some View {

@@ -1,0 +1,82 @@
+{
+  "name": "LyricsX Next",
+  "uuid": "com.wzk112.lyricsxnext",
+  "version": "0.2.1",
+  "author": "wzk112",
+  "entry": "backend/plugin.cjs",
+  "description": "LyricsX Next 同步歌词：逐字高亮、双语辅行、长句阅读。点击歌词可切换长文分页。",
+  "repo": "https://github.com/wzk112/LyricsX-Next",
+  "sdk": {
+    "version": "1.0.9"
+  },
+  "software": {
+    "minimumVersion": "2.2.3"
+  },
+  "os": [
+    {
+      "platform": "mac",
+      "minimumVersion": "26"
+    }
+  ],
+  "device": [
+    {
+      "name": "flexbar",
+      "version": "1.0.0"
+    }
+  ],
+  "keyLibrary": {
+    "title": "LyricsX Next",
+    "style": {
+      "icon": "mdi mdi-music-note"
+    },
+    "children": [
+      {
+        "title": "同步歌词",
+        "tip": "双行同步歌词。点击可切换长文分页。",
+        "cid": "com.wzk112.lyricsxnext.lyrics",
+        "config": {
+          "keyType": "default",
+          "clickable": true,
+          "platform": [
+            "mac"
+          ]
+        },
+        "style": {
+          "width": 720,
+          "icon": "mdi mdi-music-note",
+          "showTitle": true
+        },
+        "data": {
+          "secondary": "translation",
+          "fps": 30,
+          "diffUpdate": false,
+          "alignment": "left"
+        }
+      },
+      {
+        "title": "整屏歌词",
+        "tip": "Flexbar 2170×60 整屏歌词。部分刷新需在实机上验证。",
+        "cid": "com.wzk112.lyricsxnext.immersive",
+        "config": {
+          "keyType": "directDraw",
+          "clickable": true,
+          "platform": [
+            "mac"
+          ]
+        },
+        "style": {
+          "width": 2170,
+          "icon": "mdi mdi-text-long",
+          "showTitle": true
+        },
+        "data": {
+          "secondary": "translation",
+          "fps": 30,
+          "diffUpdate": false,
+          "alignment": "center",
+          "orientation": "auto"
+        }
+      }
+    ]
+  }
+}

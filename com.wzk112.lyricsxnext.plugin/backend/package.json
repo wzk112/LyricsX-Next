@@ -1,0 +1,8 @@
+{
+  "name": "lyricsxnext-flexbar-runtime",
+  "private": true,
+  "version": "0.2.1",
+  "dependencies": {
+    "@napi-rs/canvas": "1.0.9"
+  }
+}

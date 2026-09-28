@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 import Testing
 import LyricsXCore
@@ -57,6 +58,21 @@ import LyricsXCore
                 #expect((LyricTypography.luminance(colors.primaryHex) < 0.1) == (style == .frosted && theme == .light))
             }
         }
+    }
+
+    @Test func enablingReducedMotionFinishesAppearanceWithoutReplacingGlass() throws {
+        let background = OverlayGlassBackground(frame: .init(x: 0, y: 0, width: 620, height: 160))
+        background.configure(appearance: .frosted, transparency: 0.34, frostAmount: 0.8,
+                             reduceTransparency: false, reduceMotion: false, theme: .light)
+        background.configure(appearance: .frosted, transparency: 0.34, frostAmount: 0.8,
+                             reduceTransparency: false, reduceMotion: false, theme: .dark)
+        let glass = try #require(background.subviews.first as? NSGlassEffectView)
+        let gradient = try #require(glass.contentView?.layer as? CAGradientLayer)
+        #expect(gradient.animation(forKey: "appearance") != nil)
+        background.configure(appearance: .frosted, transparency: 0.34, frostAmount: 0.8,
+                             reduceTransparency: false, reduceMotion: true, theme: .dark)
+        #expect(background.subviews.first === glass)
+        #expect(gradient.animation(forKey: "appearance") == nil)
     }
 
     @Test func livePanelSettingsReachEverySurfaceWhileShownHiddenAndDetached() async throws {

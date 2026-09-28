@@ -11,7 +11,7 @@ struct PlaybackContinuity {
     private var failureSince: Double?
     private var failureCount = 0
 
-    mutating func accept(_ sample: PlaybackSnapshot, now: Double) -> PlaybackSnapshot? {
+    mutating func accept(_ sample: PlaybackSnapshot, now: Double, preserveArtwork: Bool = true) -> PlaybackSnapshot? {
         failureSince = nil; failureCount = 0
         var sample = sample
         guard var track = sample.track else {
@@ -44,7 +44,7 @@ struct PlaybackContinuity {
             if track.artist.isEmpty { track.artist = previous.artist }
             if track.album.isEmpty { track.album = previous.album }
             if track.duration <= 0 { track.duration = previous.duration }
-            if track.artworkData == nil, track.artworkURL == nil {
+            if preserveArtwork, track.artworkData == nil, track.artworkURL == nil {
                 track.artworkData = previous.artworkData
                 track.artworkURL = previous.artworkURL
             }

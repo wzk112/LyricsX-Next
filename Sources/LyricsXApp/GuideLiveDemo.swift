@@ -31,6 +31,9 @@ import LyricsXCore
     init(reduced: Bool) {
         let prefs = Preferences(defaults: UserDefaults(suiteName: suite)!)
         prefs.overlayWidth = 520; prefs.overlayVisible = false
+        // Guide previews never create a system-audio tap, including when the
+        // visitor opens the optional floating demonstration window.
+        prefs.overlayWaveformEnabled = false
         prefs.overlayLocked = true; prefs.hideOverlayOnHover = false
         prefs.hideWhenPaused = false; prefs.reduceMotion = reduced
         prefs.overlaySecondaryMode = .translation
@@ -53,6 +56,12 @@ import LyricsXCore
         model.updateMainLyricSelection()
     }
     func nextTrack() { alternate.toggle(); selectTrack() }
+    func setReducedMotion(_ reduced: Bool, now: Double = ProcessInfo.processInfo.systemUptime) {
+        guard !stopped, model.preferences.reduceMotion != reduced else { return }
+        model.preferences.reduceMotion = reduced
+        if !reduced { startedAt = now }
+        tick(now: now)
+    }
     func tick(now: Double = ProcessInfo.processInfo.systemUptime) {
         guard !stopped, let track = model.session.track else { return }
         // Production playback deliberately stops extrapolating a stale player
@@ -82,6 +91,15 @@ import LyricsXCore
     }
 }
 
+struct GuideDemoTaskState: Equatable {
+    let active: Bool
+    let reduced: Bool
+    init(active: Bool, appReduced: Bool, systemReduced: Bool) {
+        self.active = active
+        reduced = appReduced || systemReduced
+    }
+}
+
 struct GuideLiveDemo: View {
     let kind: String
     let reduced: Bool
@@ -90,6 +108,11 @@ struct GuideLiveDemo: View {
     @State private var visible = false
     @State private var inViewport = true
     @Environment(\.accessibilityReduceMotion) private var systemReduced
+    private var effectiveReduced: Bool { reduced || systemReduced }
+    private var taskState: GuideDemoTaskState {
+        .init(active: (visible && inViewport && demo != nil) || demo?.floating == true,
+              appReduced: reduced, systemReduced: systemReduced)
+    }
 
     init(kind: String, reduced: Bool, viewportHeight: CGFloat = 600, session: GuideDemoSession? = nil) {
         self.kind = kind; self.reduced = reduced; self.viewportHeight = viewportHeight
@@ -148,11 +171,16 @@ struct GuideLiveDemo: View {
                 let rect = geometry.frame(in: .named("guideContent"))
                 return rect.maxY > 0 && rect.minY < viewportHeight
             } action: { inViewport = $0 }
-            .onAppear { if demo == nil { demo = GuideDemoSession(reduced: reduced || systemReduced) } }
+            .onAppear {
+                if demo == nil { demo = GuideDemoSession(reduced: effectiveReduced) }
+                demo?.setReducedMotion(effectiveReduced)
+            }
+            .onChange(of: effectiveReduced) { _, value in demo?.setReducedMotion(value) }
             .onDisappear { demo?.stop(); demo = nil }
-            .task(id: (visible && inViewport && demo != nil) || demo?.floating == true) {
+            .task(id: taskState) {
+                demo?.setReducedMotion(effectiveReduced)
                 demo?.viewport.rendering = visible && inViewport
-                guard (visible && inViewport || demo?.floating == true), !reduced, !systemReduced else { return }
+                guard taskState.active, !effectiveReduced else { return }
                 while !Task.isCancelled {
                     demo?.tick()
                     do { try await Task.sleep(for: .milliseconds(50)) } catch { return }

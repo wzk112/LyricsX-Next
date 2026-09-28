@@ -15,6 +15,10 @@ struct OverlayCueSnapshot: Equatable {
     let previewCenter: Double?
     let previewScale: Double
     var fontName = ""
+    // The preview and primary coordinates are local to the visible lyric
+    // block. A centered block can change height at a cue boundary.
+    var blockHeight = 0.0
+    var centered = false
 }
 
 struct OverlayCueDeparture {
@@ -23,13 +27,14 @@ struct OverlayCueDeparture {
     let startedAt: Double
     let duration: Double
     let pose: OverlayMotionFrame
+    var originShift = 0.0
 
     func frame(at now: Double) -> LyricMotion.Frame? {
         let progress = max(0, (now - startedAt) / duration)
         guard progress < 1 else { return nil }
         let eased = LyricEmphasisFrame.smoother(progress)
-        let distance = min(16, max(8, cue.height * 0.3))
-        return .init(offset: -distance * eased, blur: 3.2 * eased, opacity: 1 - eased)
+        let distance = min(4, max(2, cue.height * 0.07))
+        return .init(offset: -distance * eased, blur: 0.7 * eased, opacity: 1 - eased)
     }
 }
 
@@ -57,6 +62,7 @@ struct OverlayCueTransition {
         result.current = cue
         if let current, current.document == cue.document, current.index == cue.index, current.text == cue.text {
             let reflowed = current.fontName != cue.fontName || current.height != cue.height || current.fontSize != cue.fontSize || current.previewCenter != cue.previewCenter
+                || current.blockHeight != cue.blockHeight || current.centered != cue.centered
             if !animated || reflowed { result.settle() }
             return result
         }
@@ -65,9 +71,15 @@ struct OverlayCueTransition {
         result.promotionDistance = nil
         result.departure = nil
         guard animated else { result.settle(); return result }
-        guard let current, current.document == cue.document, current.index + 1 == cue.index,
+        guard let current, current.centered == cue.centered else { return result }
+        guard current.document == cue.document, current.index + 1 == cue.index,
               lyricTime >= cue.line.time, lyricTime - cue.line.time < 0.2,
               cue.plan?.stablePrefixCount == 0 else { return result }
+        // The controller centers the new canvas in the current native panel
+        // while its size spring begins. At the first frame both lyric blocks
+        // therefore share the same panel center, even for adaptive sizing.
+        // Convert the old block's local coordinates into the new block's.
+        let originShift = cue.centered ? (cue.blockHeight - current.blockHeight) / 2 : 0
         // A playback tick can arrive partway into a cue. Start geometry at the
         // pixels still on screen, not partway up the promotion curve. Shorten
         // only the remaining motion budget; word timing keeps its music clock.
@@ -83,14 +95,15 @@ struct OverlayCueTransition {
         if let preview = current.previewText,
            preview.trimmingCharacters(in: .whitespacesAndNewlines) == cue.text.trimmingCharacters(in: .whitespacesAndNewlines),
            let center = current.previewCenter {
-            result.promotionDistance = center - cue.height / 2
+            result.promotionDistance = center + originShift - cue.height / 2
         }
         // A new cue replaces the sole departing row. Its deadline uses uptime,
         // so pausing cannot leave a translucent old lyric behind the new one.
         result.departure = .init(cue: current, time: lyricTime, startedAt: now,
-            duration: min(0.24, (result.motionPlan?.duration ?? 0.4) * 0.45),
+            duration: min(0.20, (result.motionPlan?.duration ?? 0.4) * 0.45),
             pose: OverlayMotionFrame.make(time: layoutTime(at: now, fallback: lyricTime), plan: motionPlan,
-                distance: promotionDistance, nextScale: current.previewScale, reduced: false))
+                distance: promotionDistance, nextScale: current.previewScale, reduced: false),
+            originShift: originShift)
         return result
     }
 

@@ -1,6 +1,20 @@
 import SwiftUI
 import LyricsXCore
 
+struct SearchLyricFollowState {
+    private var documentID: UUID?
+    private var follow = MainLyricFollowState()
+
+    mutating func request(document: LyricsDocument, index: Int?, reduced: Bool) -> MainLyricFollowState.Request? {
+        if documentID != document.id {
+            documentID = document.id
+            follow = MainLyricFollowState()
+        }
+        guard let request = follow.request(index: index, lines: document.lines, animated: !reduced) else { return nil }
+        return .init(index: request.index, duration: request.duration.map { min(0.35, $0) })
+    }
+}
+
 /// Candidate preview samples the real playback clock without changing the
 /// session document, exclusions or cache. Only Apply commits the selection.
 struct SearchLyricPreview: View {
@@ -10,6 +24,7 @@ struct SearchLyricPreview: View {
     @Environment(\.colorScheme) private var colorScheme
     private var typography: LyricTypography { model.preferences.mainTypography(colorScheme: colorScheme) }
     @State private var visible = false
+    @State private var followState = SearchLyricFollowState()
     @Environment(\.accessibilityReduceMotion) private var systemReduced
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -62,11 +77,22 @@ struct SearchLyricPreview: View {
                     }
                 }.padding(.vertical, 12)
             }.onChange(of: currentIndex, initial: true) { _, index in
-                guard let id = index ?? document.lines.first?.id else { return }
-                withAnimation(systemReduced || model.preferences.reduceMotion ? nil : .smooth(duration: 0.35)) {
-                    proxy.scrollTo(id, anchor: .center)
-                }
+                follow(document, index: index, proxy: proxy)
+            }.onChange(of: document.id, initial: true) { _, _ in
+                // The new document can have the same current numeric index.
+                follow(document, index: currentIndex, proxy: proxy)
             }
         }.id(document.id)
+    }
+
+    private func follow(_ document: LyricsDocument, index: Int?, proxy: ScrollViewProxy) {
+        guard let request = followState.request(document: document, index: index,
+                                               reduced: systemReduced || model.preferences.reduceMotion) else { return }
+        let id = index.flatMap { document.lines.indices.contains($0) ? document.lines[$0].id : nil }
+            ?? document.lines.first?.id
+        guard let id else { return }
+        withAnimation(request.duration.map { .smooth(duration: $0) }) {
+            proxy.scrollTo(id, anchor: .center)
+        }
     }
 }

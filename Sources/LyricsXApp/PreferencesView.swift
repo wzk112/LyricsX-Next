@@ -35,6 +35,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 private struct SettingsSidebarItem: View {
     let section: SettingsSection
     let selected: Bool
+    let reducedMotion: Bool
     let action: () -> Void
     var body: some View {
         Button(action: action) {
@@ -58,6 +59,7 @@ private struct SettingsSidebarItem: View {
         .accessibilityLabel(section.rawValue)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .help(section.summary)
+        .animation(reducedMotion ? nil : .easeInOut(duration: 0.17), value: selected)
     }
 }
 
@@ -116,8 +118,11 @@ struct PreferencesView: View {
                         .help(sidebarVisible ? "收起设置边栏" : "展开设置边栏")
                         VStack(alignment: .leading, spacing: 4) {
                             Text((selection ?? .general).rawValue).font(.system(size: 19, weight: .semibold))
+                                .contentTransition(.opacity)
                             Text((selection ?? .general).summary).font(.system(size: 12)).foregroundStyle(.secondary)
+                                .contentTransition(.opacity)
                         }
+                        .animation(systemReduceMotion || model.preferences.reduceMotion ? nil : .easeInOut(duration: 0.17), value: selection)
                         Spacer(minLength: 12)
                         Button("完成") { dismiss() }
                     }
@@ -165,7 +170,8 @@ struct PreferencesView: View {
                 VStack(spacing: 3) {
                     ForEach(SettingsSection.allCases) { section in
                         if section == .developer { Divider().padding(.vertical, 9).padding(.horizontal, 10) }
-                        SettingsSidebarItem(section: section, selected: selection == section) { selection = section }
+                        SettingsSidebarItem(section: section, selected: selection == section,
+                                            reducedMotion: systemReduceMotion || model.preferences.reduceMotion) { selection = section }
                     }
                 }.padding(.horizontal, 10)
             }.scrollBounceBehavior(.basedOnSize)
@@ -290,6 +296,21 @@ struct PreferencesView: View {
                 SettingSlider(title: "窗口宽度", detail: p.overlayAdaptiveSize ? "当前固定为 \(Int(p.overlayLayoutWidth)) pt。关闭自动高度后可手动修改。" : "同时调整歌词与歌曲信息卡片的可用宽度。", value: $p.overlayWidth, range: 320...1000, step: 20)
                     .disabled(p.overlayAdaptiveSize)
             }
+            SettingsCard(title: "音频波形") {
+                SettingToggle(title: "显示实时波形", detail: "在悬浮窗底部显示当前播放器的音频波形；首次开启时 macOS 会请求系统音频录制权限。", value: $p.overlayWaveformEnabled)
+                if p.overlayWaveformEnabled {
+                    SettingRow(title: "波形颜色", detail: "白色在浅色玻璃上带细暗边；封面彩色使用当前歌曲的配色。") {
+                        Picker("波形颜色", selection: $p.overlayWaveformStyle) {
+                            ForEach(OverlayWaveformStyle.allCases) { Text($0.title).tag($0) }
+                        }.labelsHidden().frame(width: 140)
+                    }
+                    if !p.overlayWaveformStatus.isEmpty {
+                        SettingRow(title: "音频采集", detail: p.overlayWaveformStatus) {
+                            Button("重试") { model.overlay?.retryWaveform() }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -390,11 +411,15 @@ struct PreferencesView: View {
         @Bindable var p = model.preferences
         return Group {
             SettingsCard(title: "渲染与功耗") {
-                SettingRow(title: "悬浮窗帧率", detail: "智能节能在系统低电量模式或明显发热时限制为 60 帧，恢复后跟随屏幕。也可固定 60 帧。所有动效都会保留。", impact: "高刷新率屏幕下，60 帧的运动细腻度会有所降低。实际 GPU 占用还受玻璃背景与其他窗口影响。") {
+                SettingRow(title: "悬浮窗帧率", detail: "跟随屏幕在 120 Hz 屏幕可请求 120 帧，实际回调由系统调度；智能节能在低电量或明显发热时限制为 60 帧。也可固定 60 帧。", impact: "高刷新率屏幕下，60 帧的运动细腻度会有所降低。实际 GPU 占用还受玻璃背景与其他窗口影响。") {
                     Picker("悬浮窗帧率", selection: $p.overlayFrameRate) {
                         ForEach(OverlayFrameRate.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden().frame(width: 140)
                 }
+            }
+            SettingsCard(title: "Flexbar") {
+                SettingToggle(title: "在 Flexbar 上显示歌词", detail: "通过 FlexDesigner 歌词插件显示当前歌词。", value: $p.flexbarEnabled)
+                Text(model.flexbar.status).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 14)
             }
             SettingsCard(title: "歌词文件夹") {
                 VStack(alignment: .leading, spacing: 8) {

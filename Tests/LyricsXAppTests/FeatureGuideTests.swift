@@ -18,6 +18,21 @@ private final class GuideVisibilityTestWindow: NSWindow {
     override var occlusionState: NSWindow.OcclusionState { isVisible ? .visible : [] }
 }
 
+@Observable @MainActor private final class GuideMotionFlags {
+    var appReduced = false
+}
+
+private struct GuideMotionTestHost: View {
+    let demo: GuideDemoSession
+    let flags: GuideMotionFlags
+    var body: some View {
+        ScrollView {
+            GuideLiveDemo(kind: "liveGlass", reduced: flags.appReduced, viewportHeight: 450, session: demo)
+                .frame(height: 330)
+        }.coordinateSpace(name: "guideContent")
+    }
+}
+
 @Suite @MainActor struct FeatureGuideTests {
     private func fixture(_ body: (UserDefaults) throws -> Void) throws {
         let suite = "LyricsXGuideTests-" + UUID().uuidString
@@ -55,7 +70,7 @@ private final class GuideVisibilityTestWindow: NSWindow {
             defaults.set(["2.0.34"], forKey: "guidePresentedVersions")
             let corrected = GuideHistory(defaults: defaults, version: "2.0.34", revision: "complete-2")
             #expect(corrected.pending == .update(previous: "2.0.34"))
-            #expect(GuideContent.updates(after: "2.0.34").count == 7)
+            #expect(GuideContent.updates(after: "2.0.34").count == 11)
             corrected.didPresent()
             #expect(GuideHistory(defaults: defaults, version: "2.0.34", revision: "complete-2").pending == nil)
             let nextRevision = GuideHistory(defaults: defaults, version: "2.0.34", revision: "future-content")
@@ -66,36 +81,49 @@ private final class GuideVisibilityTestWindow: NSWindow {
         }
     }
     @Test func versionJumpContainsOnlyInterveningReleaseNotes() {
-        let latest = ["glassHDR37", "glassColor36"]
+        let newest = ["waveform38", "overlay38", "mainMotion38", "performanceFlexbar38"]
+        let latest = newest + ["glassHDR37", "glassColor36"]
         let current = ["glass35", "appearance35", "motion35", "highlight35", "upgrade35"]
-        #expect(GuideContent.latestBaseline == "2.0.36")
+        #expect(GuideContent.latestBaseline == "2.0.37")
+        #expect(GuideContent.updates(after: "2.0.37").map(\.id) == newest)
         #expect(GuideContent.updates(after: "2.0.35").map(\.id) == latest)
         #expect(GuideContent.updates(after: "2.0.34").map(\.id) == latest + current)
-        #expect(GuideContent.updates(after: "2.0.28").count == 17)
-        #expect(GuideContent.updates(after: nil).count == 17)
-        #expect(GuideContent.tutorial.count == 14)
+        #expect(GuideContent.updates(after: "2.0.28").count == 21)
+        #expect(GuideContent.updates(after: nil).count == 21)
+        #expect(GuideContent.tutorial.count == 16)
         #expect(Set(GuideContent.tutorial.map(\.id)).count == GuideContent.tutorial.count)
+        #expect(GuideContent.tutorial.contains { $0.id == "waveform" && $0.illustration == "releaseWaveform38" })
+        #expect(GuideContent.tutorial.contains { $0.id == "flexbar" && $0.illustration == "releaseFlexbar38" })
+        #expect(GuideContent.updates(after: "2.0.37").map(\.illustration) == [
+            "releaseWaveform38", "releaseOverlay38", "livePlayer", "releaseFlexbar38"])
+        let waveform = GuideContent.updates(after: "2.0.37")[0]
+        #expect(waveform.points.joined().contains("默认关闭"))
+        #expect(waveform.points.joined().contains("权限"))
     }
-    @Test func build271ShowsOnlyHDRUpdateOnce() throws {
+    @Test func build273ShowsOnlyCurrentUpdateOnce() throws {
         try fixture { defaults in
-            defaults.set("2.0.36", forKey: "guideLastVersion")
-            defaults.set(["2.0.36:glass-color-36-auto"], forKey: "guidePresentedEditions")
-            let history = GuideHistory(defaults: defaults, version: "2.0.37")
-            #expect(history.pending == .update(previous: "2.0.36"))
-            #expect(GuideContent.updates(after: "2.0.36").map(\.id) == ["glassHDR37"])
+            defaults.set("2.0.37", forKey: "guideLastVersion")
+            defaults.set(["2.0.37:glass-hdr-37"], forKey: "guidePresentedEditions")
+            let history = GuideHistory(defaults: defaults, version: "2.0.38")
+            #expect(history.pending == .update(previous: "2.0.37"))
+            #expect(GuideContent.updates(after: "2.0.37").map(\.id)
+                == ["waveform38", "overlay38", "mainMotion38", "performanceFlexbar38"])
             history.didPresent()
-            #expect(GuideHistory(defaults: defaults, version: "2.0.37").pending == nil)
+            #expect(GuideHistory(defaults: defaults, version: "2.0.38").pending == nil)
+            #expect(defaults.stringArray(forKey: "guidePresentedEditions")?
+                .contains("2.0.38:\(GuideContent.revision)") == true)
         }
     }
-    @Test func build269ShowsInterveningGlassUpdatesOnce() throws {
+    @Test func build269ShowsInterveningUpdatesOnce() throws {
         try fixture { defaults in
             defaults.set("2.0.35", forKey: "guideLastVersion")
             defaults.set(["2.0.35:glass-35"], forKey: "guidePresentedEditions")
-            let history = GuideHistory(defaults: defaults, version: "2.0.37", revision: GuideContent.revision)
+            let history = GuideHistory(defaults: defaults, version: "2.0.38", revision: GuideContent.revision)
             #expect(history.pending == .update(previous: "2.0.35"))
-            #expect(GuideContent.updates(after: "2.0.35").map(\.id) == ["glassHDR37", "glassColor36"])
+            #expect(GuideContent.updates(after: "2.0.35").map(\.id) == [
+                "waveform38", "overlay38", "mainMotion38", "performanceFlexbar38", "glassHDR37", "glassColor36"])
             history.didPresent()
-            #expect(GuideHistory(defaults: defaults, version: "2.0.37", revision: GuideContent.revision).pending == nil)
+            #expect(GuideHistory(defaults: defaults, version: "2.0.38", revision: GuideContent.revision).pending == nil)
         }
     }
     @Test func correctedGlassPolicyIntroductionAppearsOnceForBuild270() throws {
@@ -202,6 +230,7 @@ private final class GuideVisibilityTestWindow: NSWindow {
         var demo: GuideDemoSession? = GuideDemoSession(reduced: true)
         let model = try #require(demo?.model)
         releasedModel = model
+        #expect(!model.preferences.overlayWaveformEnabled)
         let suite = try #require(demo?.suite)
         #expect(model.session.document?.hasWordTiming == true)
         #expect(model.session.document?.lines.count == 2)
@@ -214,6 +243,17 @@ private final class GuideVisibilityTestWindow: NSWindow {
         // The local model reference is intentionally still alive here; stop
         // must already have removed windows, timers and temporary settings.
         #expect(releasedModel?.overlay == nil)
+    }
+
+    @Test func releaseVisualUsesBundledRendererImageAndProductionWaveformFade() throws {
+        let image = try #require(GuideFlexbarAsset.image)
+        #expect(image.size == CGSize(width: 720, height: 60))
+        #expect(GuideWaveformCurve.sampleBands.count == WaveformSpectrumAnalyzer.bandCount)
+        let stops = OverlayWaveformEdgeFade.locations(width: 470).map { CGFloat(truncating: $0) }
+        #expect(stops.count == OverlayWaveformEdgeFade.alphas.count)
+        #expect(OverlayWaveformEdgeFade.alphas.first == 0)
+        #expect(OverlayWaveformEdgeFade.alphas.last == 0)
+        #expect(stops.first == 0 && stops.last == 1)
     }
 
     @Test func liveDemoOutlastsPlayerStaleTimeoutAndLoopsWithoutReplacingLyrics() {
@@ -230,6 +270,44 @@ private final class GuideVisibilityTestWindow: NSWindow {
             #expect(demo.model.session.documentRevision == documentRevision)
             #expect(!demo.model.session.isSearching)
         }
+    }
+
+    @Test func liveDemoReactsToAppMotionChangesWithoutReplacingItsSession() async throws {
+        _ = NSApplication.shared; NSApp.finishLaunching()
+        let demo = GuideDemoSession(reduced: false)
+        let flags = GuideMotionFlags()
+        let window = GuideVisibilityTestWindow(contentRect: .init(x: 100, y: 100, width: 600, height: 450),
+                                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: GuideMotionTestHost(demo: demo, flags: flags))
+        window.orderFrontRegardless()
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        defer { window.close(); demo.stop() }
+        let documentID = demo.model.session.document?.id
+        func awaitState(_ condition: () -> Bool) async throws {
+            for _ in 0..<100 where !condition() {
+                NSApp.updateWindows()
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(condition())
+        }
+        try await awaitState { demo.model.session.position >= 0.15 }
+        flags.appReduced = true
+        try await awaitState { demo.model.preferences.reduceMotion && !demo.model.session.isPlaying }
+        #expect(demo.model.session.position == 0)
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(demo.model.session.position == 0)
+        flags.appReduced = false
+        try await awaitState { !demo.model.preferences.reduceMotion && demo.model.session.position >= 0.1 }
+        #expect(demo.model.session.document?.id == documentID)
+    }
+
+    @Test func guideTaskKeyChangesForEitherMotionSetting() {
+        let normal = GuideDemoTaskState(active: true, appReduced: false, systemReduced: false)
+        #expect(normal != GuideDemoTaskState(active: true, appReduced: true, systemReduced: false))
+        #expect(normal != GuideDemoTaskState(active: true, appReduced: false, systemReduced: true))
+        #expect(GuideDemoTaskState(active: true, appReduced: true, systemReduced: false)
+                == GuideDemoTaskState(active: true, appReduced: false, systemReduced: true))
     }
 
     @Test func guideDemoActuallyAdvancesInsideAnOrdinaryScrollViewAndStopsWhenHidden() async throws {

@@ -114,15 +114,38 @@ final class OverlayViewport {
             translation: p.showTranslation && line.hasTranslation ? line.translation.map(p.text) : nil,
             next: document.lines.indices.contains(index + 1) ? p.text(document.lines[index + 1].text) : nil)
     }
-    static func height(document: LyricsDocument, index: Int, preferences p: Preferences, maximumWidth: Double) -> Double {
+    static func visibleHeight(document: LyricsDocument, index: Int, preferences p: Preferences, maximumWidth: Double) -> Double {
         let primary = primaryHeight(document: document, index: index, preferences: p, canvasWidth: maximumWidth - 60)
         let next = primaryHeight(document: document, index: index + 1, preferences: p, canvasWidth: maximumWidth - 60) * p.nextLineFontSize / p.fontSize
         let auxiliary = secondary(document: document, index: index, preferences: p)
-        return OverlayLayoutMetrics.chromeHeight + primary + auxiliary.height(
+        return primary + auxiliary.height(
             translationHeight: translationHeight(auxiliary.translation, font: p.translationFontSize, canvasWidth: maximumWidth - 60, typography: p.typography), nextHeight: next,
             primarySpacing: p.overlayPrimarySpacing, secondarySpacing: p.overlaySecondarySpacing)
     }
+    static func height(document: LyricsDocument, index: Int, preferences p: Preferences, maximumWidth: Double) -> Double {
+        let chrome = p.overlayWaveformEnabled ? OverlayLayoutMetrics.chromeHeight
+            : OverlayLyricsWindowLayout.centeredChromeHeight
+        return chrome + visibleHeight(document: document, index: index,
+            preferences: p, maximumWidth: maximumWidth)
+    }
 
+}
+
+@MainActor enum OverlayLyricsWindowLayout {
+    // With the header layered at the glass top, a centered visible lyric block
+    // needs 48pt for the header plus 4pt clearance on each side of the center.
+    static let centeredChromeHeight = 104.0
+    static func baseHeight(document: LyricsDocument?, index: Int?, preferences p: Preferences,
+                           maximumWidth: Double) -> Double {
+        guard let document, let index else { return OverlayLayoutMetrics.height(preferences: p) }
+        let normal = p.overlayAdaptiveSize
+            ? OverlayTextMeasure.height(document: document, index: index, preferences: p, maximumWidth: maximumWidth)
+            : OverlayLayoutMetrics.height(preferences: p)
+        guard !p.overlayWaveformEnabled else { return normal }
+        let visible = OverlayTextMeasure.visibleHeight(document: document, index: index,
+            preferences: p, maximumWidth: maximumWidth)
+        return max(normal, visible + centeredChromeHeight)
+    }
 }
 
 struct OverlayAnchor {

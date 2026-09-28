@@ -3,6 +3,9 @@ import Foundation
 import Testing
 import SwiftUI
 import Darwin
+import ScreenCaptureKit
+import CoreImage
+import CoreVideo
 import LyricsXCore
 @testable import LyricsXApp
 
@@ -16,6 +19,360 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
     lines: [.init(id: 0, time: 0, text: "Visible lyric")])
 
 @Suite @MainActor struct PresentationRegressionTests {
+    @Test func reducingMotionDuringResizeSettlesAnchorGlassAndControls() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.overlayVisible = true; prefs.hideWhenPaused = false
+        prefs.hideOverlayOnHover = false; prefs.overlayWidth = 620; prefs.reduceMotion = false
+        let model = AppModel(repository: EmptyRepository(), preferences: prefs)
+        model.session.accept(.init(track: overlayTrack, position: 1, isPlaying: true), shouldSearch: false)
+        model.session.use(overlayLyrics, persist: false)
+        var pointer = NSPoint(x: -10_000, y: -10_000)
+        let overlay = OverlayController(model: model, frameAutosaveName: nil, pointerLocation: { pointer })
+        defer { overlay.stop(); model.stop() }
+        let background = try #require(overlay.panel.contentView?.subviews.first as? OverlayGlassBackground)
+        let glass = try #require(background.subviews.first as? NSGlassEffectView)
+        let top = overlay.panel.frame.maxY
+        let generation = overlay.resizeGeneration
+        prefs.overlayWidth = 760
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while overlay.resizeGeneration == generation, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(overlay.resizeGeneration > generation)
+        pointer = NSPoint(x: overlay.panel.frame.midX, y: overlay.panel.frame.midY)
+        overlay.refreshAppearance(at: pointer)
+        prefs.reduceMotion = true
+        let settled = ContinuousClock.now.advanced(by: .seconds(1))
+        while abs(overlay.panel.frame.width - 760) > 1, ContinuousClock.now < settled {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(abs(overlay.panel.frame.width - 760) <= 1)
+        #expect(abs(overlay.panel.frame.maxY - top) <= 1)
+        #expect(background.subviews.first === glass && glass.alphaValue == 1)
+        #expect(!overlay.controlsView.isHidden && overlay.controlsView.alphaValue == 1)
+        pointer = NSPoint(x: -10_000, y: -10_000)
+        overlay.refreshAppearance(at: pointer)
+        #expect(overlay.controlsView.isHidden && overlay.controlsView.alphaValue == 0)
+    }
+
+    @Test func hoverFadesWholePanelAndCancelsRapidReentry() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.hideWhenPaused = false
+        prefs.hideOverlayOnHover = true
+        prefs.overlayLocked = true
+        prefs.reduceMotion = false
+        let model = AppModel(repository: EmptyRepository(), preferences: prefs)
+        model.session.accept(.init(track: overlayTrack, position: 1, isPlaying: true), shouldSearch: false)
+        model.session.use(overlayLyrics, persist: false)
+        let outside = NSPoint(x: -10_000, y: -10_000)
+        var pointer = outside
+        let overlay = OverlayController(model: model, frameAutosaveName: nil, pointerLocation: { pointer })
+        defer { overlay.stop(); model.stop() }
+        let background = try #require(overlay.panel.contentView?.subviews.first as? OverlayGlassBackground)
+        let glass = try #require(background.subviews.first as? NSGlassEffectView)
+        let center = NSPoint(x: overlay.panel.frame.midX, y: overlay.panel.frame.midY)
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        overlay.refreshAppearance(at: outside)
+        try await Task.sleep(for: .milliseconds(230))
+        pointer = center
+        overlay.refreshAppearance(at: center)
+        #expect(background.alphaValue == 1 && glass.alphaValue == 1)
+        #expect(overlay.lyricHostingView.alphaValue == 1)
+        #expect(!overlay.isRenderingLyrics)
+        if !reduced {
+            #expect(overlay.panel.isVisible && !background.isHidden)
+            try await Task.sleep(for: .milliseconds(40))
+            #expect(overlay.panel.alphaValue > 0 && overlay.panel.alphaValue < 1)
+            #expect(overlay.panel.isVisible && !background.isHidden)
+        }
+        pointer = outside
+        overlay.refreshAppearance(at: outside)
+        #expect(!background.isHidden && background.alphaValue == 1 && glass.alphaValue == 1)
+        try await Task.sleep(for: .milliseconds(230))
+        #expect(overlay.panel.isVisible && overlay.panel.alphaValue == 1,
+                "A cancelled hide must restore the entire panel")
+        pointer = center
+        overlay.refreshAppearance(at: center)
+        if !reduced {
+            #expect(overlay.panel.isVisible)
+            try await Task.sleep(for: .milliseconds(230))
+        }
+        #expect(overlay.panel.alphaValue == 0 && background.alphaValue == 1 && glass.alphaValue == 1)
+        #expect(!background.isHidden && overlay.lyricHostingView.alphaValue == 1)
+        pointer = outside
+        overlay.refreshAppearance(at: outside)
+        #expect(!background.isHidden && background.alphaValue == 1 && glass.alphaValue == 1)
+        if !reduced {
+            pointer = center
+            overlay.refreshAppearance(at: center)
+            #expect(overlay.panel.isVisible)
+            overlay.stop()
+            try await Task.sleep(for: .milliseconds(230))
+            #expect(!overlay.panel.isVisible, "Stopping must cancel the pending fade")
+        }
+    }
+
+    @Test func wholePanelFadeHasIntermediateAlphaAndManualPauseDismissalSettles() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.hideWhenPaused = false; prefs.hideOverlayOnHover = true
+        prefs.overlayLocked = true; prefs.reduceMotion = false
+        let model = AppModel(repository: EmptyRepository(), preferences: prefs)
+        model.session.accept(.init(track: overlayTrack, position: 1, isPlaying: true), shouldSearch: false)
+        model.session.use(overlayLyrics, persist: false)
+        let outside = NSPoint(x: -10_000, y: -10_000)
+        var pointer = outside
+        let overlay = OverlayController(model: model, frameAutosaveName: nil, pointerLocation: { pointer })
+        defer { overlay.stop(); model.stop() }
+        try await Task.sleep(for: .milliseconds(230))
+        let waveform = try #require(overlay.panel.contentView?.subviews.compactMap { $0 as? OverlayWaveformView }.first)
+        waveform.injectTestBands(Array(repeating: 0.4, count: 24), style: .monochrome,
+            lightGlass: false, theme: .neutral)
+        let center = NSPoint(x: overlay.panel.frame.midX, y: overlay.panel.frame.midY)
+        pointer = center
+        overlay.refreshAppearance(at: center)
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if !reduced {
+            var alpha = [Double(overlay.panel.alphaValue)]
+            for delay in [40, 40, 40, 60] {
+                try await Task.sleep(for: .milliseconds(delay))
+                alpha.append(Double(overlay.panel.alphaValue))
+            }
+            #expect(alpha.first == 1 && alpha.last == 0)
+            #expect(alpha.dropFirst().dropLast().contains { $0 > 0 && $0 < 1 })
+            #expect(zip(alpha, alpha.dropFirst()).allSatisfy { $0.0 >= $0.1 - 0.02 })
+        }
+        #expect(overlay.panel.isVisible && overlay.panel.alphaValue == 0)
+        #expect(waveform.isHidden, "Capture stops at fade start; the last path clears after fade completion")
+        #expect(overlay.lyricHostingView.alphaValue == 1)
+        pointer = outside
+        overlay.refreshAppearance(at: outside)
+        try await Task.sleep(for: .milliseconds(230))
+        #expect(overlay.panel.alphaValue == 1)
+        waveform.injectTestBands(Array(repeating: 0.4, count: 24), style: .monochrome,
+            lightGlass: false, theme: .neutral)
+        prefs.overlayVisible = false
+        try await Task.sleep(for: .milliseconds(40))
+        if !reduced {
+            #expect(overlay.panel.isVisible && overlay.panel.alphaValue < 1)
+            #expect(!waveform.isHidden, "The stopped waveform path remains in the fading window")
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!overlay.panel.isVisible && waveform.isHidden)
+        prefs.overlayVisible = true
+        try await Task.sleep(for: .milliseconds(230))
+        #expect(overlay.panel.isVisible && overlay.panel.alphaValue == 1)
+        prefs.hideWhenPaused = true
+        model.session.freeze()
+        try await Task.sleep(for: .milliseconds(230))
+        #expect(!overlay.panel.isVisible && overlay.panel.alphaValue == 0)
+    }
+
+    @Test func detachedControlsFollowManualFadeAndReduceMotionSettlesReversal() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.hideWhenPaused = false; prefs.hideOverlayOnHover = false
+        prefs.overlayClickThrough = true; prefs.reduceMotion = false
+        let model = AppModel(repository: EmptyRepository(), preferences: prefs)
+        model.session.accept(.init(track: overlayTrack, position: 1, isPlaying: true), shouldSearch: false)
+        model.session.use(overlayLyrics, persist: false)
+        var pointer = NSPoint(x: -10_000, y: -10_000)
+        let overlay = OverlayController(model: model, frameAutosaveName: nil, pointerLocation: { pointer })
+        defer { overlay.stop(); model.stop() }
+        try await Task.sleep(for: .milliseconds(230))
+        pointer = NSPoint(x: overlay.panel.frame.midX, y: overlay.panel.frame.midY)
+        overlay.refreshAppearance(at: pointer)
+        try await Task.sleep(for: .milliseconds(220))
+        #expect(overlay.controlPanel.isVisible && overlay.controlPanel.alphaValue == 1)
+        prefs.overlayVisible = false
+        try await Task.sleep(for: .milliseconds(40))
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            #expect(overlay.panel.isVisible && overlay.controlPanel.isVisible)
+            #expect(overlay.panel.alphaValue > 0 && overlay.panel.alphaValue < 1)
+            #expect(overlay.controlPanel.alphaValue > 0 && overlay.controlPanel.alphaValue < 1)
+            #expect(abs(overlay.panel.alphaValue - overlay.controlPanel.alphaValue) < 0.15)
+        }
+        prefs.overlayVisible = true
+        try await Task.sleep(for: .milliseconds(230))
+        #expect(overlay.panel.isVisible && overlay.panel.alphaValue == 1)
+        #expect(overlay.controlPanel.isVisible && overlay.controlPanel.alphaValue == 1)
+        prefs.overlayVisible = false
+        try await Task.sleep(for: .milliseconds(40))
+        prefs.reduceMotion = true
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while overlay.panel.isVisible, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(!overlay.panel.isVisible && !overlay.controlPanel.isVisible)
+        #expect(overlay.lyricHostingView.alphaValue == 1)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LYRICSX_DETACHED_CAPTURE_QA"] == "1"))
+    func detachedControlsRemainInWindowServerPixelsWhenParentIsTransparent() async throws {
+        _ = NSApplication.shared
+        NSApp.finishLaunching()
+        try #require(CGPreflightScreenCaptureAccess())
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.hideWhenPaused = false; prefs.hideOverlayOnHover = true
+        prefs.overlayLocked = true; prefs.overlayClickThrough = true; prefs.reduceMotion = true
+        let model = AppModel(repository: EmptyRepository(), preferences: prefs)
+        model.session.accept(.init(track: overlayTrack, position: 1, isPlaying: true), shouldSearch: false)
+        model.session.use(overlayLyrics, persist: false)
+        var pointer = NSPoint(x: -10_000, y: -10_000)
+        let overlay = OverlayController(model: model, frameAutosaveName: nil, pointerLocation: { pointer })
+        let backdrop = NSPanel(contentRect: overlay.panel.frame.insetBy(dx: -20, dy: -20),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        backdrop.isReleasedWhenClosed = false
+        backdrop.isOpaque = true; backdrop.backgroundColor = NSColor(white: 0.45, alpha: 1)
+        backdrop.level = NSWindow.Level(rawValue: overlay.panel.level.rawValue - 1)
+        defer { overlay.stop(); model.stop(); backdrop.close() }
+        backdrop.orderFrontRegardless()
+        overlay.panel.orderFrontRegardless()
+        pointer = NSPoint(x: overlay.panel.frame.midX, y: overlay.panel.frame.midY)
+        overlay.refreshAppearance(at: pointer)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(overlay.panel.alphaValue == 0)
+        #expect(overlay.controlPanel.isVisible && overlay.controlPanel.alphaValue == 1)
+        let screen = try #require(overlay.controlPanel.screen)
+        let displayID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+        let shareable = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+        let display = try #require(shareable.displays.first { $0.displayID == displayID })
+        let region = overlay.controlPanel.frame.insetBy(dx: -4, dy: -4)
+        let scale = screen.backingScaleFactor
+        let config = SCStreamConfiguration()
+        config.pixelFormat = kCVPixelFormatType_32BGRA
+        config.showsCursor = false
+        config.sourceRect = CGRect(x: region.minX - screen.frame.minX,
+            y: screen.frame.maxY - region.maxY, width: region.width, height: region.height)
+        config.width = Int(region.width * scale)
+        config.height = Int(region.height * scale)
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let context = CIContext()
+        let qaDirectory = URL(fileURLWithPath: "/tmp/lyricsx-detached-window-qa", isDirectory: true)
+        try FileManager.default.createDirectory(at: qaDirectory, withIntermediateDirectories: true)
+        func capture(_ label: String) async throws -> [UInt8] {
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+            let png = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+            try png.write(to: qaDirectory.appendingPathComponent("\(label).png"))
+            let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            pixels.withUnsafeMutableBytes { bytes in
+                context.render(CIImage(cgImage: image), toBitmap: bytes.baseAddress!,
+                    rowBytes: image.width * 4,
+                    bounds: CGRect(x: 0, y: 0, width: image.width, height: image.height),
+                    format: .RGBA8, colorSpace: colorSpace)
+            }
+            return pixels
+        }
+        let withControls = try await capture("parent-transparent-controls-visible")
+        overlay.controlPanel.orderOut(nil)
+        try await Task.sleep(for: .milliseconds(80))
+        let withoutControls = try await capture("parent-transparent-controls-hidden")
+        #expect(withControls.count == withoutControls.count)
+        let changedPixels = stride(from: 0, to: withControls.count, by: 4).reduce(0) { count, index in
+            let delta = abs(Int(withControls[index]) - Int(withoutControls[index]))
+                + abs(Int(withControls[index + 1]) - Int(withoutControls[index + 1]))
+                + abs(Int(withControls[index + 2]) - Int(withoutControls[index + 2]))
+            return count + (delta > 45 ? 1 : 0)
+        }
+        let fraction = Double(changedPixels) / Double(max(1, withControls.count / 4))
+        print("Detached control WindowServer changed pixel fraction: \(fraction)")
+        #expect(fraction > 0.01, "WindowServer must draw the detached control surface despite transparent parent; changed pixel fraction \(fraction)")
+    }
+
+    @Test func controlsFadeReversalKeepsLatestInlineAndDetachedState() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.hideWhenPaused = false
+        prefs.hideOverlayOnHover = false
+        prefs.reduceMotion = false
+        let model = AppModel(repository: EmptyRepository(), preferences: prefs)
+        model.session.accept(.init(track: overlayTrack, position: 1, isPlaying: true), shouldSearch: false)
+        model.session.use(overlayLyrics, persist: false)
+        let outside = NSPoint(x: -10_000, y: -10_000)
+        var pointer = outside
+        let overlay = OverlayController(model: model, frameAutosaveName: nil, pointerLocation: { pointer })
+        defer { overlay.stop(); model.stop() }
+        for detached in [false, true] {
+            model.setOverlayClickThrough(detached)
+            try await Task.sleep(for: .milliseconds(25))
+            let center = NSPoint(x: overlay.panel.frame.midX, y: overlay.panel.frame.midY)
+            pointer = center
+            overlay.refreshAppearance(at: center)
+            pointer = outside
+            overlay.refreshAppearance(at: outside)
+            pointer = center
+            overlay.refreshAppearance(at: center)
+            try await Task.sleep(for: .milliseconds(220))
+            #expect(!overlay.controlsView.isHidden && overlay.controlsView.alphaValue == 1)
+            #expect(overlay.controlsView.window === (detached ? overlay.controlPanel : overlay.panel))
+            #expect(overlay.controlPanel.isVisible == detached)
+        }
+        pointer = outside
+        overlay.refreshAppearance(at: outside)
+        overlay.stop()
+        try await Task.sleep(for: .milliseconds(220))
+        #expect(!overlay.controlPanel.isVisible && !overlay.panel.isVisible)
+    }
+
+    @Test func movingControlsHostDuringFadeOutLeavesNoHittableInvisibleView() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.hideWhenPaused = false; prefs.hideOverlayOnHover = false
+        prefs.overlayClickThrough = true; prefs.overlayLocked = true; prefs.reduceMotion = false
+        let model = AppModel(repository: EmptyRepository(), preferences: prefs)
+        model.session.accept(.init(track: overlayTrack, position: 1, isPlaying: true), shouldSearch: false)
+        model.session.use(overlayLyrics, persist: false)
+        let outside = NSPoint(x: -10_000, y: -10_000)
+        var pointer = outside
+        let overlay = OverlayController(model: model, frameAutosaveName: nil, pointerLocation: { pointer })
+        defer { overlay.stop(); model.stop() }
+        let center = NSPoint(x: overlay.panel.frame.midX, y: overlay.panel.frame.midY)
+        pointer = center
+        overlay.refreshAppearance(at: center)
+        #expect(overlay.controlsView.window === overlay.controlPanel)
+        pointer = outside
+        overlay.refreshAppearance(at: outside)
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            #expect(!overlay.controlsView.isHidden, "Fade-out should still be in progress before the host move")
+        }
+        model.setOverlayClickThrough(false)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while overlay.controlsView.window !== overlay.panel, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(overlay.controlsView.window === overlay.panel)
+        #expect(overlay.controlsView.isHidden && overlay.controlsView.alphaValue == 0)
+        #expect(!overlay.controlPanel.isVisible)
+        pointer = center
+        overlay.refreshAppearance(at: center)
+        try await Task.sleep(for: .milliseconds(220))
+        #expect(!overlay.controlsView.isHidden && overlay.controlsView.alphaValue == 1)
+    }
+
     @Test func nativeOverlayKeepsControlsClickableDuringPassThroughAndHoverHide() async throws {
         _ = NSApplication.shared
         let suite = "LyricsXTests-" + UUID().uuidString
@@ -38,6 +395,10 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         overlay.refreshAppearance(at: center)
         #expect(overlay.panel.ignoresMouseEvents)
         #expect(!overlay.controlPanel.ignoresMouseEvents && overlay.controlPanel.isVisible)
+        #expect(overlay.panel.alphaValue == 0 && overlay.controlPanel.alphaValue == 1)
+        let controlPoint = NSPoint(x: 20, y: 17)
+        #expect(overlay.controlPanel.contentView?.hitTest(controlPoint) != nil,
+                "Detached controls must remain an interactive surface while lyrics are hidden")
         #expect(!overlay.isRenderingLyrics)
         #expect(!overlay.panel.shouldDrag(at: dragPoint))
         overlay.refreshAppearance(at: outside)
@@ -162,7 +523,8 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
             #expect(overlay.panel.frame.maxX <= screen.visibleFrame.maxX)
             model.session.use(.init(plainText: "纯音乐，请欣赏"), persist: false)
             try await Task.sleep(for: .milliseconds(25))
-            #expect(model.overlayUsesCompactPresentation && overlay.panel.frame.size == NSSize(width: 600, height: OverlaySongCardLayout(width: 600).height))
+            #expect(model.overlayUsesCompactPresentation && overlay.panel.frame.size == NSSize(width: 600,
+                height: OverlaySongCardLayout(width: 600, title: overlayTrack.title, artist: overlayTrack.artist).height))
             #expect(overlay.panel.frame.origin == target)
             #expect(UserDefaults.standard.string(forKey: "LyricsX.OverlayPosition.\(name)") == NSStringFromPoint(target))
             #expect(UserDefaults.standard.string(forKey: "LyricsX.OverlayTop.\(name)") == NSStringFromPoint(top))

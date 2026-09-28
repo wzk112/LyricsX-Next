@@ -33,15 +33,17 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.0.37</string>
+	<string>2.0.38</string>
 	<key>CFBundleVersion</key>
-    <string>272</string>
+	<string>273</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>LyricsX Next 读取当前歌曲和播放进度，以显示同步歌词，并响应你的播放控制。</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>仅在你开启悬浮窗实时波形时，捕获当前播放器的音频以绘制波形。</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>

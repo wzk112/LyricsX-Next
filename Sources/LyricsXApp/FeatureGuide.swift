@@ -47,15 +47,15 @@ struct GuidePage: Identifiable {
 
 enum GuideContent {
     // Changed only when the introduction itself is revised, never for a routine rebuild.
-    static let revision = "glass-hdr-37"
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.37"
+    static let revision = "waveform-visuals-38"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.38"
     static let tutorial: [GuidePage] = [
         .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
             "打开 Apple Music、Spotify、网易云或 QQ 音乐播放歌曲，即可自动同步歌词。自动识别不包含浏览器。",
             "没有识别到播放器？前往“设置 → 播放器”选择来源或重新连接。系统询问控制播放器的权限时，请允许。",
             "应用会自动搜索并保存歌词。等待歌词时显示三个点，纯音乐或没有歌词时显示歌曲信息。"], illustration: "player"),
         .init(id: "main", title: "主窗口与菜单栏", subtitle: "播放、切歌和查看歌词", symbol: "text.quote", points: [
-            "点击歌词可跳到那一句；底部可以播放、暂停、切歌和拖动进度。",
+            "点击歌词可跳到那一句；底部可以播放、暂停、切歌和拖动进度。播放时歌词会跟随当前句，手动滚动后可返回正在唱的地方。",
             "关闭主窗口也能继续看悬浮歌词。菜单栏歌词、Dock 图标和登录启动，可在“设置 → 通用”调整。",
             "⌥⌘O 打开主窗口，⌥⌘L 显示或隐藏悬浮窗。隐藏菜单栏和 Dock 图标后，仍可用快捷键打开。"], illustration: "player"),
         .init(id: "search", title: "选择合适的歌词", subtitle: "点击放大镜，或按 ⌘F", symbol: "magnifyingglass", points: [
@@ -63,9 +63,13 @@ enum GuideContent {
             "“完整搜索”会查找更多版本，但可能需要更久；平时保持关闭即可。",
             "下方可调整来源顺序、逐字或双语优先。改好后，对当前歌曲点“重新搜索”，即可重新选择。"], illustration: "search"),
         .init(id: "overlay", title: "把歌词放在桌面上", subtitle: "设置 → 悬浮窗", symbol: "rectangle.on.rectangle", points: [
-            "悬浮窗显示在其他窗口上方，可随长句自动换行、调整高度。关闭自动高度后可手动调整宽度。",
+            "悬浮窗显示在其他窗口上方，可随长句自动换行并平滑调整高度。关闭波形时歌词内容会在玻璃窗中居中；关闭自动高度后可手动调整宽度。",
             "解锁后拖动窗口，锁定后避免误拖。“点击穿透”让你直接操作后面的应用，并自动锁定位置。",
             "锁定时可开启“鼠标经过时隐藏”，离开后恢复。也可以选择暂停播放时隐藏。"], illustration: "overlay"),
+        .init(id: "waveform", title: "可选的悬浮窗音频波形", subtitle: "设置 → 悬浮窗", symbol: "waveform", points: [
+            "实时波形默认关闭。开启后可选择白色或封面彩色，波形沿悬浮窗底部显示。",
+            "首次开启可能需要 macOS 系统音频录制权限。仅尝试读取当前识别播放器的音频；暂停、隐藏和减少动态效果时停止。",
+            "这里显示固定的示意帧，打开指南不会读取音频。权限或音频不可用时，可在设置中查看状态并重试。"], illustration: "releaseWaveform38"),
         .init(id: "style", title: "选择喜欢的背景", subtitle: "两种材质，实时预览", symbol: "square.on.square", points: [
             "Liquid Glass 使用高透玻璃、原生亮边与边缘折射，保持统一外观；磨砂阅读可单独选择深色、浅色或跟随系统。",
             "Liquid Glass 的透明度调节用于减淡底色，保留完整折射；磨砂阅读还可调节磨砂强度。",
@@ -93,7 +97,7 @@ enum GuideContent {
         .init(id: "effects", title: "让歌词随演唱亮起来", subtitle: "设置 → 动效", symbol: "sparkles", points: [
             "带逐字时间的歌词会依次提亮、轻微放大，慢唱和长音还会柔和发光。普通逐行歌词没有这些效果。",
             "EDR 辉光增强可让高光更亮，实际效果取决于屏幕。它不会改变系统亮度；不支持时使用普通辉光。",
-            "喜欢安静的画面，可开启“减少动态效果”。想降低开销，可在开发者选项中选择 60 帧或智能节能。"], illustration: "effects"),
+            "喜欢安静的画面，可开启应用的“减少动态效果”；系统的同名设置也会生效，位移与辉光会停稳。在开发者选项中可选跟随屏幕（120 Hz 屏幕可请求 120 帧）、固定 60 帧或智能节能；实际帧率由系统决定。"], illustration: "effects"),
         .init(id: "timing", title: "让歌词与音乐对齐", subtitle: "每首歌都会记住调整", symbol: "slider.horizontal.3", points: [
             "歌词慢了，用正偏移提前；歌词快了，用负偏移延后。底部每次调整 0.1 秒，点击数值即可重置。",
             "也可用 ⌥⌘↑／↓ 每次调整 0.2 秒。调整会保存，下次播放无需重设。",
@@ -102,14 +106,34 @@ enum GuideContent {
             "下载过的歌词会保存在本地，下次播放优先使用。资料库可以查看已有歌词。",
             "把 LRC 或 LRCX 文件拖入主窗口，即可替换当前歌词。LRCX 可保留翻译和逐字效果；导出纯文本则不保留时间。",
             "更换保存位置、导出和写入 Apple Music 等操作在开发者选项中。更换位置不会自动搬移文件；写入 Apple Music 可能覆盖原歌词。"], illustration: "library"),
+        .init(id: "flexbar", title: "可选的 Flexbar 歌词", subtitle: "设置 → 开发者选项 → Flexbar", symbol: "rectangle.on.rectangle", points: [
+            "需要另行安装并配置 FlexDesigner 歌词插件，然后在开发者选项中开启 Flexbar 连接。普通歌词和悬浮窗不需要此功能。",
+            "插件可显示逐字歌词与翻译；这里展示插件渲染器生成的图片，不代表设备上的实际显示帧率或亮度。",
+            "暂停、隐藏或没有歌词时会减少更新。设备与插件的实际表现可能不同。"], illustration: "releaseFlexbar38"),
         .init(id: "privacy", title: "帮助与更新", subtitle: "设置 → 关于，可随时重看", symbol: "info.circle", points: [
             "搜索时会向启用的歌词来源发送歌名、歌手和时长。不需要的来源可在设置中关闭。",
-            "开发者选项包含文件管理、歌词来源令牌和性能设置，日常使用无需调整。来源令牌保存在系统钥匙串中。",
+            "实时波形需在“设置 → 悬浮窗”主动开启，首次使用可能请求系统音频录制权限；打开本指南不会采集音频。开发者选项包含文件管理、来源令牌、帧率与可选 Flexbar 连接。来源令牌保存在系统钥匙串中。",
             "菜单栏可以检查更新。教程和更新介绍只自动显示一次，以后可在“设置 → 关于”重新查看。"], illustration: "privacy")
     ]
     // Add new release entries here; a version jump includes every intervening
     // entry, while a first upgrade from versions without receipts gets a recap.
     static let releases: [(version: String, page: GuidePage)] = [
+        ("2.0.38", .init(id: "waveform38", title: "让音乐在悬浮窗底部流动", subtitle: "新增 · 可选实时波形", symbol: "waveform", points: [
+            "在“设置 → 悬浮窗”可开启实时音频波形，选择白色或封面彩色；默认关闭，不会因升级自动开始采集。",
+            "首次开启时 macOS 可能请求系统音频录制权限。波形仅尝试读取当前识别播放器的音频，暂停、隐藏或减少动态效果时停止。",
+            "权限未获准或没有可用音频时会安静停用；可在设置中查看状态并手动重试。不同播放器和设备的实际效果可能不同。"], illustration: "releaseWaveform38")),
+        ("2.0.38", .init(id: "overlay38", title: "悬浮歌词排版更协调", subtitle: "改进 · 居中与窗口运动", symbol: "rectangle.on.rectangle", points: [
+            "关闭波形时，歌词可见内容与纯音乐歌卡在玻璃窗中居中；开启波形时，歌卡上下留白更均衡。",
+            "窗口高度随内容平滑调整，顶部标题固定在玻璃窗内；鼠标经过隐藏和恢复时，整窗一起淡入淡出。",
+            "系统或应用开启“减少动态效果”后，进行中的位移、淡入淡出会尽快停稳。"], illustration: "releaseOverlay38")),
+        ("2.0.38", .init(id: "mainMotion38", title: "阅读与切换更顺手", subtitle: "改进 · 主窗口与动效", symbol: "text.quote", points: [
+            "主窗口的歌词跟随和搜索预览滚动更贴合播放进度；切歌、跳播及文档切换时减少不必要的滑动。",
+            "收敛旧歌词退场的上移和模糊，主窗口与悬浮窗的动效同时遵循系统和应用的减少动态效果设置。",
+            "歌卡按歌名与歌手的实际行高调整，长标题换行时继续留出必要空间。"], illustration: "livePlayer")),
+        ("2.0.38", .init(id: "performanceFlexbar38", title: "按需更新，支持 Flexbar", subtitle: "改进 · 性能与开发者选项", symbol: "gauge.with.dots.needle.33percent", points: [
+            "菜单栏歌词按下一句时间更新；暂停、隐藏或没有可用音频时减少不必要的持续刷新。",
+            "“开发者选项”可开启 Flexbar 歌词连接，需要另行安装并配置 FlexDesigner 插件；实际显示效果取决于设备与插件。",
+            "已有歌词、偏移、字体和悬浮窗设置继续保留。本次更新介绍只自动显示一次，以后可在“设置 → 关于”重看。"], illustration: "releaseFlexbar38")),
         ("2.0.37", .init(id: "glassHDR37", title: "玻璃歌词，高亮更到位", subtitle: "修复 · HDR 与长音辉光", symbol: "sparkles", points: [
             "修复 Liquid Glass 悬浮窗的 HDR 高亮偏暗、调高亮度后变化不明显的问题。",
             "默认配色、逐字独立配色和跟随封面颜色都能正确使用高亮，实际亮度仍由屏幕和系统决定。",
@@ -172,7 +196,7 @@ enum GuideContent {
             "改善部分 QQ 音乐歌词的读取、搜索与封面显示；修复缓存文件变化及异常设置值引起的显示问题。"], illustration: "conversion"))
     ]
     // Last release actually published on GitHub, not a local test build.
-    static let latestBaseline: String? = "2.0.36"
+    static let latestBaseline: String? = "2.0.37"
     static func updates(after previous: String?) -> [GuidePage] {
         let pages = releases.filter { entry in
             guard let previous else { return true }
@@ -307,8 +331,9 @@ struct FeatureGuideView: View {
         return GuideContent.tutorial
     }
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 16) {
+        GeometryReader { guideSize in
+          HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
                 Label("LyricsX Next", systemImage: "quote.bubble.fill").font(.headline)
                 Text(mode == .tutorial ? "使用指南" : "更新至 \(GuideContent.version)")
                     .font(.title3.weight(.semibold))
@@ -330,21 +355,30 @@ struct FeatureGuideView: View {
                     }
                 }
                 Text("无需登录 · 设置自动保存").font(.caption).foregroundStyle(.secondary)
-            }.padding(20).frame(width: 205).background(.quaternary.opacity(0.25))
+            }.padding(16).frame(width: guideSize.size.width < 900 ? 184 : 205).background(.quaternary.opacity(0.25))
             Divider()
             VStack(alignment: .leading, spacing: 0) {
                 ScrollView {
                     let page = pages[min(index, pages.count - 1)]
-                    VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 14) {
                         Text(page.subtitle).font(.subheadline).foregroundStyle(.secondary)
-                        Text(page.title).font(.system(size: 27, weight: .bold)).fixedSize(horizontal: false, vertical: true)
+                        Text(page.title).font(.system(size: guideSize.size.width < 900 ? 24 : 27, weight: .bold)).fixedSize(horizontal: false, vertical: true)
                         Group {
-                            if page.illustration.hasPrefix("live") || ["style", "overlay"].contains(page.illustration) {
+                            if page.illustration == "releaseWaveform38" {
+                                GuideReleaseVisual(kind: .waveform38)
+                                    .frame(height: min(230, max(185, guideSize.size.height * 0.36)))
+                            } else if page.illustration == "releaseOverlay38" {
+                                GuideReleaseVisual(kind: .overlay38)
+                                    .frame(height: min(230, max(185, guideSize.size.height * 0.36)))
+                            } else if page.illustration == "releaseFlexbar38" {
+                                GuideReleaseVisual(kind: .performanceFlexbar38)
+                                    .frame(height: min(230, max(185, guideSize.size.height * 0.36)))
+                            } else if page.illustration.hasPrefix("live") || ["style", "overlay"].contains(page.illustration) {
                                 GuideLiveDemo(kind: page.illustration, reduced: preferences?.reduceMotion == true, viewportHeight: scrollHeight)
-                                    .frame(height: 330)
+                                    .frame(height: min(300, max(230, guideSize.size.height * 0.43)))
                             } else {
                                 GuideIllustration(kind: page.illustration, appReduced: preferences?.reduceMotion == true)
-                                    .frame(height: 190)
+                                    .frame(height: min(190, max(155, guideSize.size.height * 0.29)))
                             }
                         }.id(page.id).clipShape(.rect(cornerRadius: 20))
                         ForEach(Array(page.points.enumerated()), id: \.offset) { item in
@@ -357,7 +391,7 @@ struct FeatureGuideView: View {
                         if let preferences {
                             GuideQuickSettings(page: page.id, preferences: preferences, model: model)
                         }
-                    }.padding(26)
+                    }.padding(guideSize.size.width < 900 ? 18 : 26)
                 }.id(index)
                     .coordinateSpace(name: "guideContent")
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { scrollHeight = $0 }
@@ -370,8 +404,9 @@ struct FeatureGuideView: View {
                     Button(index == pages.count - 1 ? "开始使用" : "下一步") {
                         if index == pages.count - 1 { close() } else { index += 1 }
                     }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                }.padding(20)
+                }.padding(.horizontal, 16).padding(.vertical, 12)
             }
+          }
         }.frame(minWidth: 800, minHeight: 600).background(.background)
             .preferredColorScheme(preferences?.appTheme.colorScheme)
     }

@@ -50,6 +50,9 @@ final class Preferences {
     var overlayWidth: Double { didSet { save("overlayWidth", overlayWidth) } }
     var overlayAdaptiveSize: Bool { didSet { save("overlayAdaptiveSize", overlayAdaptiveSize) } }
     var overlayFrameRate: OverlayFrameRate { didSet { save("overlayFrameRate", overlayFrameRate.rawValue) } }
+    var overlayWaveformEnabled: Bool { didSet { save("overlayWaveformEnabled", overlayWaveformEnabled) } }
+    var overlayWaveformStyle: OverlayWaveformStyle { didSet { save("overlayWaveformStyle", overlayWaveformStyle.rawValue) } }
+    var overlayWaveformStatus = ""
     var fontSize: Double { didSet { save("fontSize", fontSize) } }
     var lyricFontName: String { didSet { save("lyricFontName", lyricFontName) } }
     var lyricPrimaryColor: String { didSet { save("lyricPrimaryColor", lyricPrimaryColor) } }
@@ -123,6 +126,7 @@ final class Preferences {
     var mainLyricFontSize: Double { didSet { save("mainLyricFontSize", mainLyricFontSize) } }
     var mainTranslationFontSize: Double { didSet { save("mainTranslationFontSize", mainTranslationFontSize) } }
     var showTranslation: Bool { didSet { save("showTranslation", showTranslation) } }
+    var flexbarEnabled: Bool { didSet { save("flexbarEnabled", flexbarEnabled) } }
     var showMenubarLyrics: Bool { didSet { save("showMenubarLyrics", showMenubarLyrics) } }
     var showMenuBarIcon: Bool { didSet { save("showMenuBarIcon", showMenuBarIcon) } }
     var showDockIcon: Bool { didSet { save("showDockIcon", showDockIcon) } }
@@ -191,6 +195,8 @@ final class Preferences {
         overlayWidth = number("overlayWidth", 620, 320...1000)
         overlayAdaptiveSize = d.object(forKey: "overlayAdaptiveSize") as? Bool ?? true
         overlayFrameRate = OverlayFrameRate(rawValue: d.string(forKey: "overlayFrameRate") ?? "display") ?? .display
+        overlayWaveformEnabled = d.bool(forKey: "overlayWaveformEnabled")
+        overlayWaveformStyle = OverlayWaveformStyle(rawValue: d.string(forKey: "overlayWaveformStyle") ?? "monochrome") ?? .monochrome
         fontSize = number("fontSize", 26, 18...42)
         lyricFontName = d.string(forKey: "lyricFontName") ?? ""
         lyricPrimaryColor = LyricTypography.normalizedHex(d.string(forKey: "lyricPrimaryColor") ?? "FFFFFF")
@@ -205,6 +211,7 @@ final class Preferences {
         mainLyricFontSize = number("mainLyricFontSize", 30, 20...42)
         mainTranslationFontSize = number("mainTranslationFontSize", 14, 11...24)
         showTranslation = d.object(forKey: "showTranslation") as? Bool ?? true
+        flexbarEnabled = d.bool(forKey: "flexbarEnabled")
         showMenubarLyrics = d.bool(forKey: "showMenubarLyrics")
         showMenuBarIcon = d.object(forKey: "showMenuBarIcon") as? Bool ?? true
         showDockIcon = d.object(forKey: "showDockIcon") as? Bool ?? true

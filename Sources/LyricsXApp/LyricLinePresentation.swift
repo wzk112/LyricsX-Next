@@ -74,3 +74,13 @@ enum LyricTickCadence {
         return max(8, min(animationCadence, max(0, next - now) * 1_000 + 0.5))
     }
 }
+
+/// Flexbar receives cue changes; its plugin owns local animation frames.
+enum FlexbarCueCadence {
+    static func milliseconds(document: LyricsDocument?, position: Double) -> Double {
+        guard let document, document.isSynced else { return 250 }
+        let next = (document.index(at: position) ?? -1) + 1
+        guard document.lines.indices.contains(next) else { return 250 }
+        return max(8, min(250, (document.lines[next].time - document.lyricTime(for: position)) * 1000 + 0.5))
+    }
+}

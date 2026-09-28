@@ -1,0 +1,9 @@
+{
+  "name": "lyricsxnext-flexbar-build",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node tools/build.mjs", "test": "node --test test/*.test.mjs", "qa": "node tools/qa.mjs", "validate": "node tools/validate.mjs" },
+  "dependencies": { "@eniac/flexdesigner": "1.0.9", "@napi-rs/canvas": "1.0.9" },
+  "devDependencies": { "esbuild": "0.28.2" },
+  "engines": { "node": ">=20" }
+}

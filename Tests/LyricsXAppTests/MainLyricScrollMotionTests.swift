@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import LyricsXCore
 @testable import LyricsXApp
 
@@ -24,6 +25,23 @@ import LyricsXCore
         let returned = state.request(index: 6, lines: lines, animated: true, force: true)
         #expect(returned?.index == 6 && returned?.duration == nil)
         #expect(state.request(index: 6, lines: lines, animated: true) == nil)
+    }
+
+    @Test func searchPreviewFollowsShortCuesCapsLongCuesAndResetsForAnotherDocument() {
+        let lines = [0.0, 0.1, 0.2, 5, 6, 7, 8, 9, 10].enumerated().map {
+            LyricLine(id: $0.offset, time: $0.element, text: "Line \($0.offset)")
+        }
+        let first = LyricsDocument(lines: lines)
+        var state = SearchLyricFollowState()
+        #expect(state.request(document: first, index: 0, reduced: false)?.duration == nil)
+        let short = state.request(document: first, index: 1, reduced: false)
+        #expect(short?.duration != nil && short!.duration! < 0.1)
+        #expect(state.request(document: first, index: 2, reduced: false)?.duration == 0.35)
+        #expect(state.request(document: first, index: 8, reduced: false)?.duration == nil)
+        var second = first; second.id = UUID()
+        let switched = state.request(document: second, index: 8, reduced: false)
+        #expect(switched?.index == 8 && switched?.duration == nil)
+        #expect(state.request(document: second, index: 7, reduced: true)?.duration == nil)
     }
 
     @Test func onlyNearbyRowsChangeVisualStateOnTheNextCue() {

@@ -154,7 +154,8 @@ private func whiteInkBounds(_ bitmap: NSBitmapImageRep, columns: Range<Int>? = n
         model.session.suppressLyrics()
         try await Task.sleep(for: .milliseconds(30))
         #expect(model.overlayPresentationMode == .song)
-        #expect(abs(overlay.panel.frame.height - OverlaySongCardLayout(width: width).height) < 0.5)
+        #expect(abs(overlay.panel.frame.height - OverlaySongCardLayout(width: width,
+            title: model.session.track?.title, artist: model.session.track?.artist).height) < 0.5)
         #expect(abs(overlay.panel.frame.maxY - top) < 0.5 && abs(overlay.panel.frame.width - width) < 0.5 && overlay.lyricHostingView === host)
     }
 
@@ -185,7 +186,8 @@ private func whiteInkBounds(_ bitmap: NSBitmapImageRep, columns: Range<Int>? = n
             }
             for width in [320.0, 400.0, 620.0, 1000.0] {
                 model.preferences.overlayWidth = width
-                let cardWidth = width, height = OverlaySongCardLayout(width: width).height
+                let cardWidth = width, height = OverlaySongCardLayout(width: width,
+                    title: model.session.track?.title, artist: model.session.track?.artist).height
                 let view = OverlayView(model: model, viewport: .init(width: cardWidth))
                     .frame(width: cardWidth, height: height).background(.black).environment(\.colorScheme, .dark)
                 let renderer = ImageRenderer(content: view); renderer.scale = 1
@@ -197,6 +199,52 @@ private func whiteInkBounds(_ bitmap: NSBitmapImageRep, columns: Range<Int>? = n
         }
     }
 
+    @Test func songCardHeightUsesArtworkAndAtMostTwoTitleLinesAtEveryWidth() {
+        let longTitle = String(repeating: "A long title with featured musicians and a second verse ", count: 5)
+        for width in [320.0, 620.0, 1000.0] {
+            let emptyArtist = OverlaySongCardLayout(width: width, title: "Short", artist: "")
+            let short = OverlaySongCardLayout(width: width, title: "Short", artist: "Artist")
+            let long = OverlaySongCardLayout(width: width, title: longTitle, artist: "Artist")
+            #expect(emptyArtist.height == ceil(emptyArtist.artwork + 36))
+            #expect(short.height == ceil(short.artwork + 36))
+            #expect(long.height > short.height)
+            #expect(short.height < 108 + 12 * min(1, (width - 320) / 400))
+            #expect(abs(long.textWidth - (width - 60 - long.artwork - long.spacing)) < 0.001)
+        }
+    }
+
+    @Test func artistCompletionResizesSongCardWithoutChangingItsTopAnchor() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.reduceMotion = true
+        prefs.hideWhenPaused = false
+        prefs.overlayWidth = 320
+        let model = AppModel(repository: PendingOverlayRepository(), preferences: prefs)
+        defer { model.stop() }
+        let title = String(repeating: "A long title for two lines ", count: 4)
+        let first = Track(playerID: "test", playerName: "Test", title: title)
+        model.session.accept(.init(track: first, position: 0, isPlaying: false), shouldSearch: false)
+        model.session.use(.init(plainText: "Instrumental"), persist: false)
+        let overlay = OverlayController(model: model, frameAutosaveName: nil)
+        defer { overlay.stop() }
+        let before = overlay.panel.frame
+        #expect(abs(before.height - OverlaySongCardLayout(width: 320, title: title).height) < 0.5)
+        let revision = model.session.trackRevision
+        var filled = first
+        filled.artist = "Artist and Orchestra"
+        model.session.accept(.init(track: filled, position: 0, isPlaying: false), shouldSearch: false)
+        try await Task.sleep(for: .milliseconds(40))
+        let after = overlay.panel.frame
+        #expect(model.session.trackRevision == revision)
+        #expect(after.height > before.height)
+        #expect(abs(after.height - OverlaySongCardLayout(width: 320,
+            title: title, artist: filled.artist).height) < 0.5)
+        #expect(abs(after.maxY - before.maxY) < 0.5)
+    }
+
     @Test func longSongTitlesFitTheFullWidthInformationCard() throws {
         try fixture { model in
             model.preferences.reduceMotion = true
@@ -206,13 +254,55 @@ private func whiteInkBounds(_ bitmap: NSBitmapImageRep, columns: Range<Int>? = n
             model.session.use(.init(plainText: "Instrumental"), persist: false)
             for width in [320.0, 620, 1000] {
                 model.preferences.overlayWidth = width
-                let card = OverlaySongCardLayout(width: width)
+                let card = OverlaySongCardLayout(width: width,
+                    title: model.session.track?.title, artist: model.session.track?.artist)
                 let renderer = ImageRenderer(content: OverlayView(model: model, viewport: .init(width: width))
                     .frame(width: width, height: card.height).background(.black).environment(\.colorScheme, .dark))
                 renderer.scale = 1
                 let ink = try whiteInkBounds(NSBitmapImageRep(cgImage: try #require(renderer.cgImage)))
                 #expect(ink.minX >= 24 && ink.maxX <= width - 24)
                 #expect(ink.minY >= 16 && ink.maxY <= card.height - 16)
+            }
+        }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LYRICSX_SONG_CARD_QA"] == "1"))
+    func captureNativeSongCardsWithoutWaveform() async throws {
+        _ = NSApplication.shared
+        let directory = URL(fileURLWithPath: "/tmp/lyricsx-song-card-qa", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let titles = ["short": "A song", "long": String(repeating: "A long title with featured musicians ", count: 4)]
+        for width in [320.0, 620.0, 1000.0] {
+            for (kind, title) in titles {
+                let suite = "LyricsXSongCardQA-" + UUID().uuidString
+                let defaults = try #require(UserDefaults(suiteName: suite))
+                defer { defaults.removePersistentDomain(forName: suite) }
+                let prefs = Preferences(defaults: defaults)
+                prefs.overlayVisible = true
+                prefs.hideWhenPaused = false
+                prefs.overlayWidth = width
+                prefs.overlayWaveformEnabled = false
+                prefs.overlayAppearance = .glass
+                prefs.overlayTheme = .dark
+                prefs.reduceMotion = true
+                let model = AppModel(repository: PendingOverlayRepository(), preferences: prefs)
+                model.session.accept(.init(track: .init(playerID: "qa", playerName: "QA",
+                    title: title, artist: "Artist and Orchestra"), position: 0, isPlaying: false), shouldSearch: false)
+                model.session.use(.init(plainText: "Instrumental"), persist: false)
+                let overlay = OverlayController(model: model, frameAutosaveName: nil,
+                    pointerLocation: { NSPoint(x: -10000, y: -10000) })
+                overlay.panel.orderFrontRegardless()
+                try await Task.sleep(for: .milliseconds(100))
+                let expected = OverlaySongCardLayout(width: width, title: title,
+                    artist: "Artist and Orchestra").height
+                #expect(abs(overlay.panel.frame.height - expected) <= 1)
+                let root = try #require(overlay.panel.contentView)
+                root.layoutSubtreeIfNeeded()
+                let bitmap = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+                root.cacheDisplay(in: root.bounds, to: bitmap)
+                let png = try #require(bitmap.representation(using: .png, properties: [:]))
+                try png.write(to: directory.appendingPathComponent("song-\(Int(width))-\(kind).png"))
+                overlay.stop(); model.stop()
             }
         }
     }

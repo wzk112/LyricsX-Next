@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import LyricsXCore
@@ -21,11 +22,12 @@ import LyricsXCore
         #expect(pausedPose == .init())
     }
 
-    private func cue(_ index: Int, interval: Double = 3, prefix: Bool = false) -> OverlayCueSnapshot {
+    private func cue(_ index: Int, interval: Double = 3, prefix: Bool = false,
+                     height: Double = 40) -> OverlayCueSnapshot {
         let line = LyricLine(id: index, time: Double(index) * interval, text: "Line \(index)")
         return .init(document: document, index: index, line: line, text: line.text,
             plan: .init(start: line.time, duration: min(0.84, interval * 0.8), stablePrefixCount: prefix ? 3 : 0, layoutTail: ""),
-            height: 40, fontSize: 26, previewText: "Line \(index + 1)", previewCenter: 90, previewScale: 0.5)
+            height: height, fontSize: 26, previewText: "Line \(index + 1)", previewCenter: 90, previewScale: 0.5)
     }
 
     @Test func departureStartsImmediatelyMovesUpAndEndsEvenWhenPlaybackPauses() throws {
@@ -35,10 +37,13 @@ import LyricsXCore
         state = state.updating(to: second, lyricTime: 3, at: 10.1, animated: true)
         let exit = try #require(state.departure)
         #expect(state.promotionDistance == 70 && exit.cue == first)
+        #expect(abs(exit.duration - 0.20) < 0.0001)
         #expect(exit.frame(at: 10.1)?.opacity == 1)
-        let halfway = try #require(exit.frame(at: 10.18))
-        #expect(halfway.offset < 0 && halfway.blur > 0 && halfway.opacity < 1)
-        #expect(exit.frame(at: 10.341) == nil)
+        let halfway = try #require(exit.frame(at: 10.2))
+        #expect(abs(halfway.offset + 1.4) < 0.0001)
+        #expect(abs(halfway.blur - 0.35) < 0.0001)
+        #expect(abs(halfway.opacity - 0.5) < 0.0001)
+        #expect(exit.frame(at: exit.startedAt + exit.duration + 0.0001) == nil)
         // Lyric time has stopped, but the layout still reaches its resting pose.
         #expect(state.layoutTime(at: 10.8, fallback: 3) > 3.64)
         #expect(state.needsFrames(at: 10.2, reduced: false))
@@ -46,6 +51,55 @@ import LyricsXCore
         state = state.updating(to: second, lyricTime: 3, at: 10.8, animated: true)
         #expect(state.departure?.startedAt == 10.1) // No deadline restart.
         #expect(state.departure?.frame(at: 10.8) == nil)
+    }
+
+    @Test @MainActor func centeredBlockHeightChangesKeepFirstFrameAtTheOldScreenPosition() throws {
+        // The new target canvas is centered in the old-height panel on the
+        // first spring frame. Exercise both the fixed and adaptive heights.
+        for (oldBlock, newBlock, oldPrimary, newPrimary, previewCenter) in [
+            (100.0, 40.0, 40.0, 40.0, 80.0), // next preview disappears
+            (140.0, 40.0, 80.0, 40.0, 116.0) // two-line primary to one line
+        ] {
+            for oldWindow in [200.0, oldBlock + OverlayLyricsWindowLayout.centeredChromeHeight] {
+                var old = cue(0, height: oldPrimary)
+                old.blockHeight = oldBlock
+                old.centered = true
+                old = .init(document: old.document, index: old.index, line: old.line, text: old.text,
+                    plan: old.plan, height: old.height, fontSize: old.fontSize,
+                    previewText: "Line 1", previewCenter: previewCenter,
+                    previewScale: old.previewScale, fontName: old.fontName,
+                    blockHeight: oldBlock, centered: true)
+                var new = cue(1, height: newPrimary)
+                new.blockHeight = newBlock
+                new.centered = true
+                let state = OverlayCueTransition().updating(to: old, lyricTime: 2.9, at: 10, animated: true)
+                    .updating(to: new, lyricTime: 3, at: 10.1, animated: true)
+                let departure = try #require(state.departure)
+                let distance = try #require(state.promotionDistance)
+                let oldBlockTop = (oldWindow - oldBlock) / 2
+                let newBlockTopAtFirstFrame = (oldWindow - newBlock) / 2
+                let oldPreviewY = oldBlockTop + previewCenter
+                let incomingY = newBlockTopAtFirstFrame + newPrimary / 2 + distance
+                let oldPrimaryY = oldBlockTop + oldPrimary / 2
+                let departingY = newBlockTopAtFirstFrame + oldPrimary / 2 + departure.originShift
+                #expect(abs(incomingY - oldPreviewY) < 0.001)
+                #expect(abs(departingY - oldPrimaryY) < 0.001)
+                #expect(departure.originShift == (newBlock - oldBlock) / 2)
+            }
+        }
+    }
+
+    @Test func departureDistanceAndBlurRemainSubtleForShortAndTallLines() throws {
+        for (height, expectedDistance) in [(10.0, 2.0), (40.0, 2.8), (100.0, 4.0)] {
+            let exit = OverlayCueDeparture(cue: cue(0, height: height), time: 3,
+                startedAt: 10, duration: 0.2, pose: .init())
+            let nearEnd = try #require(exit.frame(at: 10.199))
+            #expect(nearEnd.offset < 0)
+            #expect(abs(nearEnd.offset) <= expectedDistance)
+            #expect(abs(nearEnd.offset) > expectedDistance * 0.99)
+            #expect(nearEnd.blur > 0 && nearEnd.blur < 0.7)
+            #expect(exit.frame(at: exit.startedAt + exit.duration + 0.0001) == nil)
+        }
     }
 
     @Test func rapidCuesReplaceOneDepartureAndOldCompletionsCannotRemoveTheNewOne() throws {
@@ -57,6 +111,7 @@ import LyricsXCore
             if index > 0 {
                 let exit = try #require(state.departure)
                 #expect(exit.cue.index == index - 1 && exit.duration < 0.08)
+                #expect(abs(exit.duration - 0.0288) < 0.0001)
                 #expect(exit.frame(at: exit.startedAt + 0.08) == nil)
                 if let oldToken { state.finishDeparture(startedAt: oldToken) }
                 #expect(state.departure?.cue.index == index - 1)
@@ -146,6 +201,62 @@ import LyricsXCore
             let state = OverlayCueTransition().updating(to: first, lyricTime: 2.9, at: 10, animated: true)
                 .updating(to: next, lyricTime: 3.05, at: 10.15, animated: true)
             #expect(state.promotionDistance == 70, "Untranslated preview should promote: \(text)")
+        }
+    }
+}
+
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["LYRICSX_CUE_DEPARTURE_QA"] == "1"))
+@MainActor struct OverlayCueDepartureVisualQA {
+    private struct Repository: LyricsRepository {
+        func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> {
+            .init { $0.finish() }
+        }
+        func save(_ document: LyricsDocument, for track: Track) async throws {}
+    }
+
+    @Test func captureActualOverlayControllerAcrossCueBoundary() async throws {
+        _ = NSApplication.shared
+        let directory = URL(fileURLWithPath: "/tmp/lyricsx-cue-departure-qa", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let suite = "LyricsXCueDepartureQA-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.overlayVisible = true
+        prefs.hideWhenPaused = false
+        prefs.hideOverlayOnHover = false
+        prefs.overlayWidth = 620
+        prefs.overlayAppearance = .glass
+        prefs.overlayTheme = .dark
+        prefs.overlaySecondaryMode = .next
+        prefs.reduceMotion = false
+        let model = AppModel(repository: Repository(), preferences: prefs)
+        let track = Track(playerID: "cue.qa", playerName: "Fixture", title: "Cue transition")
+        model.session.accept(.init(track: track, position: 2.85, isPlaying: false), shouldSearch: false)
+        model.session.use(LyricsDocument(lines: [
+            .init(id: 0, time: 0, text: "Hold this light"),
+            .init(id: 1, time: 3, text: "Let it go"),
+            .init(id: 2, time: 6, text: "A softer next line")
+        ]), persist: false)
+        let overlay = OverlayController(model: model, frameAutosaveName: nil,
+            pointerLocation: { NSPoint(x: -10000, y: -10000) })
+        defer { overlay.stop(); model.stop() }
+        overlay.panel.orderFrontRegardless()
+        try await Task.sleep(for: .milliseconds(700))
+        let root = try #require(overlay.panel.contentView)
+        func capture(_ name: String) throws {
+            root.layoutSubtreeIfNeeded()
+            let bitmap = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+            root.cacheDisplay(in: root.bounds, to: bitmap)
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: directory.appendingPathComponent(name + ".png"))
+        }
+        try capture("before")
+        model.session.seek(to: 3)
+        #expect(model.session.currentLineIndex == 1)
+        for (name, delay) in [("20ms", 20), ("60ms", 40), ("120ms", 60), ("220ms", 100)] {
+            try await Task.sleep(for: .milliseconds(delay))
+            try capture(name)
         }
     }
 }

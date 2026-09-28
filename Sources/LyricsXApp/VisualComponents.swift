@@ -62,6 +62,12 @@ struct CoverArtwork: View {
     var animated = false
     @Environment(\.accessibilityReduceMotion) private var systemReduced
     @State private var displayed: NSImage?
+    init(artwork: NSImage?, demo: Bool = false, animated: Bool = false) {
+        self.artwork = artwork
+        self.demo = demo
+        self.animated = animated
+        _displayed = State(initialValue: artwork)
+    }
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size.width
@@ -180,19 +186,21 @@ struct SymbolButton: View {
 
 struct PlayingIndicator: View {
     let playing: Bool
+    let appReduceMotion: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var motionReduced: Bool { reduceMotion || appReduceMotion }
     var body: some View {
-        TimelineView(.animation(minimumInterval: 0.1, paused: !playing || reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 0.1, paused: !playing || motionReduced)) { context in
             HStack(alignment: .center, spacing: 2.5) {
                 ForEach(0..<4) { index in
-                    let value = barHeight(at: context.date, index: index)
+                    let value = Self.barHeight(playing: playing, reducedMotion: motionReduced, at: context.date, index: index)
                     Capsule().fill(.foreground).frame(width: 2.5, height: value)
                 }
             }.frame(width: 20, height: 18)
         }.accessibilityLabel(playing ? "正在播放" : "已暂停")
     }
-    private func barHeight(at date: Date, index: Int) -> Double {
-        guard playing && !reduceMotion else { return 5.5 }
+    static func barHeight(playing: Bool, reducedMotion: Bool, at date: Date, index: Int) -> Double {
+        guard playing && !reducedMotion else { return 5.5 }
         let phase = date.timeIntervalSinceReferenceDate * 4 + Double(index) * 1.4
         return 4 + abs(sin(phase)) * 10
     }

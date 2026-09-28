@@ -8,6 +8,59 @@ import LyricsXCore
 // cannot consume other suites' AppKit events or block their async deadlines.
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["LYRICSX_WINDOW_QA"] == "1"))
 @MainActor struct WindowFrameTests {
+    @Test func compactExpandedResizeKeepsLyricViewportForTheSameSong() async throws {
+        _ = NSApplication.shared
+        NSApp.finishLaunching()
+        struct Repository: LyricsRepository {
+            func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> { .init { $0.finish() } }
+            func save(_ document: LyricsDocument, for track: Track) async throws {}
+        }
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = AppModel(repository: Repository(), preferences: Preferences(defaults: defaults))
+        defer { model.stop() }
+        let track = Track(playerID: "fixture", playerName: "Fixture", title: "Layout fixture", duration: 160)
+        let document = LyricsDocument(lines: (0..<80).map {
+            .init(id: $0, time: Double($0) * 2, text: "A stable lyric line \($0)")
+        })
+        model.session.accept(.init(track: track, position: 20, isPlaying: false), shouldSearch: false)
+        model.session.use(document, persist: false)
+        model.mainWindowVisible = true
+        let panel = NSPanel(contentRect: .init(x: 40, y: 180, width: 760, height: 600),
+                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: NowPlayingView(model: model))
+        panel.contentView = host
+        panel.orderFrontRegardless()
+        defer { panel.close() }
+        func lyricScroll(_ view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            return view.subviews.lazy.compactMap { lyricScroll($0) }.first
+        }
+        func mountedScroll() async throws -> NSScrollView {
+            for _ in 0..<30 {
+                NSApp.updateWindows()
+                host.layoutSubtreeIfNeeded()
+                if let scroll = lyricScroll(host) { return scroll }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            return try #require(lyricScroll(host))
+        }
+        let compactScroll = try await mountedScroll()
+        compactScroll.contentView.scroll(to: .init(x: 0, y: 350))
+        compactScroll.reflectScrolledClipView(compactScroll.contentView)
+        #expect(compactScroll.contentView.bounds.minY > 100)
+        panel.setContentSize(.init(width: 820, height: 600))
+        let expandedScroll = try await mountedScroll()
+        #expect(expandedScroll === compactScroll, "Layout changes must preserve the lyric scroll view")
+        #expect(expandedScroll.contentView.bounds.minY > 100)
+        panel.setContentSize(.init(width: 760, height: 600))
+        let compactAgain = try await mountedScroll()
+        #expect(compactAgain === compactScroll)
+        #expect(compactAgain.contentView.bounds.minY > 100)
+    }
+
     @Test func variableHeightLyricRowsFollowWithoutReverseJumpsOrLateFlight() async throws {
         _ = NSApplication.shared
         NSApp.finishLaunching()

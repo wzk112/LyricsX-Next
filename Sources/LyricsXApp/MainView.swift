@@ -81,7 +81,10 @@ struct MainView: View {
 
 private struct MainPlayingIndicator: View {
     let model: AppModel
-    var body: some View { PlayingIndicator(playing: model.mainWindowVisible && model.session.isPlaying) }
+    var body: some View {
+        PlayingIndicator(playing: model.mainWindowVisible && model.session.isPlaying,
+                         appReduceMotion: model.preferences.reduceMotion)
+    }
 }
 
 /// Window visibility affects background activity, not the entire main hierarchy.

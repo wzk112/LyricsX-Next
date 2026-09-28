@@ -36,6 +36,8 @@ public final class LyricsSession {
     @ObservationIgnored private let searchTimeout: Duration
     @ObservationIgnored private var seekProtectionUntil = 0.0
     @ObservationIgnored private var pendingSeekTarget: Double?
+    @ObservationIgnored private var automaticSearchEligible = false
+    @ObservationIgnored private var activeSearchForceRefresh = false
 
     public init(repository: any LyricsRepository, searchTimeout: Duration = .seconds(28)) {
         self.repository = repository; self.searchTimeout = searchTimeout
@@ -49,6 +51,7 @@ public final class LyricsSession {
             tick(now: now)
             return
         }
+        let previousTrack = track
         let changed: Bool = switch (track, snapshot.track) {
         case (nil, nil): false
         case (nil, _), (_, nil): true
@@ -78,6 +81,12 @@ public final class LyricsSession {
         if !shouldSearch {
             if changed || phase != .notFound { suppressLyrics() }
         } else if changed { reload() }
+        else if automaticSearchEligible, let previousTrack, let current = track,
+                previousTrack.artist.isEmpty, !current.artist.isEmpty {
+            // A title-only query can still be in flight when the player fills
+            // in the artist. Cancel it before it can save under the new key.
+            reload(forceRefresh: activeSearchForceRefresh, discardExistingDocument: true)
+        }
     }
     public func tick(now: Double = ProcessInfo.processInfo.systemUptime) {
         let newPosition = timeline.position(at: now)
@@ -104,9 +113,17 @@ public final class LyricsSession {
         seekProtectionUntil = 0
     }
     public func reload(forceRefresh: Bool = false) {
+        reload(forceRefresh: forceRefresh, discardExistingDocument: false)
+    }
+    private func reload(forceRefresh: Bool, discardExistingDocument: Bool) {
         invalidateSearch()
-        guard let track else { document = nil; candidates = []; phase = .idle; currentLineIndex = nil; return }
-        if !forceRefresh { document = nil; currentLineIndex = nil }
+        guard let track else {
+            automaticSearchEligible = false; activeSearchForceRefresh = false
+            document = nil; candidates = []; phase = .idle; currentLineIndex = nil; return
+        }
+        automaticSearchEligible = true
+        activeSearchForceRefresh = forceRefresh
+        if !forceRefresh || discardExistingDocument { document = nil; currentLineIndex = nil }
         candidates = []; bestScore = -Double.infinity; bestIsProvisional = false; phase = .loading; isSearching = true
         let generation = searchGeneration
         let trackRevision = self.trackRevision
@@ -145,11 +162,12 @@ public final class LyricsSession {
         }
     }
     public func use(_ document: LyricsDocument, persist shouldPersist: Bool = true) {
-        invalidateSearch(); self.document = document; phase = .ready; tick()
+        invalidateSearch(); automaticSearchEligible = false; activeSearchForceRefresh = false
+        self.document = document; phase = .ready; tick()
         if shouldPersist { persist() }
     }
     public func suppressLyrics() {
-        invalidateSearch()
+        invalidateSearch(); automaticSearchEligible = false; activeSearchForceRefresh = false
         document = nil; candidates = []; currentLineIndex = nil; phase = .notFound
     }
     public func adjustOffset(by milliseconds: Int) {
@@ -160,12 +178,12 @@ public final class LyricsSession {
     public func resetOffset() { setOffset(0) }
     private func setOffset(_ value: Int) {
         guard var updated = document else { return }
-        invalidateSearch(); phase = .ready
+        invalidateSearch(); automaticSearchEligible = false; activeSearchForceRefresh = false; phase = .ready
         updated.offsetMilliseconds = min(300_000, max(-300_000, value))
         document = updated
         tick(); persist()
     }
-    public func stop() { invalidateSearch(); freeze() }
+    public func stop() { invalidateSearch(); automaticSearchEligible = false; activeSearchForceRefresh = false; freeze() }
     // Saves deliberately finish in order; abandoned searches and their deadline
     // must not stay alive just because a provider has not yielded yet.
     isolated deinit { searchTask?.cancel(); deadlineTask?.cancel() }

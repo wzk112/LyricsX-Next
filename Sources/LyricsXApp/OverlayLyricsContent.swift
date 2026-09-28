@@ -70,6 +70,7 @@ struct OverlayLyricsContent: View {
     var visible = true
     var secondaryMode: OverlaySecondaryMode?
     var adaptiveCanvasWidth: Double?
+    var centerVisibleContent = false
     var animationTime: () -> Double = { ProcessInfo.processInfo.systemUptime }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
@@ -88,7 +89,8 @@ struct OverlayLyricsContent: View {
     }
 
     private func primaryHeight(at index: Int) -> Double {
-        guard let width = adaptiveCanvasWidth else { return prefs.typography.lineHeight(size: prefs.fontSize) * 2 }
+        guard let width = adaptiveCanvasWidth ?? (centerVisibleContent ? prefs.overlayLayoutWidth - 60 : nil)
+        else { return prefs.typography.lineHeight(size: prefs.fontSize) * 2 }
         return OverlayTextMeasure.primaryHeight(document: document, index: index, preferences: prefs, canvasWidth: width)
     }
 
@@ -110,12 +112,12 @@ struct OverlayLyricsContent: View {
         let nextScale = prefs.nextLineFontSize / prefs.fontSize
         let nextHeight = nextPrimaryHeight * nextScale
         let translationTop = primaryHeight + prefs.overlayPrimarySpacing
-        let auxiliaryHeight = adaptiveCanvasWidth == nil
+        let auxiliaryHeight = adaptiveCanvasWidth == nil && !centerVisibleContent
             ? (secondaryMode ?? prefs.overlaySecondaryMode).reservedHeight(
                 translationSize: prefs.typography.reservationSize(prefs.translationFontSize, weight: .medium), nextSize: prefs.typography.reservationSize(prefs.nextLineFontSize),
                 primarySpacing: prefs.overlayPrimarySpacing, secondarySpacing: prefs.overlaySecondarySpacing)
             : content.height(translationHeight: OverlayTextMeasure.translationHeight(content.translation,
-                font: prefs.translationFontSize, canvasWidth: adaptiveCanvasWidth ?? 0, typography: prefs.typography), nextHeight: nextHeight,
+                font: prefs.translationFontSize, canvasWidth: measureWidth, typography: prefs.typography), nextHeight: nextHeight,
                 primarySpacing: prefs.overlayPrimarySpacing, secondarySpacing: prefs.overlaySecondarySpacing)
         let height = primaryHeight + auxiliaryHeight
         let sampledTime = lyricTime()
@@ -128,7 +130,8 @@ struct OverlayLyricsContent: View {
             let nextY = nextCenter(translationHeight: translationHeight, primaryHeight: primaryHeight, nextHeight: nextHeight)
             let cue = OverlayCueSnapshot(document: document.id, index: index, line: line, text: text,
                 plan: plan, height: primaryHeight, fontSize: primaryFont, previewText: content.next,
-                previewCenter: content.next == nil ? nil : nextY, previewScale: nextScale, fontName: prefs.lyricFontName)
+                previewCenter: content.next == nil ? nil : nextY, previewScale: nextScale,
+                fontName: prefs.lyricFontName, blockHeight: height, centered: centerVisibleContent)
             let now = animationTime()
             // Resolve before onChange so the first frame already contains the
             // right geometry and departure, without a one-frame flash.
@@ -149,11 +152,12 @@ struct OverlayLyricsContent: View {
                             arrival: old.plan?.withoutEntry(text: old.text), fontSize: old.fontSize,
                             effects: prefs.lyricEmphasis, typography: surfaceTypography)
                             .equatable()
-                            .frame(width: geometry.size.width, height: old.height, alignment: .bottom)
+                            .frame(width: geometry.size.width, height: old.height,
+                                alignment: centerVisibleContent ? .center : .bottom)
                             .scaleEffect(departure.pose.scale).blur(radius: departure.pose.blur + exit.blur)
                             .opacity(departure.pose.opacity * exit.opacity)
                             .offset(y: departure.pose.offset + exit.offset)
-                            .position(x: geometry.size.width / 2, y: old.height / 2)
+                            .position(x: geometry.size.width / 2, y: old.height / 2 + departure.originShift)
                             .allowsHitTesting(false).accessibilityHidden(true)
                     }
                     // Once row movement settles, only the primary text receives
@@ -168,7 +172,8 @@ struct OverlayLyricsContent: View {
                             fontSize: primaryFont, effects: prefs.lyricEmphasis, typography: surfaceTypography)
                             .equatable()
                     }
-                        .frame(width: geometry.size.width, height: primaryHeight, alignment: .bottom)
+                        .frame(width: geometry.size.width, height: primaryHeight,
+                            alignment: centerVisibleContent ? .center : .bottom)
                         .scaleEffect(motion.scale).blur(radius: motion.blur)
                         .opacity(motion.opacity)
                         .offset(y: motion.offset)
@@ -187,7 +192,8 @@ struct OverlayLyricsContent: View {
                         OverlayLyricSurface(line: nextLine, text: next, time: nextLine.time, arrival: nextPlan,
                             fontSize: nextFont, effects: .init(lift: prefs.lyricWordLift, glow: false, reduced: reduced), typography: surfaceTypography, secondary: true)
                             .equatable()
-                            .frame(width: geometry.size.width, height: nextPrimaryHeight, alignment: .bottom)
+                            .frame(width: geometry.size.width, height: nextPrimaryHeight,
+                                alignment: centerVisibleContent ? .center : .bottom)
                             .scaleEffect(nextScale).blur(radius: reduced ? 0 : 0.45 + nextMotion.blur)
                             .opacity(0.85 * nextMotion.opacity * motion.auxiliaryOpacity(top: nextY - nextHeight / 2, primaryHeight: primaryHeight, reduced: reduced))
                             .offset(y: nextMotion.offset)

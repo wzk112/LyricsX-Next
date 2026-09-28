@@ -327,12 +327,15 @@ import LyricsXCore
         #expect(nextDifference < 1)
     }
 
-    @Test func fullAdaptiveCardFitsDoubleRowsAndKeepsBottomBreathingRoom() throws {
+    @Test func fullAdaptiveCardFitsDoubleRowsAndKeepsBottomBreathingRoom() async throws {
+        _ = NSApplication.shared
         let suite = "LyricsXTests-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let prefs = Preferences(defaults: defaults)
         prefs.overlayAdaptiveSize = true; prefs.overlaySecondaryMode = .both
+        prefs.overlayVisible = true; prefs.hideWhenPaused = false; prefs.hideOverlayOnHover = false
+        prefs.overlayTheme = .dark; prefs.reduceMotion = true
         prefs.lyricGlow = false; prefs.lyricWordLift = false
         let model = AppModel(repository: RenderingFixtureRepository(), preferences: prefs)
         defer { model.stop() }
@@ -343,26 +346,34 @@ import LyricsXCore
         for (width, font) in [(320.0, 26.0), (620.0, 42.0), (1000.0, 32.0)] {
             prefs.overlayWidth = width; prefs.fontSize = font
             let height = OverlayTextMeasure.height(document: doc, index: 0, preferences: prefs, maximumWidth: width)
-            let view = OverlayView(model: model, viewport: .init(width: width))
-                .frame(width: width, height: height).background(.black).environment(\.colorScheme, .dark)
-            let renderer = ImageRenderer(content: view); renderer.scale = 1
-            let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+            let overlay = OverlayController(model: model, frameAutosaveName: nil,
+                pointerLocation: { NSPoint(x: -10000, y: -10000) })
+            overlay.panel.orderFrontRegardless()
+            try await Task.sleep(for: .milliseconds(100))
+            let root = try #require(overlay.panel.contentView)
+            #expect(!overlay.pinnedHeaderView.isHidden)
+            #expect(abs(root.bounds.height - overlay.pinnedHeaderView.frame.maxY - 18) <= 1)
+            #expect(abs(overlay.panel.frame.height - ceil(height)) <= 1)
+            root.layoutSubtreeIfNeeded()
+            let bitmap = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+            root.cacheDisplay(in: root.bounds, to: bitmap)
             var bands: [ClosedRange<Int>] = [], begin: Int?
             for y in 0...bitmap.pixelsHigh {
-                let ink = y < bitmap.pixelsHigh && (0..<bitmap.pixelsWide).contains {
-                    (bitmap.colorAt(x: $0, y: y)?.redComponent ?? 0) > 0.3
+                let ink = y < bitmap.pixelsHigh && (25..<bitmap.pixelsWide - 25).contains {
+                    (bitmap.colorAt(x: $0, y: y)?.redComponent ?? 0) > 0.55
                 }
                 if ink, begin == nil { begin = y }
                 if !ink, let start = begin { bands.append(start...(y - 1)); begin = nil }
             }
-            print("Full overlay \(width) x \(height): ink bands=\(bands)")
-            #expect(bands.count == 7) // Header, two primary, two translation, two next.
+            #expect(bands.count == 7) // Pinned header, two primary, two translation, two next.
             let last = try #require(bands.last)
             #expect(bitmap.pixelsHigh - last.upperBound >= 20)
             if bands.count == 7 {
+                #expect(bands[1].lowerBound - bands[0].upperBound >= 4)
                 #expect(bands[3].lowerBound - bands[2].upperBound >= 7)
                 #expect(bands[5].lowerBound - bands[4].upperBound >= 5)
             }
+            overlay.stop()
         }
     }
 

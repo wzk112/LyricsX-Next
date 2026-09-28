@@ -50,26 +50,28 @@ private struct LyricArrival<Trigger: Equatable & Sendable>: ViewModifier {
     let reduced: Bool
     let distance: Double
     var visible: () -> Bool
+    @Environment(\.accessibilityReduceMotion) private var systemReduced
     @State private var clock = LyricArrivalClock()
     @State private var displayedTrigger: Trigger?
 
     func body(content: Content) -> some View {
         let visible = visible()
+        let motionReduced = reduced || systemReduced
         let presentation = clock
-        return LyricRenderTimeline(running: presentation.startedAt != nil && !reduced && visible,
+        return LyricRenderTimeline(running: presentation.startedAt != nil && !motionReduced && visible,
                             sampledTime: ProcessInfo.processInfo.systemUptime,
                             preciseTime: { ProcessInfo.processInfo.systemUptime }) { now in
-            let frame = reduced ? LyricMotion.Frame() : presentation.frame(at: now)
+            let frame = motionReduced ? LyricMotion.Frame() : presentation.frame(at: now)
             content.offset(y: frame.offset * distance / 10).blur(radius: frame.blur).opacity(frame.opacity)
                 .onChange(of: clock.finishedToken(at: now)) { _, token in clock.finish(token) }
         }
         .onChange(of: trigger, initial: true) { _, value in
             let first = displayedTrigger == nil
             displayedTrigger = value
-            if first || reduced || !visible { clock.cancel() } else { clock.start(at: ProcessInfo.processInfo.systemUptime) }
+            if first || motionReduced || !visible { clock.cancel() } else { clock.start(at: ProcessInfo.processInfo.systemUptime) }
         }
         .onChange(of: visible) { _, value in if !value { clock.cancel() } }
-        .onChange(of: reduced) { _, value in if value { clock.cancel() } }
+        .onChange(of: motionReduced) { _, value in if value { clock.cancel() } }
         .task(id: clock.startedAt) {
             guard let token = clock.startedAt else { return }
             let remaining = max(0, token + clock.duration - ProcessInfo.processInfo.systemUptime)

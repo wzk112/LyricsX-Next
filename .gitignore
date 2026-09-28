@@ -12,3 +12,10 @@ swift-syntax/.swiftpm
 .swiftpm/
 *.xcuserstate
 *.app/
+
+# Flexbar local runtimes and generated review artifacts
+Integrations/Flexbar/node_modules/
+Integrations/Flexbar/qa-output/
+com.wzk112.lyricsxnext.plugin/backend/node_modules/
+com.wzk112.lyricsxnext.plugin/logs/
+com.wzk112.lyricsxnext.flexplugin

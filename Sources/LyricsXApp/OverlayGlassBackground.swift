@@ -76,6 +76,7 @@ final class OverlayGlassBackground: NSView {
                                  transparency: appearance.clampedMaterialTransparency(transparency),
                                  frostAmount: appearance.clampedFrost(frostAmount),
                                  reduceTransparency: reduceTransparency, dark: dark)
+        if reduceMotion { scrim.layer?.removeAnimation(forKey: "appearance") }
         guard configuration != next, let gradient = scrim.layer as? CAGradientLayer else { return }
         let animate = configuration != nil && (configuration?.appearance != appearance || configuration?.dark != dark)
             && !reduceMotion && !reduceTransparency

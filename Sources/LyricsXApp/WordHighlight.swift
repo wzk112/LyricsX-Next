@@ -174,7 +174,7 @@ struct WordHighlight: View {
                 .allowedDynamicRange(options.usesHDR ? .high : .standard)
         }
         .preference(key: LyricHDRContentHeadroomKey.self,
-                    value: active && line.hasWordTiming && options.usesHDR ? options.hdrBrightness : 1)
+                    value: active && options.usesHDR && line.hasWordTiming ? options.hdrBrightness : 1)
     }
 }
 

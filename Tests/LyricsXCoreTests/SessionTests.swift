@@ -6,10 +6,12 @@ private final class ControlledRepository: LyricsRepository, @unchecked Sendable 
     private let lock = NSLock()
     private var streams: [AsyncThrowingStream<LyricCandidate, Error>.Continuation] = []
     private var saves: [LyricsDocument] = []
+    private var savedTracks: [Track] = []
+    private var forcedRequests: [Bool] = []
     func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> {
-        AsyncThrowingStream { continuation in lock.withLock { streams.append(continuation) } }
+        AsyncThrowingStream { continuation in lock.withLock { streams.append(continuation); forcedRequests.append(forceRefresh) } }
     }
-    func save(_ document: LyricsDocument, for track: Track) async throws { lock.withLock { saves.append(document) } }
+    func save(_ document: LyricsDocument, for track: Track) async throws { lock.withLock { saves.append(document); savedTracks.append(track) } }
     func yield(_ document: LyricsDocument, at index: Int, score: Double = 80) {
         let continuation = lock.withLock { streams[index] }
         continuation.yield(.init(document: document, score: score))
@@ -18,6 +20,8 @@ private final class ControlledRepository: LyricsRepository, @unchecked Sendable 
     func fail(_ index: Int) { lock.withLock { streams[index] }.finish(throwing: URLError(.networkConnectionLost)) }
     var count: Int { lock.withLock { streams.count } }
     var savedTitles: [String] { lock.withLock { saves.map(\.title) } }
+    var savedArtists: [String] { lock.withLock { savedTracks.map(\.artist) } }
+    var forceRefreshes: [Bool] { lock.withLock { forcedRequests } }
 }
 
 @Suite @MainActor struct SessionTests {
@@ -131,18 +135,79 @@ private final class ControlledRepository: LyricsRepository, @unchecked Sendable 
         session.accept(snapshot(updated))
         #expect(repo.count == 1); #expect(session.track?.artworkData == Data([9])); session.stop()
     }
-    @Test func stagedMetadataDoesNotRestartSearchOrAdvanceTrackRevision() {
+    @Test func stagedArtistRestartsAutomaticSearchWithoutAdvancingTrackRevision() async {
         let repo = ControlledRepository(); let session = LyricsSession(repository: repo)
-        let early = Track(playerID: "test", playerName: "", persistentID: "item", title: "A")
+        let early = Track(playerID: "test", playerName: "", title: "A")
         session.accept(snapshot(early))
-        let revision = session.trackRevision
+        let revision = session.trackRevision, generation = session.searchGeneration
         var completed = early
-        completed.artist = "Artist"; completed.album = "Album"; completed.artworkData = Data([1])
+        completed.artist = "Artist"; completed.artworkData = Data([1])
         session.accept(snapshot(completed, position: 2))
         #expect(session.trackRevision == revision)
         #expect(session.track?.artist == "Artist" && session.track?.artworkData == Data([1]))
-        #expect(repo.count == 1)
+        #expect(session.position >= 2 && repo.count == 2 && session.searchGeneration > generation)
+        repo.yield(.init(title: "Old title-only result"), at: 0, score: 200)
+        repo.finish(0)
+        await Task.yield()
+        #expect(session.document == nil && repo.savedTitles.isEmpty)
+        repo.yield(.init(title: "Artist result"), at: 1)
+        repo.finish(1)
+        await waitFor { session.document?.title == "Artist result" && repo.savedTitles == ["Artist result"] }
+        #expect(repo.savedArtists == ["Artist"])
+        var refined = completed
+        refined.album = "Album"; refined.persistentID = "item-2"; refined.artworkData = Data([2])
+        session.accept(snapshot(refined, position: 3))
+        #expect(repo.count == 2 && session.trackRevision == revision)
         session.stop()
+    }
+    @Test func lateArtistDoesNotOverrideManualLyricsOrOffset() {
+        let repo = ControlledRepository(); let session = LyricsSession(repository: repo)
+        let early = Track(playerID: "test", playerName: "", title: "A")
+        session.accept(snapshot(early))
+        session.use(.init(title: "Manual"), persist: false)
+        session.adjustOffset(by: 100)
+        let generation = session.searchGeneration, revision = session.trackRevision
+        var completed = early; completed.artist = "Artist"
+        session.accept(snapshot(completed, position: 3))
+        #expect(repo.count == 1 && session.searchGeneration == generation && session.trackRevision == revision)
+        #expect(session.document?.title == "Manual" && session.document?.offsetMilliseconds == 100)
+        session.stop()
+    }
+    @Test func lateArtistPreservesExplicitForceRefresh() async {
+        let repo = ControlledRepository(); let session = LyricsSession(repository: repo)
+        let early = Track(playerID: "test", playerName: "", title: "A")
+        session.accept(snapshot(early))
+        session.reload(forceRefresh: true)
+        var complete = early; complete.artist = "Artist"
+        session.accept(snapshot(complete))
+        #expect(repo.forceRefreshes == [false, true, true])
+        repo.yield(.init(title: "Stale"), at: 1)
+        repo.finish(1)
+        await Task.yield()
+        #expect(session.document == nil)
+        repo.yield(.init(title: "Fresh"), at: 2)
+        repo.finish(2)
+        await waitFor { session.document?.title == "Fresh" }
+        session.stop()
+    }
+    @Test func artistRestartCannotPersistOldDocumentWhenForcedLookupFindsNothing() async {
+        for fails in [false, true] {
+            let repo = ControlledRepository(); let session = LyricsSession(repository: repo)
+            let early = Track(playerID: "test", playerName: "", title: "A")
+            session.accept(snapshot(early))
+            repo.yield(.init(title: "Title-only"), at: 0)
+            await waitFor { session.document?.title == "Title-only" }
+            session.reload(forceRefresh: true)
+            #expect(session.document?.title == "Title-only")
+            var complete = early; complete.artist = "Artist"
+            session.accept(snapshot(complete))
+            #expect(repo.forceRefreshes == [false, true, true])
+            #expect(session.document == nil)
+            if fails { repo.fail(2) } else { repo.finish(2) }
+            await waitFor { !session.isSearching }
+            #expect(session.document == nil && repo.savedTitles.isEmpty && repo.savedArtists.isEmpty)
+            session.stop()
+        }
     }
     @Test func metadataOnlyUpdateDoesNotResetReliablePlaybackTime() {
         let repo = ControlledRepository(); let session = LyricsSession(repository: repo)

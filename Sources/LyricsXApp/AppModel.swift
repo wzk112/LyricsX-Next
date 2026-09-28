@@ -12,6 +12,7 @@ final class AppModel {
     let displays = HDRDisplayMonitor()
     let bridge = PlayerBridge()
     let dockVisibility: DockVisibilityController
+    let flexbar: FlexbarController
     var playerError: String?
     var message: String?
     var showSearch = false
@@ -42,8 +43,9 @@ final class AppModel {
     @ObservationIgnored private var wakeObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var presentationStopped = false
 
-    init(repository: (any LyricsRepository)? = nil, preferences: Preferences = Preferences()) {
+    init(repository: (any LyricsRepository)? = nil, preferences: Preferences = Preferences(), flexbarSocketURL: URL = FlexbarServer.defaultURL) {
         self.preferences = preferences
+        flexbar = FlexbarController(socketURL: flexbarSocketURL)
         dockVisibility = DockVisibilityController(shouldShow: { preferences.showDockIcon })
         let configurationReader = preferences.sourceConfigurationReader
         store = LyricsStore(cache: LyricsCache(directory: preferences.directory), configuration: { configurationReader.read() })
@@ -52,7 +54,9 @@ final class AppModel {
             guard let self else { return }
             self.session.accept(snapshot, shouldSearch: !self.lyricsBlocked(for: snapshot.track))
             self.updateMainLyricSelection()
+            self.ticker?.scheduleEarlier(self.lyricClockInterval())
             self.updateArtwork(self.session.track)
+            self.flexbar.synchronizePlayback()
         }
         bridge.onError = { [weak self] error in
             self?.playerError = error
@@ -96,21 +100,36 @@ final class AppModel {
         displays.start()
         dockVisibility.start()
         observeDockVisibility()
+        flexbar.start(model: self)
         overlay = OverlayController(model: self)
         bridge.mode = preferences.playerMode
         bridge.start()
         wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in guard let self, !self.presentationStopped else { return }; self.bridge.restart(); self.overlay?.restoreOnScreen() }
+            Task { @MainActor in guard let self, !self.presentationStopped else { return }; self.bridge.restart(); self.flexbar.wake(); self.overlay?.resumeWaveform(); self.overlay?.restoreOnScreen() }
         })
         wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self, !self.presentationStopped else { return }
-                self.bridge.stop(); self.session.freeze()
+                self.overlay?.suspendWaveform(); self.flexbar.sleep(); self.bridge.stop(); self.session.freeze()
             }
         })
         startLyricClock()
     }
     var isLyricClockRunning: Bool { ticker?.running == true }
+    var lyricClockNextFireAt: Double? { ticker?.nextFireAt }
+    func lyricClockInterval() -> Double {
+        guard session.isPlaying else { return 500 }
+        let preciseSurface = mainWindowVisible || overlay?.needsPreciseLyricTicks == true
+        // The menu bar only changes at cue boundaries. Its label has no
+        // frame-by-frame animation, so wake near the next line instead.
+        let ui = preferences.showMenubarLyrics && !preciseSurface
+            ? FlexbarCueCadence.milliseconds(document: session.document, position: session.position)
+            : LyricTickCadence.milliseconds(playing: session.isPlaying, visible: preciseSurface,
+                                            document: session.document, position: session.position)
+        return flexbar.hasConsumers
+            ? min(ui, FlexbarCueCadence.milliseconds(document: session.document, position: session.position))
+            : ui
+    }
     func startLyricClock() {
         guard ticker == nil else { return }
         ticker = PlaybackTicker { [weak self] in
@@ -118,9 +137,7 @@ final class AppModel {
             guard self.session.isPlaying else { return nil }
             self.session.tick()
             self.updateMainLyricSelection()
-            let visible = self.mainWindowVisible || self.preferences.showMenubarLyrics || self.overlay?.needsPreciseLyricTicks == true
-            return LyricTickCadence.milliseconds(playing: self.session.isPlaying, visible: visible,
-                document: self.session.document, position: self.session.position)
+            return self.lyricClockInterval()
         }
         observeTickerActivity()
     }
@@ -129,18 +146,23 @@ final class AppModel {
         var playing = false
         withObservationTracking {
             playing = session.isPlaying
-            _ = session.document?.id
+            _ = session.documentRevision
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeTickerActivity() }
         }
+        session.tick()
         updateMainLyricSelection()
-        if playing { ticker?.start() } else { ticker?.stop() }
+        if playing {
+            ticker?.start()
+            ticker?.scheduleEarlier(lyricClockInterval())
+        } else { ticker?.stop() }
     }
     func stop() {
         ticker?.stop(); ticker = nil; artworkTask?.cancel(); artworkTask = nil; presentationStopped = true
         artworkThemeTask?.cancel(); artworkThemeTask = nil
         artworkHandoverTask?.cancel(); artworkHandoverTask = nil
         displays.stop()
+        flexbar.stop()
         dockVisibility.stop()
         overlay?.stop(); overlay = nil; bridge.stop(); session.stop()
         unloadLibrary()
@@ -160,10 +182,15 @@ final class AppModel {
         }
     }
     func seek(_ time: Double) {
+        applyLocalSeek(time)
+        bridge.send(.seek(time))
+        flexbar.synchronizePlayback(force: true)
+    }
+    func applyLocalSeek(_ time: Double) {
         session.seek(to: time)
         updateMainLyricSelection()
+        ticker?.scheduleEarlier(lyricClockInterval())
         playbackControlPosition = session.position
-        bridge.send(.seek(time))
     }
 
     func setOverlayVisible(_ visible: Bool) {

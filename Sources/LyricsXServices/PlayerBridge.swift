@@ -103,19 +103,24 @@ public final class PlayerBridge {
     private var latestScriptTarget = ""
     private var artworkCacheID = ""
     private var artworkCacheData: Data?
+    private var artworkTask: Task<Void, Never>?
+    private var artworkGeneration: UInt64 = 0
     private var scriptTarget: String?
     private var refreshPending = false
     private var continuity = PlaybackContinuity()
     private var artworkAttempts = 0
     private var nextArtworkAttempt: Double = 0
     private var snapshotReader: (@MainActor () async throws -> PlaybackSnapshot)?
+    private var artworkReader: (@MainActor (Track) async -> Data?)?
     private var commandExecutor: (@MainActor (PlayerCommand) async throws -> Void)?
     private var now: @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime }
     public init() {}
     init(snapshotReader: @escaping @MainActor () async throws -> PlaybackSnapshot,
+         artworkReader: (@MainActor (Track) async -> Data?)? = nil,
          commandExecutor: (@MainActor (PlayerCommand) async throws -> Void)? = nil,
          now: @escaping @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime }) {
-        self.snapshotReader = snapshotReader; self.commandExecutor = commandExecutor; self.now = now
+        self.snapshotReader = snapshotReader; self.artworkReader = artworkReader
+        self.commandExecutor = commandExecutor; self.now = now
     }
     public func start() {
         guard loop == nil else { return }
@@ -159,6 +164,7 @@ public final class PlayerBridge {
     }
     public func stop() {
         revision &+= 1; loop?.cancel(); loop = nil; pollTask?.cancel(); pollTask = nil
+        cancelArtwork(clearCache: true)
         refreshPending = false
         musicApplications.invalidate()
         commandTask?.cancel(); commandTask = nil; commandQueue.removeAll()
@@ -166,7 +172,7 @@ public final class PlayerBridge {
         for token in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(token) }; workspaceObservers = []
     }
     isolated deinit { stop() }
-    public func restart() { stop(); latestScriptID = ""; artworkCacheID = ""; artworkCacheData = nil; start() }
+    public func restart() { stop(); latestScriptID = ""; start() }
     public func refresh() {
         guard pollTask == nil, commandTask == nil else { refreshPending = true; return }
         let generation = revision
@@ -190,8 +196,14 @@ public final class PlayerBridge {
                 if let snapshotReader { raw = try await snapshotReader() }
                 else { raw = try await readSnapshot() }
                 guard !Task.isCancelled, revision == generation else { return }
-                if let snapshot = continuity.accept(raw, now: now()) {
+                let previousTrack = continuity.latest?.track
+                let preserveArtwork = previousTrack.flatMap { previous in
+                    raw.track.map { artworkCompatible(previous, $0) }
+                } ?? true
+                if let accepted = continuity.accept(raw, now: now(), preserveArtwork: preserveArtwork) {
+                    let snapshot = reconcileArtwork(accepted, previous: previousTrack, preserveArtwork: preserveArtwork)
                     onError?(nil); onSnapshot?(snapshot)
+                    if revision == generation { scheduleArtwork(for: snapshot.track) }
                 }
                 if raw.track != nil || attempt == 2 { return }
             } catch {
@@ -232,6 +244,7 @@ public final class PlayerBridge {
         revision &+= 1
         pollTask?.cancel()
         pollTask = nil
+        cancelArtwork(clearCache: false)
         commandTask = Task { [weak self] in
             guard let self else { return }
             let generation = self.revision
@@ -408,23 +421,12 @@ public final class PlayerBridge {
                                     positionIsReliable: false, playbackStateIsReliable: item.playing != nil)
         }
         let persistentID = (item.id?.isEmpty == false ? item.id! : [title, item.artist ?? "", item.album ?? ""].joined(separator: "\u{1f}"))
-        if artworkCacheID != persistentID {
-            artworkCacheID = persistentID; artworkCacheData = nil; artworkAttempts = 0; nextArtworkAttempt = 0
-        }
-        if !spotify, artworkCacheData == nil, ProcessInfo.processInfo.systemUptime >= nextArtworkAttempt {
-            artworkAttempts += 1
-            var data = await readMusicArtwork(expectedID: item.id ?? "")
-            if data == nil { data = await readSystemMusicArtwork(title: title, artist: item.artist ?? "", album: item.album ?? "") }
-            nextArtworkAttempt = ProcessInfo.processInfo.systemUptime + (artworkAttempts < 3 ? 3 : 30)
-            try Task.checkCancellation()
-            artworkCacheData = data
-        }
         try Task.checkCancellation()
         latestScriptID = persistentID
         latestScriptTarget = target
         let track = Track(playerID: target, playerName: spotify ? "Spotify" : "Apple Music", persistentID: item.id ?? "", title: title,
                           artist: item.artist ?? "", album: item.album ?? "", duration: item.duration ?? 0,
-                          artworkData: spotify ? nil : artworkCacheData,
+                          artworkData: nil,
                           artworkURL: item.artwork.flatMap(URL.init(string:)), localFileURL: Self.fileURL(item.location), embeddedLyrics: item.lyrics)
         return PlaybackSnapshot(
             track: track,
@@ -434,6 +436,91 @@ public final class PlayerBridge {
             positionIsReliable: item.position != nil,
             playbackStateIsReliable: item.playing != nil
         )
+    }
+    private func cancelArtwork(clearCache: Bool) {
+        artworkGeneration &+= 1
+        artworkTask?.cancel(); artworkTask = nil
+        if clearCache {
+            artworkCacheID = ""; artworkCacheData = nil
+            artworkAttempts = 0; nextArtworkAttempt = 0
+        }
+    }
+    /// Missing fields are filled by PlaybackContinuity before we compare cache
+    /// keys. Nonempty conflicting fields still identify a genuine new item.
+    private func artworkCompatible(_ previous: Track, _ incoming: Track) -> Bool {
+        guard previous.playerID == incoming.playerID else { return false }
+        func compatible(_ a: String, _ b: String) -> Bool { a.isEmpty || b.isEmpty || a == b }
+        return compatible(previous.persistentID, incoming.persistentID)
+            && compatible(previous.title, incoming.title)
+            && compatible(previous.artist, incoming.artist)
+            && compatible(previous.album, incoming.album)
+    }
+    private func reconcileArtwork(_ accepted: PlaybackSnapshot, previous: Track?, preserveArtwork: Bool) -> PlaybackSnapshot {
+        guard var track = accepted.track else {
+            cancelArtwork(clearCache: true)
+            return accepted
+        }
+        guard track.playerID == "com.apple.Music" else {
+            if !artworkCacheID.isEmpty { cancelArtwork(clearCache: true) }
+            return accepted
+        }
+        if artworkCacheID != track.id {
+            if preserveArtwork, previous?.id == artworkCacheID {
+                // A partial sample or newly supplied album/ID describes the
+                // same song. Retain completed art, but restart an unfinished
+                // read against the fuller identity.
+                cancelArtwork(clearCache: false)
+                if artworkCacheData == nil { artworkAttempts = 0; nextArtworkAttempt = 0 }
+            } else {
+                cancelArtwork(clearCache: true)
+            }
+            artworkCacheID = track.id
+        }
+        if let data = track.artworkData {
+            artworkCacheData = data
+            artworkTask?.cancel(); artworkTask = nil
+        } else if let data = artworkCacheData {
+            track.artworkData = data
+            var enriched = accepted; enriched.track = track
+            return continuity.accept(enriched, now: now(), preserveArtwork: false) ?? enriched
+        }
+        return accepted
+    }
+    private func scheduleArtwork(for track: Track?) {
+        guard let track, track.playerID == "com.apple.Music", track.id == artworkCacheID,
+              track.artworkData == nil, artworkCacheData == nil, artworkTask == nil,
+              now() >= nextArtworkAttempt else { return }
+        artworkAttempts += 1
+        let identity = track.id, generation = artworkGeneration, bridgeRevision = revision
+        artworkTask = Task { [weak self] in
+            guard let self else { return }
+            let data: Data?
+            if let artworkReader = self.artworkReader {
+                data = await artworkReader(track)
+            } else {
+                var result = await self.readMusicArtwork(for: track)
+                if !Task.isCancelled, result == nil {
+                    result = await self.readSystemMusicArtwork(title: track.title, artist: track.artist, album: track.album)
+                }
+                data = result
+            }
+            guard !Task.isCancelled, self.revision == bridgeRevision,
+                  self.artworkGeneration == generation, self.artworkCacheID == identity,
+                  var latest = self.continuity.latest, var current = latest.track,
+                  current.id == identity else { return }
+            self.artworkTask = nil
+            self.nextArtworkAttempt = self.now() + (self.artworkAttempts < 3 ? 3 : 30)
+            guard let data, !data.isEmpty, data.count < 8_000_000 else { return }
+            self.artworkCacheData = data
+            current.artworkData = data; latest.track = current
+            // Leave the transport clock untouched; this publication only
+            // changes artwork and must not rewind progress or lyrics.
+            latest.positionIsReliable = false
+            latest.playbackStateIsReliable = false
+            if let enriched = self.continuity.accept(latest, now: self.now()) {
+                self.onSnapshot?(enriched)
+            }
+        }
     }
     private static func fileURL(_ value: String?) -> URL? {
         guard let value, !value.isEmpty else { return nil }
@@ -451,20 +538,37 @@ public final class PlayerBridge {
         }
         return nil
     }
-    private func readMusicArtwork(expectedID: String) async -> Data? {
+    private func readMusicArtwork(for track: Track) async -> Data? {
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("lyricsx-artwork-\(UUID().uuidString).bin")
         let source = #"""
         on run argv
           set outputPath to item 1 of argv
           set expectedID to item 2 of argv
+          set expectedTitle to item 3 of argv
+          set expectedArtist to item 4 of argv
+          set expectedAlbum to item 5 of argv
           tell application "Music"
             if not running then return ""
             set currentTrack to current track
             try
               if expectedID is not "" and (persistent ID of currentTrack as text) is not expectedID then return ""
+              if (name of currentTrack as text) is not expectedTitle then return ""
+              if (artist of currentTrack as text) is not expectedArtist then return ""
+              if (album of currentTrack as text) is not expectedAlbum then return ""
+            on error
+              return ""
             end try
             if (count of artworks of currentTrack) is 0 then return ""
             set rawData to raw data of artwork 1 of currentTrack
+            set endTrack to current track
+            try
+              if expectedID is not "" and (persistent ID of endTrack as text) is not expectedID then return ""
+              if (name of endTrack as text) is not expectedTitle then return ""
+              if (artist of endTrack as text) is not expectedArtist then return ""
+              if (album of endTrack as text) is not expectedAlbum then return ""
+            on error
+              return ""
+            end try
             set outputFile to open for access (POSIX file outputPath) with write permission
             try
               set eof outputFile to 0
@@ -479,7 +583,8 @@ public final class PlayerBridge {
         end run
         """#
         defer { try? FileManager.default.removeItem(at: outputURL) }
-        guard let result = try? await ProcessRunner.run("/usr/bin/osascript", arguments: ["-e", source, outputURL.path, expectedID]), result.status == 0,
+        guard let result = try? await ProcessRunner.run("/usr/bin/osascript", arguments: ["-e", source, outputURL.path,
+                                                                                     track.persistentID, track.title, track.artist, track.album]), result.status == 0,
               let data = try? Data(contentsOf: outputURL), !data.isEmpty, data.count < 8_000_000 else { return nil }
         return data
     }
