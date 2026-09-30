@@ -35,9 +35,11 @@ struct LyricArrivalClock {
     mutating func finish(_ token: Double?) {
         if let token, token == startedAt { cancel() }
     }
-    func frame(at now: Double) -> LyricMotion.Frame {
+    func frame(at now: Double, blurRadius: Double = 2.65) -> LyricMotion.Frame {
         guard let startedAt else { return .init() }
-        return LyricLinePresentation(start: startedAt, duration: duration, stablePrefixCount: 0, layoutTail: "").frame(at: now)
+        var frame = LyricLinePresentation(start: startedAt, duration: duration, stablePrefixCount: 0, layoutTail: "").frame(at: now)
+        frame.blur *= max(0, blurRadius) / 2.65
+        return frame
     }
     func finishedToken(at now: Double) -> Double? {
         guard let startedAt, now - startedAt >= duration else { return nil }
@@ -49,26 +51,33 @@ private struct LyricArrival<Trigger: Equatable & Sendable>: ViewModifier {
     let trigger: Trigger
     let reduced: Bool
     let distance: Double
+    let duration: Double
+    let blurred: Bool
+    let blurRadius: Double
     var visible: () -> Bool
     @Environment(\.accessibilityReduceMotion) private var systemReduced
     @State private var clock = LyricArrivalClock()
     @State private var displayedTrigger: Trigger?
 
     func body(content: Content) -> some View {
-        let visible = visible()
+        // An idle arrival has no drawing work to suspend. Subscribing its
+        // entire scroll content to window visibility would rebuild the lyric
+        // viewport just as the main window closes. Read visibility only while
+        // an arrival is running; a new trigger checks the current value below.
+        let visible = clock.startedAt == nil || visible()
         let motionReduced = reduced || systemReduced
         let presentation = clock
         return LyricRenderTimeline(running: presentation.startedAt != nil && !motionReduced && visible,
                             sampledTime: ProcessInfo.processInfo.systemUptime,
                             preciseTime: { ProcessInfo.processInfo.systemUptime }) { now in
-            let frame = motionReduced ? LyricMotion.Frame() : presentation.frame(at: now)
-            content.offset(y: frame.offset * distance / 10).blur(radius: frame.blur).opacity(frame.opacity)
+            let frame = motionReduced ? LyricMotion.Frame() : presentation.frame(at: now, blurRadius: blurRadius)
+            content.offset(y: frame.offset * distance / 10).blur(radius: blurred ? frame.blur : 0).opacity(frame.opacity)
                 .onChange(of: clock.finishedToken(at: now)) { _, token in clock.finish(token) }
         }
         .onChange(of: trigger, initial: true) { _, value in
             let first = displayedTrigger == nil
             displayedTrigger = value
-            if first || motionReduced || !visible { clock.cancel() } else { clock.start(at: ProcessInfo.processInfo.systemUptime) }
+            if first || motionReduced || !self.visible() { clock.cancel() } else { clock.start(at: ProcessInfo.processInfo.systemUptime, duration: duration) }
         }
         .onChange(of: visible) { _, value in if !value { clock.cancel() } }
         .onChange(of: motionReduced) { _, value in if value { clock.cancel() } }
@@ -83,7 +92,10 @@ private struct LyricArrival<Trigger: Equatable & Sendable>: ViewModifier {
 }
 
 extension View {
-    func lyricArrival(trigger: some Equatable & Sendable, reduced: Bool, distance: Double = 12, visible: @escaping () -> Bool = { true }) -> some View {
-        modifier(LyricArrival(trigger: trigger, reduced: reduced, distance: distance, visible: visible))
+    func lyricArrival(trigger: some Equatable & Sendable, reduced: Bool, distance: Double = 12,
+                      duration: Double = 0.84, blurred: Bool = true, blurRadius: Double = 2.65,
+                      visible: @escaping () -> Bool = { true }) -> some View {
+        modifier(LyricArrival(trigger: trigger, reduced: reduced, distance: distance,
+                             duration: duration, blurred: blurred, blurRadius: blurRadius, visible: visible))
     }
 }

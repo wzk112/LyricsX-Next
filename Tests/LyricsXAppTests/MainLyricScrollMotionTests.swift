@@ -25,6 +25,8 @@ import LyricsXCore
         let returned = state.request(index: 6, lines: lines, animated: true, force: true)
         #expect(returned?.index == 6 && returned?.duration == nil)
         #expect(state.request(index: 6, lines: lines, animated: true) == nil)
+        #expect(state.request(index: 6, lines: lines, animated: true, force: true, returning: true)?.duration == 0.36)
+        #expect(state.request(index: 6, lines: lines, animated: false, force: true, returning: true)?.duration == nil)
     }
 
     @Test func searchPreviewFollowsShortCuesCapsLongCuesAndResetsForAnotherDocument() {

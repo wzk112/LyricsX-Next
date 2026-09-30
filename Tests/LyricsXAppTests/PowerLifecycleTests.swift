@@ -113,6 +113,36 @@ private struct IdleRepository: LyricsRepository {
             "A new document must expose its next cue deadline immediately")
 }
 
+@Test @MainActor func revealingLyricsSurfaceRetargetsIdleCadenceWithoutAPlayerPoll() async throws {
+    for showingOverlay in [false, true] {
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.showMenubarLyrics = true
+        prefs.overlayVisible = false
+        prefs.hideOverlayOnHover = false
+        let model = AppModel(repository: IdleRepository(), preferences: prefs)
+        defer { model.stop() }
+        let track = Track(playerID: "test", playerName: "Test", title: "Test", duration: 10)
+        model.session.accept(.init(track: track, position: 0, isPlaying: true), shouldSearch: false)
+        model.session.use(.init(lines: [.init(id: 0, time: 0, text: "First"),
+                                      .init(id: 1, time: 5, text: "Second")]), persist: false)
+        if showingOverlay {
+            model.overlay = OverlayController(model: model, frameAutosaveName: nil,
+                pointerLocation: { .init(x: -10_000, y: -10_000) })
+        }
+        model.startLyricClock()
+        let original = try #require(model.lyricClockNextFireAt)
+        if showingOverlay { model.setOverlayVisible(true) }
+        else { model.mainWindowVisible = true }
+        for _ in 0..<4 { await Task.yield() }
+        let updated = try #require(model.lyricClockNextFireAt)
+        #expect(updated < original - 0.1)
+        #expect(model.lyricClockInterval() < 100)
+    }
+}
+
 @Test @MainActor func unchangedMenuDeadlineDoesNotRestartPendingTimer() throws {
     var wakes = 0
     let ticker = PlaybackTicker { wakes += 1; return 250 }

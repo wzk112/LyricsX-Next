@@ -85,4 +85,32 @@ import Testing
             #expect(prefs.overlayTypography(colorScheme: .light) == frostedLight)
         }
     }
+
+    @Test func artworkSecondaryHueSurvivesAdaptationAndRefreshesCachedInk() throws {
+        try fixture { prefs, _ in
+            prefs.lyricPrimaryColor = "123456"
+            prefs.lyricSecondaryColor = "654321"
+            prefs.followArtworkColors = true
+            prefs.overlayAppearance = .frosted
+            prefs.artworkTheme = .init(accent: "E03030", sung: "FFCCCC", unsung: "665252",
+                secondary: "CCD5FF", palette: ["E03030", "3040E0"])
+            let light = prefs.mainTypography(colorScheme: .light)
+            #expect(light.primaryHex != light.secondaryHex)
+            #expect(LyricTypography.luminance(light.secondaryHex) <= 0.016)
+            #expect(prefs.overlayTypography(colorScheme: .light).secondaryHex == light.secondaryHex)
+            prefs.overlayAppearance = .glass
+            #expect(prefs.overlayTypography(colorScheme: .dark).secondaryHex == "CCD5FF")
+
+            // A new auxiliary color with the same dominant color must invalidate
+            // the adaptation cache instead of retaining the previous song's hue.
+            prefs.artworkTheme = .init(accent: "E03030", sung: "FFCCCC", unsung: "665252",
+                secondary: "CCFFCC", palette: ["E03030", "30E040"])
+            let updated = prefs.mainTypography(colorScheme: .light)
+            #expect(updated.primaryHex == light.primaryHex)
+            #expect(updated.secondaryHex != light.secondaryHex)
+            #expect(prefs.overlayTypography(colorScheme: .dark).secondaryHex == "CCFFCC")
+            prefs.followArtworkColors = false
+            #expect(prefs.typography.primaryHex == "123456" && prefs.typography.secondaryHex == "654321")
+        }
+    }
 }

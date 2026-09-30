@@ -83,24 +83,42 @@ struct WindowVisibilityReader: NSViewRepresentable {
     func updateNSView(_ view: VisibilityView, context: Context) { view.changed = changed }
 
     static func dismantleNSView(_ view: VisibilityView, coordinator: ()) {
-        NotificationCenter.default.removeObserver(view)
+        view.stop()
         view.changed = nil
     }
     final class VisibilityView: NSView {
         var changed: ((Bool) -> Void)?
         private var activity = WindowRenderActivity()
         private var reported: Bool?
+        private var visibilityObservation: NSKeyValueObservation?
+        private var attachment: UInt64 = 0
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            NotificationCenter.default.removeObserver(self)
+            stop()
             activity = WindowRenderActivity()
             reported = nil
             if let window {
+                let token = attachment
+                visibilityObservation = window.observe(\.isVisible, options: [.new]) { [weak self] _, _ in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.attachment == token else { return }
+                        self.updateVisibility(nil)
+                    }
+                }
                 for name in WindowRenderActivity.notifications {
                     NotificationCenter.default.addObserver(self, selector: #selector(updateVisibility(_:)), name: name, object: window)
                 }
             }
-            DispatchQueue.main.async { [weak self] in self?.updateVisibility(nil) }
+            let token = attachment
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.attachment == token else { return }
+                self.updateVisibility(nil)
+            }
+        }
+        func stop() {
+            attachment &+= 1
+            visibilityObservation?.invalidate(); visibilityObservation = nil
+            NotificationCenter.default.removeObserver(self)
         }
         @objc private func updateVisibility(_ notification: Notification?) {
             let visible = activity.update(event: notification?.name, visible: window?.isVisible == true,

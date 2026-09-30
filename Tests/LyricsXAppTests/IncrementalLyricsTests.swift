@@ -182,6 +182,21 @@ import LyricsXServices
     #expect(clock.frame(at: 9) == .init())
 }
 
+@Test func mainTrackBlurClearsBeforeTravelFinishesAndCancellationRests() {
+    var clock = LyricArrivalClock()
+    clock.start(at: 20, duration: 0.52)
+    let first = clock.frame(at: 20, blurRadius: 3.5)
+    let middle = clock.frame(at: 20.14, blurRadius: 3.5)
+    #expect(abs(first.blur - 3.5) < 0.001)
+    #expect(middle.blur > 0 && middle.blur < first.blur)
+    let readable = clock.frame(at: 20.30, blurRadius: 3.5)
+    #expect(readable.blur == 0 && readable.opacity == 1)
+    #expect(clock.frame(at: 20.521, blurRadius: 3.5) == .init())
+    clock.start(at: 21, duration: 0.52)
+    clock.cancel()
+    #expect(clock.frame(at: 21.1, blurRadius: 3.5) == .init())
+}
+
 @Test func overlayContentChangesUseBoundedNonlinearBlurWithoutBlurringEachSuffix() {
     let base = OverlayContentIdentity(track: "one", document: UUID(), primary: "Light", translation: "光", next: "Next")
     #expect(OverlayBlurStyle.change(from: base, to: base, incremental: false, lineDuration: 3).radius == 0)

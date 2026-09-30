@@ -35,6 +35,37 @@ import LyricsXCore
     #expect(bridge.pollInterval == 1)
 }
 
+@Test @MainActor func resumeRetargetsAnAlreadySleepingPausedPollLoop() async throws {
+    var reads = 0, emissions = 0
+    var playing = false
+    let track = Track(playerID: "com.apple.Music", playerName: "Music", title: "Resume fixture", duration: 120)
+    let bridge = PlayerBridge(snapshotReader: {
+        reads += 1
+        return .init(track: track, position: Double(reads), isPlaying: playing)
+    }, artworkReader: { _ in nil })
+    bridge.onSnapshot = { _ in emissions += 1 }
+    defer { bridge.stop() }
+    func wait(until condition: () -> Bool, seconds: Double) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(seconds))
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(condition())
+    }
+    bridge.start()
+    // After the second automatic paused read the loop has entered its real
+    // five-second sleep, rather than merely reporting a five-second policy.
+    try await wait(until: { emissions >= 2 }, seconds: 2)
+    let pausedReads = reads
+    playing = true
+    bridge.refresh() // the same path used by the player's resume notification
+    try await wait(until: { emissions > pausedReads }, seconds: 0.5)
+    let resumedReads = reads
+    #expect(bridge.pollInterval == 1)
+    try await wait(until: { reads > resumedReads }, seconds: 1.8)
+    // The fresh sample must precede PlaybackTimeline's three-second stale
+    // cutoff; waiting out the former paused deadline would freeze both views.
+    #expect(reads == resumedReads + 1)
+}
+
 @Test @MainActor func musicDiscoveryCachesEmptyAndPopulatedSnapshotsUntilInvalidated() {
     var reads = 0
     var running: [NSRunningApplication] = []

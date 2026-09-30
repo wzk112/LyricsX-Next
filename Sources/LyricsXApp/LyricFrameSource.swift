@@ -38,6 +38,7 @@ struct LyricFrameSource: NSViewRepresentable {
     var frameRateLimit = 0 { didSet { if frameRateLimit != oldValue { updateFrameRate() } } }
     var running = false { didSet { if running != oldValue { updateActivity(nil) } } }
     private var link: CADisplayLink?
+    private var visibilityObservation: NSKeyValueObservation?
     private var activity = WindowRenderActivity()
     private var attachment: UInt64 = 0
     private(set) var deliveringFrames = false
@@ -56,6 +57,13 @@ struct LyricFrameSource: NSViewRepresentable {
         stop()
         activity = WindowRenderActivity()
         guard let window else { return }
+        let token = attachment
+        visibilityObservation = window.observe(\.isVisible, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.attachment == token else { return }
+                self.updateActivity(nil)
+            }
+        }
         for name in WindowRenderActivity.notifications {
             NotificationCenter.default.addObserver(self, selector: #selector(updateActivity(_:)), name: name, object: window)
         }
@@ -69,7 +77,6 @@ struct LyricFrameSource: NSViewRepresentable {
         updateActivity(nil)
         // Attachment often precedes the window's first orderFront. Read again
         // after that operation even if AppKit coalesces its occlusion event.
-        let token = attachment
         DispatchQueue.main.async { [weak self] in
             guard let self, self.attachment == token else { return }
             self.updateActivity(nil)
@@ -114,6 +121,7 @@ struct LyricFrameSource: NSViewRepresentable {
     }
     func stop() {
         attachment &+= 1
+        visibilityObservation?.invalidate(); visibilityObservation = nil
         link?.invalidate(); link = nil
         deliveringFrames = false
         requestedFrameRate = 0

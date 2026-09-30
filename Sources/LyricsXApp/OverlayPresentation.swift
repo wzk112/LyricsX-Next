@@ -16,6 +16,7 @@ struct OverlayDisplaySnapshot {
     let documentRevision: UInt64
     let index: Int?
     let artwork: NSImage?
+    let artworkLoading: Bool
     let mode: OverlayPresentationMode
     var compact: Bool { mode != .lyrics }
     let searching: Bool
@@ -28,6 +29,7 @@ struct OverlayDisplaySnapshot {
         document = model.session.document
         documentRevision = model.session.documentRevision
         index = model.session.currentLineIndex; artwork = model.artwork
+        artworkLoading = model.artworkLoading
         mode = model.overlayPresentationMode; searching = model.session.isSearching
         position = model.session.presentationPosition(at: now)
         playing = model.session.isPlaying; sampledAt = now
@@ -53,9 +55,10 @@ struct OverlayDisplaySnapshot {
     func update(model: AppModel, at now: Double = ProcessInfo.processInfo.systemUptime) {
         let live = OverlayDisplaySnapshot(model: model, at: now)
         let searchingForSong = live.track != nil && live.document == nil && live.searching
+            && live.trackRevision != last?.trackRevision
         let enteringCard = live.compact && last?.compact == false
         guard !model.preferences.reduceMotion, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-              searchingForSong || enteringCard, let last, last.document != nil else {
+              searchingForSong || enteringCard, let last, last.track != nil else {
             stop(); self.last = live
             return
         }

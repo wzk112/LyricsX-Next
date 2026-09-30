@@ -7,6 +7,7 @@ import LyricsXServices
 @Observable @MainActor
 final class Preferences {
     @ObservationIgnored private let defaults: UserDefaults
+    let globalHotkeys: HotkeyPreferences
     @ObservationIgnored nonisolated let sourceConfigurationReader: SourceConfigurationReader
     var appTheme: InterfaceTheme { didSet { save("appTheme", appTheme.rawValue) } }
     var overlayTheme: InterfaceTheme { didSet { save("overlayTheme", overlayTheme.rawValue) } }
@@ -110,8 +111,8 @@ final class Preferences {
         // dark main window. Generate glass ink from that accent directly.
         let key: TypographyKey
         if followArtworkColors {
-            let accent = (artworkTheme ?? .neutral).accent
-            key = .init(font: lyricFontName, primary: accent, secondary: accent)
+            let theme = artworkTheme ?? .neutral
+            key = .init(font: lyricFontName, primary: theme.accent, secondary: theme.secondaryAccent)
         } else { key = typographyKey }
         let dark = colorScheme == .dark
         if let cache = dark ? darkTypographyCache : lightTypographyCache, cache.key == key { return cache.value }
@@ -125,6 +126,7 @@ final class Preferences {
     var overlaySecondaryMode: OverlaySecondaryMode { didSet { save("overlaySecondaryMode", overlaySecondaryMode.rawValue) } }
     var mainLyricFontSize: Double { didSet { save("mainLyricFontSize", mainLyricFontSize) } }
     var mainTranslationFontSize: Double { didSet { save("mainTranslationFontSize", mainTranslationFontSize) } }
+    var mainLyricPosition: MainLyricPosition { didSet { save("mainLyricPosition", mainLyricPosition.rawValue) } }
     var showTranslation: Bool { didSet { save("showTranslation", showTranslation) } }
     var flexbarEnabled: Bool { didSet { save("flexbarEnabled", flexbarEnabled) } }
     var showMenubarLyrics: Bool { didSet { save("showMenubarLyrics", showMenubarLyrics) } }
@@ -156,6 +158,7 @@ final class Preferences {
     var overlaySecondarySpacing: Double { max(8, max(translationFontSize, nextLineFontSize) * 0.6) }
     init(defaults d: UserDefaults = .standard) {
         defaults = d
+        globalHotkeys = HotkeyPreferences(defaults: d)
         sourceConfigurationReader = SourceConfigurationReader(defaults: d)
         appTheme = InterfaceTheme(rawValue: d.string(forKey: "appTheme") ?? "system") ?? .system
         overlayTheme = InterfaceTheme(rawValue: d.string(forKey: "overlayTheme") ?? "system") ?? .system
@@ -210,6 +213,7 @@ final class Preferences {
         overlaySecondaryMode = OverlaySecondaryMode(rawValue: d.string(forKey: "overlaySecondaryMode") ?? "translation") ?? .translation
         mainLyricFontSize = number("mainLyricFontSize", 30, 20...42)
         mainTranslationFontSize = number("mainTranslationFontSize", 14, 11...24)
+        mainLyricPosition = MainLyricPosition(savedValue: d.string(forKey: "mainLyricPosition"))
         showTranslation = d.object(forKey: "showTranslation") as? Bool ?? true
         flexbarEnabled = d.bool(forKey: "flexbarEnabled")
         showMenubarLyrics = d.bool(forKey: "showMenubarLyrics")

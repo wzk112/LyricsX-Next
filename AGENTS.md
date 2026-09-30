@@ -7,3 +7,5 @@ Every requested release must include a release quality pass before publication. 
 For every version, update the app version and build number, the in-app update pages in `Sources/LyricsXApp/FeatureGuide.swift`, `CHANGELOG.md`, the matching `docs/releases/vX.Y.Z.md` note, and the current version links in `README.md`. Add or update upgrade tests for a one-time in-app introduction. Do not publish a version with a stale or empty in-app change log.
 
 Follow `docs/RELEASING.md` for packaging, signature, archive, GitHub release, and downloaded asset verification. State validation limits honestly, particularly for audio capture permissions, display frame rate, and physical Flexbar output.
+
+Write release notes and in-app introductions in plain feature language. List each important feature's settings location and provide working controls in the introduction where appropriate. Illustrations must use the actual app components or real macOS screenshots, with demonstrations identified accurately. Keep local repair notes separate from published release history until packaging the next version.

@@ -399,9 +399,11 @@ final class OverlayController: NSObject, NSWindowDelegate {
             controlsVisible = showControls
             controlsFadeGeneration &+= 1
             let fadeGeneration = controlsFadeGeneration
-            if !showControls && !windowVisibilityTarget && !reducedMotion {
+            if !showControls && !windowVisibilityTarget && windowFadeActive && !reducedMotion {
                 // Manual and pause dismissal fade the entire surface, so the
-                // control contents stay intact until the panel fade ends.
+                // control contents stay intact until that active fade ends.
+                // A completed hover fade already targets a transparent panel;
+                // its detached controls need their own dismissal on pause.
                 panel.setAccessibilityChildren([content, header])
                 return
             }
@@ -415,8 +417,9 @@ final class OverlayController: NSObject, NSWindowDelegate {
                     controlPanel.orderFrontRegardless()
                 }
             }
+            let animateControls = !reducedMotion && !dragging && controls.window?.isVisible == true
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = reducedMotion || dragging ? 0 : 0.16
+                context.duration = animateControls ? 0.16 : 0
                 controls.animator().alphaValue = showControls ? 1 : 0
             } completionHandler: { [weak self] in
                 Task { @MainActor in
@@ -426,7 +429,10 @@ final class OverlayController: NSObject, NSWindowDelegate {
                     self.controlPanel.orderOut(nil)
                 }
             }
-            if reducedMotion && !showControls {
+            if !animateControls && !showControls {
+                // An inline strip's parent may already be ordered out after
+                // hover hiding. Hidden hosts have no fade cycle to complete.
+                controls.alphaValue = 0
                 controls.isHidden = true
                 controlPanel.orderOut(nil)
             }
@@ -568,7 +574,9 @@ final class OverlayController: NSObject, NSWindowDelegate {
         // the live session can already be waiting while old lyrics fade out.
         let display = presentation.held ?? OverlayDisplaySnapshot(model: model, at: ProcessInfo.processInfo.systemUptime)
         let mode = display.mode
-        centersVisibleContent = !p.overlayWaveformEnabled && mode != .waiting
+        // Keep one positioning rule through waiting/card/lyric changes.
+        // Switching rules before the native resize moved the host instantly.
+        centersVisibleContent = !p.overlayWaveformEnabled
         showsPinnedHeader = mode == .lyrics
         // No observation of the display clock: only a line/setting change can
         // request a new size. Retarget native animation immediately in either direction.
@@ -821,22 +829,8 @@ struct OverlayView: View {
                         Spacer(minLength: model.preferences.overlayWaveformEnabled ? 0 : 10)
                     }
                 } else if compact {
-                    HStack(spacing: card.spacing) {
-                        Group {
-                            if let artwork = display.artwork {
-                                Image(nsImage: artwork).resizable().scaledToFill()
-                            } else {
-                                ZStack { Color.white.opacity(0.08); Image(systemName: "music.note").font(.system(size: 18)) }
-                            }
-                        }.frame(width: card.artwork, height: card.artwork).clipShape(.rect(cornerRadius: 9))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(display.track?.title ?? "LyricsX Next")
-                                .font(.system(size: card.title, weight: .semibold)).lineLimit(2).minimumScaleFactor(0.85)
-                            if let artist = display.track?.artist, !artist.isEmpty {
-                                Text(artist).font(.system(size: card.artist, weight: .medium)).lineLimit(1).opacity(0.8)
-                            }
-                        }.shadow(color: .black.opacity(lightGlass ? 0.12 : 0.8), radius: 2, y: 1)
-                    }.frame(maxWidth: card.contentWidth, alignment: .center)
+                    OverlaySongCardTransition(display: display, layout: card, lightGlass: lightGlass,
+                        animated: windowVisible && viewport.rendering && !reduceMotion && !model.preferences.reduceMotion)
                 } else if centeredLyrics {
                     lyricBody(display: display, maximum: maximum, lightGlass: lightGlass,
                         centerVisibleContent: true)
@@ -850,6 +844,9 @@ struct OverlayView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // This local animation survives the arrival modifier's isolation
+            // of its display-rate blur from ancestor layout animations.
+            .animation(modeAnimation, value: display.mode)
             .modifier(transition)
         }
             // Cached instrumental/no-lyrics results can replace the initial
@@ -924,7 +921,8 @@ struct OverlayView: View {
         // replaying the title/card transition.
         let identity = OverlayContentIdentity(track: display.track.map { _ in String(display.trackRevision) })
         return OverlayContentTransition(identity: identity.songScope,
-            reduced: reduceMotion || p.reduceMotion, visible: windowVisible && viewport.rendering, preparingSince: presentation?.preparingSince)
+            reduced: reduceMotion || p.reduceMotion, visible: windowVisible && viewport.rendering,
+            preparingSince: presentation?.preparingSince, animatesArrival: display.mode != .song)
     }
     private func presentationHeight(maximum: Double, display: OverlayDisplaySnapshot) -> Double {
         OverlayLyricsWindowLayout.baseHeight(document: display.document, index: display.index,
@@ -937,6 +935,67 @@ struct OverlayView: View {
         if model.session.phase == .loading { return "正在寻找歌词…" }
         if model.session.document != nil { return "•••" }
         return model.session.track == nil ? "未在播放" : "还没有找到歌词"
+    }
+}
+
+/// A revision owns the whole departing row; image refinements animate locally.
+/// The two rows retain their own intrinsic positions while fading through the
+/// same fixed card width, including a short-to-long-title change.
+struct OverlaySongCardTransition: View {
+    let display: OverlayDisplaySnapshot
+    let layout: OverlaySongCardLayout
+    let lightGlass: Bool
+    let animated: Bool
+    var body: some View {
+        ZStack {
+            OverlaySongCard(display: display, layout: layout, lightGlass: lightGlass, animated: animated)
+                .id(display.trackRevision)
+                .transition(animated ? .artworkBlur : .identity)
+        }
+        .animation(animated ? .easeInOut(duration: 0.45) : nil, value: display.trackRevision)
+    }
+}
+
+private struct OverlaySongCard: View {
+    let display: OverlayDisplaySnapshot
+    let layout: OverlaySongCardLayout
+    let lightGlass: Bool
+    let animated: Bool
+    var body: some View {
+        // The model owns the bounded metadata/decode hold across revisions.
+        // Local state is destroyed by the whole-row track transition and
+        // cannot bridge the very nil frame it was intended to hide.
+        let artwork = display.artwork
+        HStack(spacing: layout.spacing) {
+            ZStack {
+                if let artwork {
+                    Image(nsImage: artwork).resizable().scaledToFill()
+                        .id(ObjectIdentifier(artwork))
+                        .transition(animated ? .artworkBlur : .identity)
+                } else {
+                    ZStack {
+                        Color.white.opacity(0.08)
+                        // Late metadata can arrive after the bounded hold.
+                        // A real song without pixels uses a quiet tile, so a
+                        // default note never flashes before its actual cover.
+                        if display.track == nil && !display.artworkLoading {
+                            Image(systemName: "music.note").font(.system(size: 18))
+                        }
+                    }
+                        .transition(animated ? .opacity : .identity)
+                }
+            }
+            .frame(width: layout.artwork, height: layout.artwork)
+            .clipShape(.rect(cornerRadius: 9))
+            .animation(animated ? .easeInOut(duration: 0.45) : nil, value: artwork.map(ObjectIdentifier.init))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(display.track?.title ?? "LyricsX Next")
+                    .font(.system(size: layout.title, weight: .semibold)).lineLimit(2).minimumScaleFactor(0.85)
+                if let artist = display.track?.artist, !artist.isEmpty {
+                    Text(artist).font(.system(size: layout.artist, weight: .medium)).lineLimit(1).opacity(0.8)
+                }
+            }.shadow(color: .black.opacity(lightGlass ? 0.12 : 0.8), radius: 2, y: 1)
+        }.frame(maxWidth: layout.contentWidth, alignment: .center)
     }
 }
 

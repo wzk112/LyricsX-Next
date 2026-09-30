@@ -119,6 +119,17 @@ private struct WaveformQARepository: LyricsRepository {
         #expect(container.sublayers?.count == 3)
         #expect((container.sublayers?.last as? CAGradientLayer)?.mask is CAShapeLayer)
         #expect(mask.frame.size == view.bounds.size)
+        let stroke = try #require(container.sublayers?[1] as? CAShapeLayer)
+        let gradient = try #require(container.sublayers?.last as? CAGradientLayer)
+        let bands = [Float](repeating: 0.3, count: WaveformSpectrumAnalyzer.bandCount)
+        view.injectTestBands(bands, style: .monochrome, lightGlass: false, theme: .neutral)
+        #expect(!stroke.isHidden && gradient.isHidden)
+        view.injectTestBands(bands, style: .artwork, lightGlass: false, theme: .neutral)
+        #expect(stroke.isHidden && !gradient.isHidden)
+        let originalPathWidth = try #require(stroke.path).boundingBoxOfPath.width
+        view.setFrameSize(.init(width: width + 100, height: 18))
+        view.layoutSubtreeIfNeeded()
+        #expect(abs(try #require(stroke.path).boundingBoxOfPath.width - originalPathWidth - 100) < 0.01)
     }
 }
 

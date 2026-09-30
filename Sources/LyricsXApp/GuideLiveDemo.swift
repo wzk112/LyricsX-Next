@@ -104,6 +104,7 @@ struct GuideLiveDemo: View {
     let kind: String
     let reduced: Bool
     var viewportHeight: CGFloat = 600
+    var mainPosition: MainLyricPosition?
     @State private var demo: GuideDemoSession?
     @State private var visible = false
     @State private var inViewport = true
@@ -114,8 +115,10 @@ struct GuideLiveDemo: View {
               appReduced: reduced, systemReduced: systemReduced)
     }
 
-    init(kind: String, reduced: Bool, viewportHeight: CGFloat = 600, session: GuideDemoSession? = nil) {
+    init(kind: String, reduced: Bool, viewportHeight: CGFloat = 600, session: GuideDemoSession? = nil,
+         mainPosition: MainLyricPosition? = nil) {
         self.kind = kind; self.reduced = reduced; self.viewportHeight = viewportHeight
+        self.mainPosition = mainPosition
         _demo = State(initialValue: session)
     }
 
@@ -174,6 +177,11 @@ struct GuideLiveDemo: View {
             .onAppear {
                 if demo == nil { demo = GuideDemoSession(reduced: effectiveReduced) }
                 demo?.setReducedMotion(effectiveReduced)
+                if let mainPosition { demo?.model.preferences.mainLyricPosition = mainPosition }
+                if kind == "liveTheme" { demo?.model.preferences.followArtworkColors = true }
+            }
+            .onChange(of: mainPosition) { _, value in
+                if let value { demo?.model.preferences.mainLyricPosition = value }
             }
             .onChange(of: effectiveReduced) { _, value in demo?.setReducedMotion(value) }
             .onDisappear { demo?.stop(); demo = nil }

@@ -9,6 +9,32 @@ extension EnvironmentValues {
     }
 }
 
+/// Geometry and text wrapping can move the same cue without changing its
+/// index. Observe these together with browsing so a layout change cannot
+/// first animate a cue and then cancel that animation in another callback.
+struct MainLyricFollowInput: Equatable {
+    struct Layout: Equatable {
+        let viewport: CGSize
+        let position: MainLyricPosition
+        let primaryFontSize: Double
+        let translationFontSize: Double
+        let showTranslation: Bool
+        let fontName: String
+        let conversion: String
+    }
+    let index: Int?
+    let browsing: Bool
+    let reduced: Bool
+    let layout: Layout
+
+    func policy(comparedTo previous: Self) -> (animated: Bool, force: Bool, returning: Bool)? {
+        guard !browsing else { return nil }
+        let reflow = layout != previous.layout || reduced != previous.reduced
+        let returning = previous.browsing
+        return (!reduced && !reflow, reflow || returning, returning)
+    }
+}
+
 /// A line change and a browsing/visibility callback can arrive together. Only
 /// one of them should retarget the scroll, and a seek must not sweep through
 /// unmaterialized lazy rows on its way to the destination.
@@ -20,12 +46,14 @@ struct MainLyricFollowState {
     private var initialized = false
     private var index: Int?
 
-    mutating func request(index next: Int?, lines: [LyricLine], animated: Bool, force: Bool = false) -> Request? {
+    mutating func request(index next: Int?, lines: [LyricLine], animated: Bool, force: Bool = false,
+                          returning: Bool = false) -> Request? {
         guard force || !initialized || next != index else { return nil }
         let sequential = initialized && index != nil && next == index.map { $0 + 1 }
         initialized = true
         index = next
-        let duration = animated && sequential && !force ? LyricMotion.followResponse(lines: lines, index: next) : nil
+        let duration: Double? = animated && returning ? 0.36
+            : animated && sequential && !force ? LyricMotion.followResponse(lines: lines, index: next) : nil
         return Request(index: next, duration: duration)
     }
 }

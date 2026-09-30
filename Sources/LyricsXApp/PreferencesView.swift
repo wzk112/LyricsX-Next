@@ -228,11 +228,7 @@ struct PreferencesView: View {
                     }
                 }
             }
-            SettingsCard(title: "快捷键") {
-                SettingRow(title: "悬浮歌词", detail: "显示或隐藏桌面上的悬浮窗。") { Text("⌥⌘L").monospaced() }
-                SettingRow(title: "主窗口", detail: "隐藏 Dock 或菜单栏后也可使用。") { Text("⌥⌘O").monospaced() }
-                SettingRow(title: "搜索歌词", detail: "在 LyricsX Next 内打开当前歌曲的版本搜索。") { Text("⌘F").monospaced() }
-            }
+            HotkeySettingsView(settings: p.globalHotkeys)
         }
     }
 
@@ -326,6 +322,7 @@ struct PreferencesView: View {
                     }.labelsHidden().frame(width: 110)
                 }
                 SettingSlider(title: "主窗口歌词字号", detail: "调整应用内原文的大小，长句自动换行。", value: $p.mainLyricFontSize, range: 20...42)
+                MainLyricPositionSettings(preferences: p)
                 if p.showTranslation { SettingSlider(title: "主窗口翻译字号", detail: "独立调整应用内译文大小。", value: $p.mainTranslationFontSize, range: 11...24) }
             }
             SettingsCard(title: "悬浮窗文字") {
@@ -388,7 +385,7 @@ struct PreferencesView: View {
                 SettingToggle(title: "逐字优先", detail: "优先带逐字时间的版本；没有逐字版本时尝试双语歌词。两项都开时，先逐字、后双语。", value: $p.preferWordTiming)
                 SettingToggle(title: "严格匹配", detail: "开启时更重视歌名的准确匹配；关闭后允许可信的别名、音译和标题变体。", impact: "过严可能漏掉版本，放宽后需要留意同名歌曲或翻唱。", value: $p.strictLyricsMatching)
                 SettingRow(title: "完整搜索", detail: "可在搜索窗口临时开启，默认关闭。会搜索更多别名和版本。", impact: "开启后结果更多，最长可能等待 40 秒。") {
-                    Button("打开搜索") { openWindow(id: "main"); model.showSearch = true }
+                    Button("打开搜索") { model.showMainWindow?(); model.showSearch = true }
                 }
             }
             SettingsCard(title: "来源顺序") {

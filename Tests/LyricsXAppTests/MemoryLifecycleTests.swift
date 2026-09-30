@@ -101,19 +101,38 @@ private struct MemoryTestRepository: LyricsRepository {
         let suite = "LyricsXTests-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        var model: AppModel? = AppModel(repository: MemoryTestRepository(), preferences: Preferences(defaults: defaults))
-        weak var reference = model
-        var host: NSHostingView<MainView>? = NSHostingView(rootView: MainView(model: model!))
-        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 760, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host; window.orderFrontRegardless()
-        try await Task.sleep(for: .milliseconds(40))
-        #expect(model?.showMainWindow != nil)
-        model?.stop()
-        window.orderOut(nil); window.contentView = nil; window.close()
-        host = nil; model = nil
-        for _ in 0..<200 where reference != nil { try await Task.sleep(for: .milliseconds(5)) }
-        #expect(reference == nil)
+        final class References {
+            weak var model: AppModel?
+            weak var owner: MainWindowController?
+        }
+        let references = References()
+        // End the synchronous ownership scope and drain AppKit temporaries
+        // before checking weak references from the async test's frame.
+        let showMain: () -> Void = try autoreleasepool {
+            let model = AppModel(repository: MemoryTestRepository(), preferences: Preferences(defaults: defaults))
+            let owner = MainWindowController(model: model, frameAutosaveName: nil)
+            references.model = model; references.owner = owner
+            defer { owner.stop(); model.stop() }
+            owner.show()
+            let window = try #require(owner.window)
+            let host = try #require(window.contentView)
+            host.layoutSubtreeIfNeeded()
+            let callback = try #require(model.showMainWindow)
+            #expect(window.isVisible)
+            window.performClose(nil)
+            #expect(!window.isVisible && model.showMainWindow != nil)
+            callback()
+            #expect(window.isVisible && owner.window === window && window.contentView === host)
+            // Keeping this callback alive must not keep its owner or model.
+            return callback
+        }
+        for _ in 0..<200 where references.owner != nil || references.model != nil {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(references.owner == nil)
+        showMain() // A stored callback is harmless after its weak owner retires.
+        #expect(references.owner == nil)
+        #expect(references.model == nil)
     }
 
 }

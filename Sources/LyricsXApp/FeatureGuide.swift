@@ -47,17 +47,17 @@ struct GuidePage: Identifiable {
 
 enum GuideContent {
     // Changed only when the introduction itself is revised, never for a routine rebuild.
-    static let revision = "waveform-visuals-38"
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.38"
+    static let revision = "playback-controls-39"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.39"
     static let tutorial: [GuidePage] = [
         .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
             "打开 Apple Music、Spotify、网易云或 QQ 音乐播放歌曲，即可自动同步歌词。自动识别不包含浏览器。",
             "没有识别到播放器？前往“设置 → 播放器”选择来源或重新连接。系统询问控制播放器的权限时，请允许。",
             "应用会自动搜索并保存歌词。等待歌词时显示三个点，纯音乐或没有歌词时显示歌曲信息。"], illustration: "player"),
         .init(id: "main", title: "主窗口与菜单栏", subtitle: "播放、切歌和查看歌词", symbol: "text.quote", points: [
-            "点击歌词可跳到那一句；底部可以播放、暂停、切歌和拖动进度。播放时歌词会跟随当前句，手动滚动后可返回正在唱的地方。",
+            "点击歌词可跳到那一句；底部可以播放、暂停、切歌和拖动进度。在“设置 → 歌词”可将主窗口当前歌词设为居中或上方，手动滚动后可返回正在唱的地方。",
             "关闭主窗口也能继续看悬浮歌词。菜单栏歌词、Dock 图标和登录启动，可在“设置 → 通用”调整。",
-            "⌥⌘O 打开主窗口，⌥⌘L 显示或隐藏悬浮窗。隐藏菜单栏和 Dock 图标后，仍可用快捷键打开。"], illustration: "player"),
+            "默认 ⌥⌘O 打开主窗口，⌥⌘L 显示或隐藏悬浮窗。在“设置 → 通用”可自定义或清除全局快捷键；清除后，可重新打开应用进入主窗口。"], illustration: "player"),
         .init(id: "search", title: "选择合适的歌词", subtitle: "点击放大镜，或按 ⌘F", symbol: "magnifyingglass", points: [
             "输入歌名或歌手，点“预览”查看效果，再点“应用当前歌词”使用。列表会保持打开，方便继续挑选。",
             "“完整搜索”会查找更多版本，但可能需要更久；平时保持关闭即可。",
@@ -87,7 +87,7 @@ enum GuideContent {
             "只对带逐字时间的歌词生效，仍保留轻微放大和长音辉光。普通逐行歌词使用原文颜色。",
             "关闭独立配色会恢复明暗高亮，已选的两种颜色会保留。"], illustration: "wordColors"),
         .init(id: "theme", title: "让歌词跟随封面配色", subtitle: "设置 → 歌词 → 跟随封面主题色", symbol: "photo", points: [
-            "开启后从歌曲封面提取颜色：已唱部分更明亮，未唱部分较暗，翻译保持柔和。切歌时自动更新。",
+            "开启后从封面提取最多四种代表色：原文与辅助文字分别配色，已唱部分更明亮，未唱部分较暗。彩色波形使用多色渐变，切歌时自动更新。",
             "没有封面时使用中性配色。自动配色优先于手动颜色，但不会覆盖它们，关闭即可恢复。",
             "主窗口背景也会随封面变化。背景与歌词的配色分别处理，关闭歌词跟色不会关掉封面背景。"], illustration: "theme"),
         .init(id: "text", title: "翻译、下一句与简繁体", subtitle: "设置 → 歌词", symbol: "text.alignleft", points: [
@@ -117,8 +117,8 @@ enum GuideContent {
     ]
     // Add new release entries here; a version jump includes every intervening
     // entry, while a first upgrade from versions without receipts gets a recap.
-    static let releases: [(version: String, page: GuidePage)] = [
-        ("2.0.38", .init(id: "waveform38", title: "让音乐在悬浮窗底部流动", subtitle: "新增 · 可选实时波形", symbol: "waveform", points: [
+    static let releases: [(version: String, page: GuidePage)] = release39Pages.map { ("2.0.39", $0) } + [
+        ("2.0.38", .init(id: "waveform38", title: "悬浮窗音频波形", subtitle: "新增 · 设置 → 悬浮窗", symbol: "waveform", points: [
             "在“设置 → 悬浮窗”可开启实时音频波形，选择白色或封面彩色；默认关闭，不会因升级自动开始采集。",
             "首次开启时 macOS 可能请求系统音频录制权限。波形仅尝试读取当前识别播放器的音频，暂停、隐藏或减少动态效果时停止。",
             "权限未获准或没有可用音频时会安静停用；可在设置中查看状态并手动重试。不同播放器和设备的实际效果可能不同。"], illustration: "releaseWaveform38")),
@@ -126,11 +126,11 @@ enum GuideContent {
             "关闭波形时，歌词可见内容与纯音乐歌卡在玻璃窗中居中；开启波形时，歌卡上下留白更均衡。",
             "窗口高度随内容平滑调整，顶部标题固定在玻璃窗内；鼠标经过隐藏和恢复时，整窗一起淡入淡出。",
             "系统或应用开启“减少动态效果”后，进行中的位移、淡入淡出会尽快停稳。"], illustration: "releaseOverlay38")),
-        ("2.0.38", .init(id: "mainMotion38", title: "阅读与切换更顺手", subtitle: "改进 · 主窗口与动效", symbol: "text.quote", points: [
+        ("2.0.38", .init(id: "mainMotion38", title: "歌词滚动与换句动画", subtitle: "改进 · 主窗口与动效", symbol: "text.quote", points: [
             "主窗口的歌词跟随和搜索预览滚动更贴合播放进度；切歌、跳播及文档切换时减少不必要的滑动。",
             "收敛旧歌词退场的上移和模糊，主窗口与悬浮窗的动效同时遵循系统和应用的减少动态效果设置。",
             "歌卡按歌名与歌手的实际行高调整，长标题换行时继续留出必要空间。"], illustration: "livePlayer")),
-        ("2.0.38", .init(id: "performanceFlexbar38", title: "按需更新，支持 Flexbar", subtitle: "改进 · 性能与开发者选项", symbol: "gauge.with.dots.needle.33percent", points: [
+        ("2.0.38", .init(id: "performanceFlexbar38", title: "刷新优化与 Flexbar 连接", subtitle: "改进 · 设置 → 开发者选项", symbol: "gauge.with.dots.needle.33percent", points: [
             "菜单栏歌词按下一句时间更新；暂停、隐藏或没有可用音频时减少不必要的持续刷新。",
             "“开发者选项”可开启 Flexbar 歌词连接，需要另行安装并配置 FlexDesigner 插件；实际显示效果取决于设备与插件。",
             "已有歌词、偏移、字体和悬浮窗设置继续保留。本次更新介绍只自动显示一次，以后可在“设置 → 关于”重看。"], illustration: "releaseFlexbar38")),
@@ -195,8 +195,34 @@ enum GuideContent {
             "简繁体转换后仍能显示逐字进度。自定义颜色保留 EDR 辉光，改善窗口首次显示时的屏幕能力识别。",
             "改善部分 QQ 音乐歌词的读取、搜索与封面显示；修复缓存文件变化及异常设置值引起的显示问题。"], illustration: "conversion"))
     ]
-    // Last release actually published on GitHub, not a local test build.
-    static let latestBaseline: String? = "2.0.37"
+    // Current release pages are also included in the numbered history above.
+    // An upgrade from 2.0.38 displays only these four pages.
+    static let release39Pages: [GuidePage] = [
+        .init(id: "position39", title: "主歌词位置", subtitle: "新增 · 设置 → 歌词 → 主窗口当前歌词位置", symbol: "text.aligncenter", points: [
+            "当前句可选择居中或上方。第一句尚未开始、首尾歌词、长句和翻译均按所选位置对齐。",
+            "手动浏览后，点击“回到当前歌词”会平滑回到当前句；重新打开窗口或改变排版时直接对齐。",
+            "下方可修改实际设置；示意区使用独立播放会话，不改变正在播放的歌曲。"], illustration: "livePlayer"),
+        .init(id: "hotkeys39", title: "自定义全局快捷键", subtitle: "新增 · 设置 → 通用 → 快捷键", symbol: "keyboard", points: [
+            "可录制显示悬浮窗和打开主窗口的快捷键，也可清除或恢复默认。保存后立即生效。",
+            "重复组合、无效组合或系统注册失败会显示原因；清除后不再占用该组合。",
+            "下方使用正式快捷键设置组件，修改会自动保存。"], illustration: "liveHotkeys"),
+        .init(id: "colors39", title: "封面多色配色", subtitle: "改进 · 设置 → 歌词 → 跟随封面主题色", symbol: "paintpalette", points: [
+            "封面保留最多四种代表色，原文与辅助歌词分别配色；彩色音频波形使用多色渐变。",
+            "改善小面积点缀色、半透明封面和暗色波形；灰阶或无封面时使用中性配色。",
+            "波形开关与白色／彩色选项在“设置 → 悬浮窗”；此处不会启动音频采集。"], illustration: "liveTheme"),
+        .init(id: "transitions39", title: "切歌与窗口过渡", subtitle: "修复 · 自动生效；设置 → 动效可减少动态效果", symbol: "text.quote", points: [
+            "快速加载的歌词直接交接，减少短暂显示标题；新歌词模糊淡入后变清晰，同一首歌的候选升级不重复播放动画。",
+            "封面加载共用有限等待期限，旧歌曲的异步结果不会覆盖新歌；尚未加载完成时减少默认封面闪动。",
+            "恢复播放时同时缩短后续播放器轮询，避免进度和两个歌词窗口等候旧的暂停轮询期限。",
+            "调整主窗口大小时复用封面背景，结束后更新尺寸，同一封面不重复播放背景淡入淡出。",
+            "修复鼠标经过隐藏歌词后，暂停播放仍残留右上角控制条的问题。“暂停时隐藏”在设置 → 悬浮窗。",
+            "关闭主窗口后停止主窗口绘制，悬浮窗继续更新；快捷键、Dock 和菜单栏可重开原窗口，重新对齐当前歌词。"], illustration: "livePlayer")
+    ]
+    static func displayUpdates(after previous: String?) -> [GuidePage] {
+        updates(after: previous)
+    }
+    // The previous public version defines the manual current-release introduction.
+    static let latestBaseline: String? = "2.0.38"
     static func updates(after previous: String?) -> [GuidePage] {
         let pages = releases.filter { entry in
             guard let previous else { return true }
@@ -322,12 +348,12 @@ struct FeatureGuideView: View {
         self.model = model
         self.close = close
         let count: Int
-        if case .update(let previous) = mode { count = GuideContent.updates(after: previous).count }
+        if case .update(let previous) = mode { count = GuideContent.displayUpdates(after: previous).count }
         else { count = GuideContent.tutorial.count }
         _index = State(initialValue: min(max(0, initialPage), max(0, count - 1)))
     }
     private var pages: [GuidePage] {
-        if case .update(let previous) = mode { return GuideContent.updates(after: previous) }
+        if case .update(let previous) = mode { return GuideContent.displayUpdates(after: previous) }
         return GuideContent.tutorial
     }
     var body: some View {
@@ -335,7 +361,7 @@ struct FeatureGuideView: View {
           HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 Label("LyricsX Next", systemImage: "quote.bubble.fill").font(.headline)
-                Text(mode == .tutorial ? "使用指南" : "更新至 \(GuideContent.version)")
+                Text(mode == .tutorial ? "使用指南" : "\(GuideContent.version) · 本次更新")
                     .font(.title3.weight(.semibold))
                 ScrollViewReader { navigation in
                     ScrollView {
@@ -364,7 +390,9 @@ struct FeatureGuideView: View {
                         Text(page.subtitle).font(.subheadline).foregroundStyle(.secondary)
                         Text(page.title).font(.system(size: guideSize.size.width < 900 ? 24 : 27, weight: .bold)).fixedSize(horizontal: false, vertical: true)
                         Group {
-                            if page.illustration == "releaseWaveform38" {
+                            if page.illustration == "liveHotkeys", let preferences {
+                                HotkeySettingsView(settings: preferences.globalHotkeys)
+                            } else if page.illustration == "releaseWaveform38" {
                                 GuideReleaseVisual(kind: .waveform38)
                                     .frame(height: min(230, max(185, guideSize.size.height * 0.36)))
                             } else if page.illustration == "releaseOverlay38" {
@@ -374,7 +402,8 @@ struct FeatureGuideView: View {
                                 GuideReleaseVisual(kind: .performanceFlexbar38)
                                     .frame(height: min(230, max(185, guideSize.size.height * 0.36)))
                             } else if page.illustration.hasPrefix("live") || ["style", "overlay"].contains(page.illustration) {
-                                GuideLiveDemo(kind: page.illustration, reduced: preferences?.reduceMotion == true, viewportHeight: scrollHeight)
+                                GuideLiveDemo(kind: page.illustration, reduced: preferences?.reduceMotion == true, viewportHeight: scrollHeight,
+                                    mainPosition: page.id == "position39" ? preferences?.mainLyricPosition : nil)
                                     .frame(height: min(300, max(230, guideSize.size.height * 0.43)))
                             } else {
                                 GuideIllustration(kind: page.illustration, appReduced: preferences?.reduceMotion == true)
@@ -418,7 +447,7 @@ private struct GuideQuickSettings: View {
     let page: String
     @Bindable var preferences: Preferences
     let model: AppModel?
-    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects"].contains(page) }
+    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects", "waveform", "waveform38", "performanceFlexbar38", "flexbar", "position39", "colors39", "transitions39"].contains(page) }
     var body: some View {
         if available {
             VStack(alignment: .leading, spacing: 10) {
@@ -432,6 +461,24 @@ private struct GuideQuickSettings: View {
     }
     @ViewBuilder private var controls: some View {
         switch page {
+        case "waveform", "waveform38":
+            SettingToggle(title: "显示实时波形", detail: "开启后才尝试采集当前播放器音频，首次可能请求 macOS 系统音频录制权限。", value: $preferences.overlayWaveformEnabled)
+            SettingRow(title: "波形颜色", detail: "白色或封面多色渐变，沿悬浮窗底部显示。") {
+                Picker("波形颜色", selection: $preferences.overlayWaveformStyle) {
+                    ForEach(OverlayWaveformStyle.allCases) { Text($0.title).tag($0) }
+                }.labelsHidden().frame(width: 140)
+            }.disabled(!preferences.overlayWaveformEnabled)
+            if !preferences.overlayWaveformStatus.isEmpty {
+                SettingRow(title: "音频采集", detail: preferences.overlayWaveformStatus) {
+                    Button("重试") { model?.overlay?.retryWaveform() }.disabled(model == nil)
+                }
+            }
+        case "flexbar", "performanceFlexbar38":
+            SettingToggle(title: "在 Flexbar 上显示歌词", detail: "需要另行安装和配置 FlexDesigner 歌词插件。入口在设置 → 开发者选项 → Flexbar。", value: $preferences.flexbarEnabled)
+        case "position39":
+            MainLyricPositionSettings(preferences: preferences)
+        case "transitions39":
+            SettingToggle(title: "减少动态效果", detail: "停止模糊和位移过渡；系统的同名设置也会生效。", value: $preferences.reduceMotion)
         case "main":
             SettingToggle(title: "菜单栏图标", detail: "保留主窗口、歌词搜索和设置入口。", value: $preferences.showMenuBarIcon)
             SettingToggle(title: "菜单栏歌词", detail: "在屏幕顶部显示当前一句。", value: $preferences.showMenubarLyrics)
@@ -481,7 +528,7 @@ private struct GuideQuickSettings: View {
         case "style":
             OverlayAppearancePicker(selection: $preferences.overlayAppearance, transparency: preferences.overlayTransparency, glassTintTransparency: preferences.overlayGlassTintTransparency,
                 readingFrostAmount: preferences.overlayReadingFrostAmount)
-        case "theme":
+        case "theme", "colors39":
             SettingToggle(title: "跟随封面主题色", detail: "自动生成已唱／未唱明暗配色；关闭恢复手动颜色。", value: $preferences.followArtworkColors)
         case "text":
             SettingToggle(title: "显示翻译", detail: "有译文时在主窗口与悬浮窗显示。", value: $preferences.showTranslation)

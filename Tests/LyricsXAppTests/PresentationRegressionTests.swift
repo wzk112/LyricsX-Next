@@ -826,7 +826,7 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
             bothCPU, overlayCPU, (cpuTime() - hiddenBegin) * 100, overlay.panel.screen?.maximumFramesPerSecond ?? 0))
     }
 
-    @Test func repeatedArtworkSamplesKeepTheDecodedImageAndTrackChangeClearsIt() async throws {
+    @Test func repeatedArtworkSamplesKeepTheDecodedImageAndMissingReplacementExpires() async throws {
         let model = AppModel(repository: EmptyRepository())
         let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         let data = try #require(bitmap.representation(using: .png, properties: [:]))
@@ -837,8 +837,10 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         let image = try #require(model.artwork)
         for _ in 0..<6 { model.bridge.onSnapshot?(snapshot); #expect(model.artwork === image) }
         model.bridge.onSnapshot?(.init(track: .init(playerID: "test", playerName: "Test", title: "B"), position: 0, isPlaying: true))
-        #expect(model.artwork == nil)
+        #expect(model.artwork === image && model.artworkLoading)
         #expect(model.session.track?.title == "B")
+        try await Task.sleep(for: .seconds(ArtworkHandover.graceDuration + 0.1))
+        #expect(model.artwork == nil && !model.artworkLoading)
         model.stop()
     }
 

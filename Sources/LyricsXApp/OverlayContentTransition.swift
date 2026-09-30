@@ -93,16 +93,27 @@ struct OverlayContentTransition: ViewModifier {
     var visible = true
     var preparingSince: Double?
     var animateInitial = true
+    // Song cards own their old/new crossfade, so a second arrival blur would
+    // obscure the same content and keep an unnecessary frame source alive.
+    var animatesArrival = true
     @State private var state = OverlayContentAnimation()
 
     func body(content: Content) -> some View {
-        let request = OverlayContentAnimation.Request(identity: identity, reduced: reduced, visible: visible, preparingSince: preparingSince)
-        LyricRenderTimeline(running: !reduced && visible && state.startedAt != nil,
-                            sampledTime: ProcessInfo.processInfo.systemUptime,
-                            preciseTime: { ProcessInfo.processInfo.systemUptime }) { now in
-            let frame = reduced || !visible ? LyricMotion.Frame() : state.frame(at: now)
-            content.blur(radius: frame.blur).offset(y: frame.offset).opacity(frame.opacity)
-                .transaction { $0.animation = nil; $0.disablesAnimations = true }
+        let request = OverlayContentAnimation.Request(identity: identity, reduced: reduced || !animatesArrival, visible: visible, preparingSince: preparingSince)
+        Group {
+            if animatesArrival {
+                LyricRenderTimeline(running: !reduced && visible && state.startedAt != nil,
+                                    sampledTime: ProcessInfo.processInfo.systemUptime,
+                                    preciseTime: { ProcessInfo.processInfo.systemUptime }) { now in
+                    let frame = reduced || !visible ? LyricMotion.Frame() : state.frame(at: now)
+                    content.blur(radius: frame.blur).offset(y: frame.offset).opacity(frame.opacity)
+                        .transaction { $0.animation = nil }
+                }
+            } else {
+                // Preserve the card's local old/new and mode transactions.
+                // It needs no display-rate arrival clock or blur surface.
+                content
+            }
         }
         .onChange(of: request, initial: true) { _, value in
             state.update(value, at: ProcessInfo.processInfo.systemUptime, incremental: incremental,

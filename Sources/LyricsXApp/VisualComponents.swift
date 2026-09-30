@@ -4,40 +4,59 @@ import LyricsXCore
 struct AmbientBackground: View {
     var artwork: NSImage?
     var reduced = false
+    var active = true
     @Environment(\.accessibilityReduceMotion) private var systemReduced
     @Environment(\.colorScheme) private var colorScheme
-    @State private var backdrop: CGImage?
-    @State private var renderedArtwork: ObjectIdentifier?
+    @State private var backdrop: AmbientBackdrop?
+    @State private var liveResizing = false
+    private struct Request: Equatable {
+        let key: AmbientArtworkKey?
+        let reduced: Bool
+        let active: Bool
+        let liveResizing: Bool
+    }
     var body: some View {
         GeometryReader { geometry in
             let key = artwork.map { AmbientArtworkKey(artwork: $0, size: geometry.size) }
+            let request = Request(key: key, reduced: reduced || systemReduced,
+                                  active: active, liveResizing: liveResizing)
             ZStack {
                 LinearGradient(colors: colorScheme == .dark ? [Color(white: 0.12), Color(white: 0.045)] : [Color(white: 0.98), Color(white: 0.91)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 if let backdrop {
-                    Image(decorative: backdrop, scale: 1).resizable().opacity(colorScheme == .dark ? 0.52 : 0.20)
-                        .id(ObjectIdentifier(backdrop)).transition(.opacity)
+                    Image(decorative: backdrop.image, scale: 1).resizable().opacity(colorScheme == .dark ? 0.52 : 0.20)
+                        // A new raster for the same cover is a geometry update,
+                        // not another fading surface during a window resize.
+                        .id(backdrop.key.artwork).transition(.opacity)
                 }
                 LinearGradient(colors: colorScheme == .dark ? [.black.opacity(0.01), .black.opacity(0.18)] : [.white.opacity(0.06), .white.opacity(0.25)], startPoint: .top, endPoint: .bottom)
-            }.clipped().task(id: key) {
+            }.clipped().task(id: request) {
+                guard request.active, !request.liveResizing else { return }
                 // Keep the previous pixels while metadata is temporarily missing
                 // or the replacement blur is being prepared. Never flash a flat fill.
-                if let artwork, let key,
-                   let source = artwork.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                    if renderedArtwork == ObjectIdentifier(artwork) {
-                        do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                if let artwork, let key {
+                    guard backdrop?.key != key else { return }
+                    if backdrop?.key.artwork == key.artwork {
+                        do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
                     }
-                    let result = await AmbientArtworkRenderer.shared.render(source, key: key)
-                    guard !Task.isCancelled, let result else { return }
-                    withAnimation(reduced || systemReduced ? nil : .easeInOut(duration: 0.65)) { backdrop = result }
-                    renderedArtwork = ObjectIdentifier(artwork)
+                    guard !Task.isCancelled,
+                          let source = artwork.cgImage(forProposedRect: nil, context: nil, hints: nil),
+                          let result = await AmbientArtworkRenderer.shared.render(source, key: key),
+                          !Task.isCancelled else { return }
+                    let replacement = AmbientBackdrop(image: result, key: key)
+                    if replacement.animatesReplacement(of: backdrop, reduced: request.reduced) {
+                        withAnimation(.easeInOut(duration: 0.65)) { backdrop = replacement }
+                    } else {
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) { backdrop = replacement }
+                    }
                 } else {
-                    do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
                     guard !Task.isCancelled else { return }
-                    withAnimation(reduced || systemReduced ? nil : .easeInOut(duration: 0.65)) { backdrop = nil }
-                    renderedArtwork = nil
+                    withAnimation(request.reduced ? nil : .easeInOut(duration: 0.65)) { backdrop = nil }
                 }
             }
-        }.ignoresSafeArea().allowsHitTesting(false)
+        }.background(WindowLiveResizeReader { liveResizing = $0 }.frame(width: 0, height: 0))
+            .ignoresSafeArea().allowsHitTesting(false)
     }
 }
 
@@ -55,24 +74,31 @@ extension AnyTransition {
 private struct CoverRequest: Equatable {
     let image: ObjectIdentifier?
     let animated: Bool
+    let managed: Bool
 }
 struct CoverArtwork: View {
     let artwork: NSImage?
     var demo = false
     var animated = false
+    var loading = false
+    var managedHandover = false
+    var showsPlaceholderSymbol = true
     @Environment(\.accessibilityReduceMotion) private var systemReduced
     @State private var displayed: NSImage?
-    init(artwork: NSImage?, demo: Bool = false, animated: Bool = false) {
+    init(artwork: NSImage?, demo: Bool = false, animated: Bool = false, loading: Bool = false, managedHandover: Bool = false,
+         showsPlaceholderSymbol: Bool = true) {
         self.artwork = artwork
         self.demo = demo
         self.animated = animated
+        self.loading = loading; self.managedHandover = managedHandover
+        self.showsPlaceholderSymbol = showsPlaceholderSymbol
         _displayed = State(initialValue: artwork)
     }
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size.width
             ZStack {
-                if let image = animated ? displayed : artwork {
+                if let image = managedHandover || !animated || systemReduced ? artwork : displayed {
                     Image(nsImage: image).resizable().scaledToFill()
                         .id(ObjectIdentifier(image)).transition(animated && !systemReduced ? .artworkBlur : .identity)
                 } else if demo {
@@ -97,14 +123,18 @@ struct CoverArtwork: View {
                     }.padding(size * 0.085).frame(width: size, height: size).foregroundStyle(.white)
                 } else {
                     Color(white: 0.13)
-                    Image(systemName: "music.note").font(.system(size: size * 0.26, weight: .light)).foregroundStyle(.white.opacity(0.35))
+                    if !loading && showsPlaceholderSymbol {
+                        Image(systemName: "music.note").font(.system(size: size * 0.26, weight: .light)).foregroundStyle(.white.opacity(0.35))
+                    }
                 }
             }.frame(width: proxy.size.width, height: proxy.size.height).clipped()
                 .clipShape(.rect(cornerRadius: 18))
                 .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.14), lineWidth: 0.7))
         }.aspectRatio(1, contentMode: .fit)
-            .task(id: CoverRequest(image: artwork.map(ObjectIdentifier.init), animated: animated)) {
-                guard animated else { displayed = artwork; return }
+            .animation(managedHandover && animated && !systemReduced ? .timingCurve(0.22, 0, 0.18, 1, duration: 0.55) : nil,
+                       value: managedHandover ? artwork.map(ObjectIdentifier.init) : nil)
+            .task(id: CoverRequest(image: artwork.map(ObjectIdentifier.init), animated: animated && !systemReduced, managed: managedHandover)) {
+                guard !managedHandover, animated && !systemReduced else { displayed = artwork; return }
                 if artwork == nil, displayed != nil {
                     do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
                 }

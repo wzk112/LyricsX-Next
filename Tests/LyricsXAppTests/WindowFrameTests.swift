@@ -4,10 +4,28 @@ import SwiftUI
 import LyricsXCore
 @testable import LyricsXApp
 
-// This suite owns NSApplication's event pump. Run it in its own process so it
-// cannot consume other suites' AppKit events or block their async deadlines.
+// A CLI test process is not guaranteed to receive WindowServer exposure. Inject
+// only that compositor signal; visibility, native ordering, the real player
+// host, overlay and display links continue through the production paths.
+private final class CloseQAWindow: NSWindow {
+    override var occlusionState: NSWindow.OcclusionState { isVisible ? .visible : [] }
+}
+
+// Tracking-mode QA owns NSApplication's event pump. Run it in its own process
+// so it cannot consume other suites' events or block their async deadlines.
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["LYRICSX_WINDOW_QA"] == "1"))
 @MainActor struct WindowFrameTests {
+    private final class FixtureDelegate: NSObject, NSApplicationDelegate {
+        func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+        func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply { .terminateCancel }
+    }
+    // Keep the AppKit delegate alive for the whole isolated suite.
+    private static let fixtureDelegate = FixtureDelegate()
+    init() {
+        _ = NSApplication.shared
+        NSApp.delegate = Self.fixtureDelegate
+    }
+
     @Test func compactExpandedResizeKeepsLyricViewportForTheSameSong() async throws {
         _ = NSApplication.shared
         NSApp.finishLaunching()
@@ -90,13 +108,16 @@ import LyricsXCore
             if let scroll = view as? NSScrollView { return scroll }
             return view.subviews.lazy.compactMap { nativeScroll($0) }.first
         }
-        func samples(_ count: Int) async throws -> [Double] {
+        func samples(_ count: Int, rowLabel: String? = nil) async throws -> [Double] {
             var offsets: [Double] = []
             for _ in 0..<count {
-                runTracking(for: 0.015, mode: .default)
-                try await Task.sleep(for: .milliseconds(5))
+                NSApp.updateWindows(); host.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(20))
                 let scroll = try #require(nativeScroll(host))
-                offsets.append(scroll.contentView.bounds.minY)
+                if let rowLabel {
+                    let frame = try #require(accessibilityFrame(for: rowLabel, in: host))
+                    offsets.append(frame.midY)
+                } else { offsets.append(scroll.contentView.bounds.minY) }
             }
             return offsets
         }
@@ -106,16 +127,16 @@ import LyricsXCore
         for index in 1...6 {
             model.session.seek(to: Double(index) * 2); model.updateMainLyricSelection()
             print("Native scroll: follow row \(index)")
-            let offsets = try await samples(55)
+            let offsets = try await samples(55, rowLabel: doc.lines[index].text)
             let backwards = zip(offsets, offsets.dropFirst()).map { $0 - $1 }.max() ?? 0
             #expect(backwards < 2, "Sequential scroll reversed by \(backwards) points at line \(index)")
             let end = try #require(offsets.last)
-            let resting = try await samples(5)
+            let resting = try await samples(5, rowLabel: doc.lines[index].text)
             #expect(resting.allSatisfy { abs($0 - end) < 2 })
         }
         model.session.seek(to: 70); model.updateMainLyricSelection()
         _ = try await samples(15)
-        let resting = try await samples(20)
+        let resting = try await samples(20, rowLabel: doc.lines[35].text)
         #expect((resting.max() ?? 0) - (resting.min() ?? 0) < 2)
     }
     private func runTracking(for seconds: Double, mode: RunLoop.Mode = .eventTracking) {
@@ -125,6 +146,14 @@ import LyricsXCore
                 NSApp.sendEvent(event)
             }
         }
+    }
+
+    private func accessibilityFrame(for label: String, in element: Any, depth: Int = 0) -> NSRect? {
+        guard depth < 32, let element = element as? any NSAccessibilityProtocol else { return nil }
+        if element.accessibilityLabel() == label { return element.accessibilityFrame() }
+        return (element.accessibilityChildren() ?? []).lazy.compactMap {
+            accessibilityFrame(for: label, in: $0, depth: depth + 1)
+        }.first
     }
 
     @Test func playbackTickerAdvancesDuringTrackingAndCancelsWithoutAQueuedRestart() {
@@ -147,13 +176,87 @@ import LyricsXCore
         #expect(!finished.running)
     }
 
+    @Test func realMainWindowCloseKeepsOverlayFramesAndCueClockMoving() async throws {
+        _ = NSApplication.shared
+        NSApp.finishLaunching()
+        struct Repository: LyricsRepository {
+            func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> { .init { $0.finish() } }
+            func save(_ document: LyricsDocument, for track: Track) async throws {}
+        }
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        prefs.overlayVisible = true; prefs.hideWhenPaused = false; prefs.hideOverlayOnHover = false
+        prefs.lyricHDR = true; prefs.lyricHDRBrightness = 3.5
+        let model = AppModel(repository: Repository(), preferences: prefs)
+        let lines = (0..<80).map { index in
+            LyricLine(id: index, time: Double(index) * 3, text: "A continuously moving lyric line \(index)",
+                words: [.init(text: "A continuously moving lyric line \(index)",
+                    start: Double(index) * 3, end: Double(index + 1) * 3)])
+        }
+        model.session.accept(.init(track: .init(playerID: "fixture", playerName: "Fixture", title: "Window closing fixture", duration: 240),
+            position: 1, isPlaying: true), shouldSearch: false)
+        model.session.use(.init(lines: lines), persist: false)
+        let overlay = OverlayController(model: model, frameAutosaveName: nil,
+            pointerLocation: { .init(x: -10_000, y: -10_000) })
+        model.overlay = overlay
+        model.startLyricClock()
+        let owner = MainWindowController(model: model, frameAutosaveName: nil, makeWindow: {
+            CloseQAWindow(contentRect: .init(x: 40, y: 40, width: 760, height: 600),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered, defer: false)
+        })
+        owner.show()
+        let main = try #require(owner.window)
+        main.level = .floating
+        let host = try #require(main.contentView)
+        let probe = LyricFrameView(frame: .init(x: 0, y: 0, width: 1, height: 1))
+        probe.running = true
+        try #require(overlay.panel.contentView).addSubview(probe)
+        defer { probe.stop(); owner.stop(); model.stop() }
+        func pump(for seconds: Double) async throws {
+            let until = ProcessInfo.processInfo.systemUptime + seconds
+            while ProcessInfo.processInfo.systemUptime < until {
+                NSApp.updateWindows()
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        try await pump(for: 1)
+        #expect(model.mainWindowVisible && probe.deliveringFrames)
+        var times: [Double] = []
+        probe.frameCallback = { _ in times.append(ProcessInfo.processInfo.systemUptime) }
+        try await pump(for: 0.5)
+        let baseline = zip(times, times.dropFirst()).map { $1 - $0 }.max() ?? 0
+        #expect(times.count > 5)
+        let position = model.session.position
+        let closeStart = ProcessInfo.processInfo.systemUptime
+        main.performClose(nil)
+        let closeDuration = ProcessInfo.processInfo.systemUptime - closeStart
+        try await pump(for: 0.9)
+        let closing = zip(times, times.dropFirst()).filter { $1 >= closeStart }.map { $1 - $0 }.max() ?? 0
+        #expect(!model.mainWindowVisible && probe.deliveringFrames)
+        #expect(!main.isVisible && main.contentView === host)
+        #expect(model.session.position > position + 0.7)
+        #expect(closing < max(0.12, baseline * 3), "Closing blocked overlay delivery for \(closing)s; baseline \(baseline)s")
+        print("Real main close: duration=\(closeDuration)s, baseline frame gap=\(baseline)s, closing gap=\(closing)s")
+        main.makeKeyAndOrderFront(nil); main.orderFrontRegardless()
+        try await pump(for: 0.2)
+        #expect(model.mainWindowVisible && main.contentView === host)
+        // Both the menu's Close action and the native red control use this
+        // responder action; closing repeatedly must keep the same host.
+        main.standardWindowButton(.closeButton)?.performClick(nil)
+        try await pump(for: 0.1)
+        #expect(!model.mainWindowVisible && !main.isVisible && main.contentView === host)
+    }
+
     @Test func eachWindowKeepsItsOwnFrameDeliveryDuringMainWindowLifecycle() async throws {
         _ = NSApplication.shared
         NSApp.finishLaunching()
         let screen = try #require(NSScreen.main)
         let main = NSPanel(contentRect: .init(x: screen.visibleFrame.minX + 30, y: screen.visibleFrame.minY + 30, width: 100, height: 60),
                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        let overlay = NSPanel(contentRect: .init(x: screen.visibleFrame.minX + 140, y: screen.visibleFrame.minY + 30, width: 100, height: 60),
+        let overlay = DraggableOverlayPanel(contentRect: .init(x: screen.visibleFrame.minX + 140, y: screen.visibleFrame.minY + 30, width: 100, height: 60),
                               styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         main.isReleasedWhenClosed = false; overlay.isReleasedWhenClosed = false
         main.level = .floating; overlay.level = .floating
@@ -166,7 +269,7 @@ import LyricsXCore
         main.contentView = mainFrames; overlay.contentView = overlayFrames
         main.orderFrontRegardless(); overlay.orderFrontRegardless()
         defer { mainFrames.stop(); overlayFrames.stop(); main.close(); overlay.close() }
-        for _ in 0..<20 where mainCount == 0 || overlayCount == 0 { runTracking(for: 0.04, mode: .default) }
+        for _ in 0..<20 where mainCount == 0 || overlayCount == 0 { runTracking(for: 0.04) }
         #expect(mainCount > 0 && overlayCount > 0)
         #expect(mainFrames.requestedFrameRate == main.screen?.maximumFramesPerSecond)
         #expect(overlayFrames.requestedFrameRate == overlay.screen?.maximumFramesPerSecond)
@@ -196,6 +299,18 @@ import LyricsXCore
         let closed = mainCount, overlayBefore = overlayCount
         runTracking(for: 0.08)
         #expect(mainCount == closed && overlayCount > overlayBefore)
+        for _ in 0..<3 {
+            overlay.orderOut(nil)
+            try await Task.sleep(for: .milliseconds(20))
+            #expect(!overlayFrames.deliveringFrames)
+            let hiddenCount = overlayCount
+            runTracking(for: 0.04)
+            #expect(overlayCount == hiddenCount)
+            overlay.orderFrontRegardless()
+            try await Task.sleep(for: .milliseconds(20))
+            runTracking(for: 0.08)
+            #expect(overlayFrames.deliveringFrames && overlayCount > hiddenCount)
+        }
         overlayFrames.running = false
         let paused = overlayCount
         runTracking(for: 0.05)
@@ -235,8 +350,8 @@ import LyricsXCore
         defer { panel.close(); model.stop() }
         func settle() async throws {
             for _ in 0..<12 {
-                runTracking(for: 0.025, mode: .default)
-                try await Task.sleep(for: .milliseconds(5))
+                NSApp.updateWindows(); host.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(30))
             }
         }
         func scrollView(_ view: NSView) -> NSScrollView? {
@@ -247,12 +362,23 @@ import LyricsXCore
             let scroll = try #require(scrollView(host))
             return scroll.contentView.bounds.minY
         }
+        func expectPreludeAnchor() throws {
+            let scroll = try #require(scrollView(host))
+            let fraction = prefs.mainLyricPosition.fraction
+            // SwiftUI exposes semantic button labels through its accessibility
+            // tree, rather than through the FocusRingView wrapper's label.
+            let screenFrame = try #require(accessibilityFrame(for: doc.lines[0].text, in: host))
+            let viewport = panel.convertToScreen(scroll.contentView.convert(scroll.contentView.bounds, to: nil))
+            let rowAnchor = viewport.maxY - screenFrame.maxY + screenFrame.height * fraction
+            #expect(abs(rowAnchor - viewport.height * fraction) < 3,
+                "Prelude row anchor \(rowAnchor), viewport \(viewport.height), fraction \(fraction)")
+        }
         try await settle()
         #expect(try offset() > 300)
         model.session.seek(to: 0); model.updateMainLyricSelection()
         try await settle()
         #expect(model.mainLyricIndex == nil)
-        #expect(try abs(offset()) < 2)
+        try expectPreludeAnchor()
 
         model.session.seek(to: 75); model.updateMainLyricSelection()
         try await settle()
@@ -262,7 +388,7 @@ import LyricsXCore
         model.session.accept(.init(track: second, position: 0, isPlaying: false), shouldSearch: false)
         model.session.use(doc, persist: false)
         try await settle()
-        #expect(try abs(offset()) < 2)
+        try expectPreludeAnchor()
         model.updateMainLyricSelection()
 
         model.session.seek(to: 75); model.updateMainLyricSelection()
@@ -273,7 +399,7 @@ import LyricsXCore
         #expect(scrollView(host) == nil)
         model.session.use(doc, persist: false); model.updateMainLyricSelection()
         try await settle()
-        #expect(try abs(offset()) < 2)
+        try expectPreludeAnchor()
         model.mainWindowVisible = false
         model.session.seek(to: 75); model.updateMainLyricSelection()
         model.mainWindowVisible = true
@@ -283,13 +409,13 @@ import LyricsXCore
         model.session.seek(to: 0); model.updateMainLyricSelection()
         try await settle()
         model.session.seek(to: 75); model.updateMainLyricSelection()
-        runTracking(for: 0.05, mode: .default)
+        try await Task.sleep(for: .milliseconds(50))
         model.session.accept(.init(track: second, position: 0, isPlaying: false), shouldSearch: false)
         model.session.use(doc, persist: false); model.updateMainLyricSelection()
         try await settle()
-        #expect(try abs(offset()) < 2)
+        try expectPreludeAnchor()
         try await settle()
-        #expect(try abs(offset()) < 2)
+        try expectPreludeAnchor()
         print("Native lyric scrolling: prelude, cached song change, late loading, window return and interrupted animation passed")
     }
 

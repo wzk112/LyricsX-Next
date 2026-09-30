@@ -146,7 +146,15 @@ public final class PlayerBridge {
                 }
             })
         }
+        schedulePolling(immediate: true)
+    }
+    private func schedulePolling(immediate: Bool) {
+        loop?.cancel()
         loop = Task { [weak self] in
+            if !immediate {
+                guard let interval = self?.pollInterval else { return }
+                do { try await Task.sleep(for: .seconds(interval)) } catch { return }
+            }
             while !Task.isCancelled {
                 guard let interval = self?.pollInterval else { return }
                 self?.refresh()
@@ -200,10 +208,19 @@ public final class PlayerBridge {
                 let preserveArtwork = previousTrack.flatMap { previous in
                     raw.track.map { artworkCompatible(previous, $0) }
                 } ?? true
+                let previousInterval = pollInterval
                 if let accepted = continuity.accept(raw, now: now(), preserveArtwork: preserveArtwork) {
                     let snapshot = reconcileArtwork(accepted, previous: previousTrack, preserveArtwork: preserveArtwork)
                     onError?(nil); onSnapshot?(snapshot)
-                    if revision == generation { scheduleArtwork(for: snapshot.track) }
+                    if revision == generation {
+                        scheduleArtwork(for: snapshot.track)
+                        // A resume notification can arrive while the loop is
+                        // asleep on its five-second paused interval. Retarget
+                        // it before the timeline's three-second stale limit.
+                        if loop != nil, pollInterval < previousInterval {
+                            schedulePolling(immediate: false)
+                        }
+                    }
                 }
                 if raw.track != nil || attempt == 2 { return }
             } catch {
@@ -388,12 +405,15 @@ public final class PlayerBridge {
           if (!app.running()) return '{}';
           const t = safe(() => app.currentTrack(), null);
           const id = String(safe(() => t.\(spotify ? "id" : "persistentID")(), ''));
-          const state = safe(() => app.playerState(), null);
           const same = id.length > 0 && id === argv[0];
           const result = {title:safe(() => t.name(), ''),artist:safe(() => t.artist(), ''),album:safe(() => t.album(), ''),id:id,
-            duration:safe(() => t.duration(),0)/\(spotify ? "1000" : "1"),position:safe(() => app.playerPosition(),null),
-            playing:state === 'playing' ? true : state === 'paused' || state === 'stopped' ? false : null,
+            duration:safe(() => t.duration(),0)/\(spotify ? "1000" : "1"),
             artwork:\(spotify ? "same ? null : safe(() => t.artworkUrl(), '')" : "''"),lyrics:\(spotify ? "''" : "same ? null : safe(() => t.lyrics(), '')"),location:\(spotify ? "''" : "same ? null : safe(() => t.location().toString(), '')")};
+          // Optional first-track fields can be slow. Sample transport last so
+          // an earlier paused state cannot be published after playback starts.
+          const state = safe(() => app.playerState(), null);
+          result.position = safe(() => app.playerPosition(), null);
+          result.playing = state === 'playing' ? true : state === 'paused' || state === 'stopped' ? false : null;
           const endTrack = safe(() => app.currentTrack(), null);
           const endID = String(safe(() => endTrack.\(spotify ? "id" : "persistentID")(), ''));
           const endTitle = String(safe(() => endTrack.name(), ''));
@@ -408,14 +428,16 @@ public final class PlayerBridge {
           return JSON.stringify(result);
         }
         """
-        let started = ProcessInfo.processInfo.systemUptime
         let output = try await ProcessRunner.run("/usr/bin/osascript", arguments: ["-l", "JavaScript", "-e", source, latestScriptTarget == target ? latestScriptID : ""])
         guard output.status == 0 else {
             throw output.error.contains("-1743") ? BridgeError.automation : BridgeError.unavailable
         }
         let item = try JSONDecoder().decode(ScriptRecord.self, from: output.data)
         guard item.coherent != false else { throw BridgeError.unavailable }
-        let sampleTime = (started + ProcessInfo.processInfo.systemUptime) / 2
+        // The script reads position immediately before returning. Anchoring
+        // it at the whole metadata request's midpoint double-counted time
+        // spent fetching lyrics/location on the first playback item.
+        let sampleTime = ProcessInfo.processInfo.systemUptime
         guard let title = item.title, !title.isEmpty else {
             return PlaybackSnapshot(track: nil, position: 0, isPlaying: item.playing == true, sampledAt: sampleTime,
                                     positionIsReliable: false, playbackStateIsReliable: item.playing != nil)

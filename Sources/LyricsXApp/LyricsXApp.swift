@@ -6,18 +6,14 @@ struct LyricsXApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
         @Bindable var model = delegate.model
-        Window("LyricsX Next", id: "main") {
-            MainView(model: model).preferredColorScheme(model.preferences.appTheme.colorScheme).hdrDisplayScope(requested: model.preferences.lyricEmphasis.usesHDR)
-        }
-        .defaultSize(width: 1040, height: 720)
-        .windowStyle(.hiddenTitleBar)
-        .windowBackgroundDragBehavior(.disabled)
-        .commands { LyricsXCommands(model: model) }
         Settings {
             PreferencesView(model: model).preferredColorScheme(model.preferences.appTheme.colorScheme)
         }
+        .defaultLaunchBehavior(.suppressed)
+        .commands { LyricsXCommands(model: model) }
         Window("动效预览", id: "preview") { LyricsPreviewView(preferences: model.preferences).preferredColorScheme(model.preferences.appTheme.colorScheme) }
             .defaultSize(width: 760, height: 480)
+            .defaultLaunchBehavior(.suppressed)
         MenuBarExtra(isInserted: $model.preferences.showMenuBarIcon) { MenuBarContent(model: model) } label: {
             if model.preferences.showMenubarLyrics && model.preferences.combinedMenubarLyrics {
                 Text("♫ " + model.menubarText)
@@ -36,10 +32,12 @@ struct LyricsXApp: App {
 private struct LyricsXCommands: Commands {
     @Bindable var model: AppModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some Commands {
+        let _ = configureSceneActions()
         CommandGroup(after: .newItem) {
-            Button("搜索歌词…") { openWindow(id: "main"); NSApp.activate(); model.showSearch = true }.keyboardShortcut("f")
+            Button("搜索歌词…") { model.showMainWindow?(); NSApp.activate(); model.showSearch = true }.keyboardShortcut("f")
             Button("导入歌词…") { model.importLyrics() }.keyboardShortcut("i")
             Button("导出歌词…") { model.exportLyrics() }.keyboardShortcut("e")
             Button("导出纯文本…") { model.exportLyrics(plain: true) }
@@ -56,8 +54,12 @@ private struct LyricsXCommands: Commands {
             Divider()
             Toggle("显示菜单栏图标", isOn: $model.preferences.showMenuBarIcon)
             Toggle("显示菜单栏歌词", isOn: $model.preferences.showMenubarLyrics)
-            Button("打开 LyricsX Next") { openWindow(id: "main"); NSApp.activate() }
+            Button("打开 LyricsX Next") { model.showMainWindow?(); NSApp.activate() }
         }
+    }
+    private func configureSceneActions() {
+        model.showSettingsWindow = { [openSettings] in openSettings(); NSApp.activate() }
+        model.showPreviewWindow = { [openWindow] in openWindow(id: "preview"); NSApp.activate() }
     }
 }
 
@@ -70,7 +72,7 @@ private struct MenuBarContent: View {
         Text(model.session.track?.title ?? "LyricsX Next").font(.headline)
         if let artist = model.session.track?.artist { Text(artist) }
         Divider()
-        Button("打开 LyricsX Next") { openWindow(id: "main"); NSApp.activate() }
+        Button("打开 LyricsX Next") { model.showMainWindow?(); NSApp.activate() }
         Toggle("悬浮歌词", isOn: Binding(get: { model.preferences.overlayVisible }, set: { model.setOverlayVisible($0) }))
         Toggle("锁定位置", isOn: Binding(get: { model.preferences.overlayLocked }, set: { model.setOverlayLocked($0) }))
         Toggle("歌词区域点击穿透", isOn: Binding(get: { model.preferences.overlayClickThrough }, set: { model.setOverlayClickThrough($0) }))
@@ -86,7 +88,7 @@ private struct MenuBarContent: View {
             Button("延后 0.1 秒") { model.session.adjustOffset(by: -100) }
             Button("重置偏移") { model.session.resetOffset() }
         }.disabled(model.session.document?.isSynced != true)
-        Button("搜索歌词…") { openWindow(id: "main"); NSApp.activate(); model.showSearch = true }
+        Button("搜索歌词…") { model.showMainWindow?(); NSApp.activate(); model.showSearch = true }
         Button("重新搜索歌词") { model.refreshLyrics() }.disabled(model.session.track == nil || model.lyricsBlocked)
         Menu("歌词") {
             Button("在 Finder 中显示") { model.revealLyrics() }.disabled(model.session.document == nil)
@@ -100,7 +102,7 @@ private struct MenuBarContent: View {
             Button("导出歌词…") { model.exportLyrics() }.disabled(model.session.document == nil)
             Button("导出纯文本…") { model.exportLyrics(plain: true) }.disabled(model.session.document == nil)
         }
-        Button("歌词资料库…") { openWindow(id: "main"); NSApp.activate(); model.showLibrary = true }
+        Button("歌词资料库…") { model.showMainWindow?(); NSApp.activate(); model.showLibrary = true }
         Button("设置…") { openSettings(); NSApp.activate() }
         Divider()
         Button("关于 LyricsX Next") { NSApp.orderFrontStandardAboutPanel(nil); NSApp.activate() }
@@ -113,6 +115,7 @@ private struct MenuBarContent: View {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let featureGuide = FeatureGuideController()
     let model = AppModel()
+    private lazy var mainWindow = MainWindowController(model: model)
     private var hotkeys: GlobalHotkeys?
     func applicationWillFinishLaunching(_ notification: Notification) {
         // LSUIElement prevents a Dock flash during cold launch. Promote only
@@ -124,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         featureGuide.cancelScheduledPresentation()
         hotkeys?.stop()
+        mainWindow.stop()
         model.stop()
     }
     func applicationDidBecomeActive(_ notification: Notification) { model.dockVisibility.applicationActivated() }
@@ -134,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.featureGuide.show(tutorial ? .tutorial : .update(previous: GuideContent.latestBaseline))
         }
         model.start()
+        mainWindow.show()
         featureGuide.scheduleAutomaticPresentation()
         if hotkeys == nil { hotkeys = GlobalHotkeys(model: model) }
         model.dockVisibility.applicationActivated()

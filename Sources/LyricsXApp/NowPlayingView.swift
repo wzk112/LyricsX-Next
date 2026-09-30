@@ -32,7 +32,9 @@ struct NowPlayingView: View {
         if compact {
             VStack(spacing: 12) {
                 HStack(spacing: 16) {
-                    CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion).frame(width: 64)
+                    CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion,
+                        loading: model.artworkLoading, managedHandover: true,
+                        showsPlaceholderSymbol: model.session.track == nil).frame(width: 64)
                     ZStack(alignment: .leading) {
                         CompactTrackMetadata(track: model.session.track).id(model.session.trackRevision)
                             .transition(reduceMotion || model.preferences.reduceMotion ? .identity : .artworkBlur)
@@ -50,7 +52,9 @@ struct NowPlayingView: View {
     private func expandedPane(_ size: CGSize) -> some View {
         let columnWidth = min(330, max(220, size.width * 0.31))
         return PlayerColumnLayout {
-            CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion)
+            CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion,
+                        loading: model.artworkLoading, managedHandover: true,
+                        showsPlaceholderSymbol: model.session.track == nil)
                 .shadow(color: .black.opacity(0.35), radius: 30, y: 20)
                 .scaleEffect(model.session.isPlaying ? 1 : 0.94)
                 .animation(model.preferences.reduceMotion || reduceMotion ? nil : .spring(response: 0.65, dampingFraction: 0.8), value: model.session.isPlaying)
@@ -114,20 +118,23 @@ struct LyricsScrollView: View {
     var body: some View {
         // Browsing, pending return timers and native scroll offsets belong to
         // this song/version. Line changes keep the same view and animation.
-        LyricsScrollContent(model: model)
-            .id(ContentID(track: model.session.trackRevision, document: model.session.document?.id))
-            // Metadata and lyrics arrive in separate observations during a
-            // track change. Animate the surface once for the playback item;
-            // rebuilding for the later document still resets scrolling, but
-            // must not replay a second full-window blur.
-            .lyricArrival(trigger: model.session.trackRevision,
+        let display = model.mainLyricPresentation.held ?? MainLyricSnapshot(model: model)
+        let identity = ContentID(track: display.trackRevision, document: display.document?.id)
+        LyricsScrollContent(model: model, display: display)
+            .id(identity)
+            // Keep this modifier outside document identity so the incoming
+            // song clears from blur. Same-song candidate upgrades do not
+            // replay it, and the display clock stops when the window hides.
+            .lyricArrival(trigger: display.arrivalIdentity,
                 reduced: model.preferences.reduceMotion || systemReduceMotion,
-                distance: 5, visible: { model.mainWindowVisible })
+                distance: 3, duration: 0.52, blurRadius: 3.5,
+                visible: { model.mainWindowVisible })
     }
 }
 
 private struct LyricsScrollContent: View {
     @Bindable var model: AppModel
+    let display: MainLyricSnapshot
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.colorScheme) private var colorScheme
     private var typography: LyricTypography { model.preferences.mainTypography(colorScheme: colorScheme) }
@@ -137,10 +144,11 @@ private struct LyricsScrollContent: View {
     @State private var returnTask: Task<Void, Never>?
     @Environment(\.openWindow) private var openWindow
     private var reduced: Bool { systemReduceMotion || model.preferences.reduceMotion }
+    private var live: Bool { display.trackRevision == model.session.trackRevision }
     var body: some View {
         ZStack(alignment: .bottom) {
-            if let doc = model.session.document {
-                if model.session.documentIsPlaceholder {
+            if let doc = display.document {
+                if display.placeholder {
                     trackTitlePlaceholder
                 } else if doc.isSynced {
                     syncedLyrics(doc)
@@ -149,13 +157,13 @@ private struct LyricsScrollContent: View {
                         .scrollPosition($position)
                         .safeAreaInset(edge: .top) { Text("此歌词暂无时间轴").font(.caption).foregroundStyle(.secondary).padding(12) }
                 }
-            } else if model.session.track == nil {
+            } else if display.track == nil {
                 VStack(spacing: 22) {
                     emptyState(symbol: "waveform", title: "未在播放", detail: "打开播放器并播放歌曲。")
                         .frame(height: 175)
                     HStack(spacing: 12) {
                         Button("打开 Apple Music") { NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Music.app")) }.buttonStyle(.glass)
-                        Button("预览动效") { openWindow(id: "preview") }.buttonStyle(.glass)
+                        Button("预览动效") { if let show = model.showPreviewWindow { show() } else { openWindow(id: "preview") } }.buttonStyle(.glass)
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -172,11 +180,13 @@ private struct LyricsScrollContent: View {
     }
     private var trackTitlePlaceholder: some View {
         VStack(spacing: 18) {
-            Text(model.session.track?.title ?? "LyricsX Next")
+            Text(display.track?.title ?? "LyricsX Next")
                 .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(Color.primary.opacity(0.9)).lineLimit(2).multilineTextAlignment(.center)
-                .accessibilityLabel("当前歌曲：\(model.session.track?.title ?? "LyricsX Next")")
-            if model.lyricsBlocked {
+                .accessibilityLabel("当前歌曲：\(display.track?.title ?? "LyricsX Next")")
+            if !live {
+                EmptyView()
+            } else if model.lyricsBlocked {
                 placeholderStatus("此歌曲歌词已停用", action: "恢复搜索") { model.restoreLyricsSearch() }
             } else if model.session.isSearching {
                 HStack(spacing: 8) {
@@ -213,6 +223,15 @@ private struct LyricsScrollContent: View {
     }
     private func syncedLyrics(_ doc: LyricsDocument) -> some View {
         GeometryReader { geometry in
+            let placement = model.preferences.mainLyricPosition
+            let insets = placement.insets(viewportHeight: geometry.size.height)
+            let input = MainLyricFollowInput(index: live ? model.mainLyricIndex : display.index,
+                browsing: browsing, reduced: reduced,
+                layout: .init(viewport: geometry.size, position: placement,
+                    primaryFontSize: model.preferences.mainLyricFontSize,
+                    translationFontSize: model.preferences.mainTranslationFontSize,
+                    showTranslation: model.preferences.showTranslation,
+                    fontName: model.preferences.lyricFontName, conversion: model.preferences.conversion))
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 26) {
                     ForEach(doc.lines) { line in
@@ -221,51 +240,72 @@ private struct LyricsScrollContent: View {
                 }
                 .scrollTargetLayout()
                 .padding(.horizontal, geometry.size.width < 440 ? 22 : 36)
-                .padding(.vertical, geometry.size.height * 0.38)
+                .padding(.top, insets.top)
+                .padding(.bottom, insets.bottom)
             }
             .scrollPosition($position)
             .scrollIndicators(.hidden)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting {
-                    browsing = true; returnTask?.cancel()
+                    browsing = true; returnTask?.cancel(); returnTask = nil
                 } else if phase == .idle, browsing {
-                    returnTask = Task { do { try await Task.sleep(for: .seconds(5)) } catch { return }; browsing = false }
+                    returnTask?.cancel()
+                    returnTask = Task {
+                        do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                        guard !Task.isCancelled else { return }
+                        browsing = false
+                    }
                 }
             }
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.13), .init(color: .black, location: 0.83), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
-            .onChange(of: model.mainLyricIndex) { _, _ in
-                guard !browsing else { return }
-                follow(doc, animated: true)
-            }
-            .onChange(of: browsing) { _, browsing in
-                if !browsing { follow(doc, animated: false, force: true) }
+            .onChange(of: input, initial: true) { previous, current in
+                guard let policy = current.policy(comparedTo: previous) else { return }
+                returnTask?.cancel(); returnTask = nil
+                follow(doc, animated: policy.animated, force: policy.force, returning: policy.returning)
             }
             .modifier(MainLyricVisibility(model: model) { visible in
                 returnTask?.cancel(); returnTask = nil
-                if visible { browsing = false; follow(doc, animated: false, force: true) }
+                if visible {
+                    if browsing { browsing = false }
+                    else { follow(doc, animated: false, force: true) }
+                }
             })
         }
     }
-    private func follow(_ doc: LyricsDocument, animated: Bool, force: Bool = false) {
-        guard model.mainWindowVisible else { return }
+    private func follow(_ doc: LyricsDocument, animated: Bool, force: Bool = false, returning: Bool = false) {
+        guard model.mainWindowVisible, live else { return }
         // A newly loaded document can arrive before the cached UI selection.
         // Resolve once against its own timeline, including the prelude (nil).
         let index = doc.index(at: model.session.position)
-        guard let request = followState.request(index: index, lines: doc.lines, animated: animated && !reduced, force: force) else { return }
+        guard let request = followState.request(index: index, lines: doc.lines, animated: animated && !reduced,
+                                               force: force, returning: returning) else { return }
         let animation = request.duration.map { Animation.timingCurve(0.22, 0, 0.18, 1, duration: $0) }
         withAnimation(animation) {
-            if let index { position.scrollTo(id: doc.lines[index].id, anchor: .center) }
+            // Before the first timestamp, anchor that first row too. Scrolling
+            // to the top only accounts for padding, not the row's own height.
+            if let target = index.map({ doc.lines[$0] }) ?? doc.lines.first {
+                position.scrollTo(id: target.id, anchor: model.preferences.mainLyricPosition.anchor)
+            }
             else { position.scrollTo(edge: .top) }
         }
     }
     private func lyricRow(_ line: LyricLine, doc: LyricsDocument, width: Double) -> some View {
-        let appearance = MainLyricRowAppearance(index: line.id, current: model.mainLyricIndex, browsing: browsing, reduced: reduced)
+        let appearance = MainLyricRowAppearance(index: line.id, current: live ? model.mainLyricIndex : display.index,
+                                              browsing: browsing, reduced: reduced)
         return Button {
+            guard live else { return }
             model.seek(doc.seekPosition(for: line)); browsing = false
         } label: {
             VStack(alignment: .leading, spacing: 9) {
-                LiveLyricText(session: model.session, line: line, document: doc, active: appearance.active, rendering: { model.mainWindowVisible && !model.showSearch && !model.showLibrary },
+                Group {
+                    if live {
+                        LiveLyricText(session: model.session, line: line, document: doc, active: appearance.active, rendering: { model.mainWindowVisible && !model.showSearch && !model.showLibrary },
                               text: line.text.isEmpty ? "•••" : model.preferences.text(line.text), effects: model.preferences.lyricEmphasis)
+                    } else {
+                        WordHighlight(line: line, time: doc.lyricTime(for: display.position), active: appearance.active,
+                            text: line.text.isEmpty ? "•••" : model.preferences.text(line.text), effects: model.preferences.lyricEmphasis)
+                    }
+                }
                     .environment(\.lyricWordColors, typography.wordColors)
                     .font(typography.font(size: model.preferences.mainLyricFontSize * min(1, max(0.8, width / 480)), weight: .bold)).tracking(-0.4).fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(typography.primary.opacity(appearance.primaryOpacity))
@@ -276,7 +316,7 @@ private struct LyricsScrollContent: View {
                 .modifier(MainLyricRowMotion(appearance: appearance,
                     duration: LyricMotion.followResponse(lines: doc.lines, index: model.mainLyricIndex), reduced: reduced))
                 .contentShape(.rect)
-        }.buttonStyle(.plain).accessibilityLabel(line.text.isEmpty ? "间奏" : line.text)
+        }.buttonStyle(.plain).disabled(!live).accessibilityLabel(line.text.isEmpty ? "间奏" : line.text)
             .accessibilityHint("跳转到 " + timeString(doc.seekPosition(for: line)))
     }
 }

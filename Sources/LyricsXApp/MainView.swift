@@ -3,7 +3,8 @@ import LyricsXCore
 
 struct MainView: View {
     @Bindable var model: AppModel
-    @Environment(\.openWindow) private var openWindow
+    var showMain: (() -> Void)?
+    var showSettings: (() -> Void)?
     @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -18,7 +19,7 @@ struct MainView: View {
             .frame(minWidth: 520, minHeight: 420)
             .background(WindowVisibilityReader { model.mainWindowVisible = $0 })
             .onAppear {
-                model.showMainWindow = { [openWindow] in openWindow(id: "main"); NSApp.activate() }
+                if let showMain { model.showMainWindow = showMain }
             }
             .sheet(isPresented: $model.showSearch) { SearchView(model: model) }
             .sheet(isPresented: $model.showLibrary) { LibraryView(model: model) }
@@ -37,7 +38,9 @@ struct MainView: View {
                 SymbolButton(symbol: "magnifyingglass", help: "搜索歌词 ⌘F", ink: .primary) { model.showSearch = true }
                 SymbolButton(symbol: "books.vertical", help: "歌词资料库", ink: .primary) { model.showLibrary = true }
                 SymbolButton(symbol: "rectangle.on.rectangle", help: "显示或隐藏悬浮歌词", active: model.preferences.overlayVisible, ink: .primary) { model.setOverlayVisible(!model.preferences.overlayVisible) }
-                SymbolButton(symbol: "slider.horizontal.3", help: "设置 ⌘,", ink: .primary) { openSettings(); NSApp.activate() }
+                SymbolButton(symbol: "slider.horizontal.3", help: "设置 ⌘,", ink: .primary) {
+                    if let showSettings { showSettings() } else { openSettings(); NSApp.activate() }
+                }
             }
         }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 10)
     }
@@ -91,6 +94,7 @@ private struct MainPlayingIndicator: View {
 private struct MainAmbientBackground: View {
     let model: AppModel
     var body: some View {
-        AmbientBackground(artwork: model.artwork, reduced: model.preferences.reduceMotion || !model.mainWindowVisible)
+        AmbientBackground(artwork: model.artwork, reduced: model.preferences.reduceMotion,
+                          active: model.mainWindowVisible)
     }
 }

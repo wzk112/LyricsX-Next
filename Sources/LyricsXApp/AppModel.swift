@@ -19,6 +19,7 @@ final class AppModel {
     var showLibrary = false
     var mainWindowVisible = false { didSet { updateMainLyricSelection() } }
     private(set) var mainLyricIndex: Int?
+    let mainLyricPresentation = MainLyricPresentation()
     private(set) var playbackControlPosition = 0.0
     var artwork: NSImage? {
         didSet {
@@ -26,6 +27,8 @@ final class AppModel {
         }
     }
     @ObservationIgnored private var publishingArtwork = false
+    private(set) var artworkLoading = false
+    @ObservationIgnored private var artworkHandover = ArtworkHandover()
     @ObservationIgnored private var artworkHandoverTask: Task<Void, Never>?
     @ObservationIgnored private var artworkGeneration: UInt64 = 0
     @ObservationIgnored private var artworkThemeTask: Task<Void, Never>?
@@ -33,18 +36,23 @@ final class AppModel {
     var libraryLoading = false
     @ObservationIgnored private var libraryGeneration = 0
     @ObservationIgnored private var libraryTask: Task<Void, Never>?
-    var showMainWindow: (() -> Void)?
+    @ObservationIgnored var showMainWindow: (() -> Void)?
+    @ObservationIgnored var showSettingsWindow: (() -> Void)?
+    @ObservationIgnored var showPreviewWindow: (() -> Void)?
     @ObservationIgnored var showFeatureGuide: ((Bool) -> Void)?
     @ObservationIgnored var overlay: OverlayController?
     @ObservationIgnored private var ticker: PlaybackTicker?
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
+    @ObservationIgnored private let artworkLoader: @Sendable (Data?, URL?) async -> CGImage?
     @ObservationIgnored private var artworkIdentity: String?
     @ObservationIgnored private var artworkBytes: Data?
     @ObservationIgnored private var wakeObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var presentationStopped = false
 
-    init(repository: (any LyricsRepository)? = nil, preferences: Preferences = Preferences(), flexbarSocketURL: URL = FlexbarServer.defaultURL) {
+    init(repository: (any LyricsRepository)? = nil, preferences: Preferences = Preferences(), flexbarSocketURL: URL = FlexbarServer.defaultURL,
+         artworkLoader: @escaping @Sendable (Data?, URL?) async -> CGImage? = { await ArtworkDecoder.shared.load(data: $0, url: $1) }) {
         self.preferences = preferences
+        self.artworkLoader = artworkLoader
         flexbar = FlexbarController(socketURL: flexbarSocketURL)
         dockVisibility = DockVisibilityController(shouldShow: { preferences.showDockIcon })
         let configurationReader = preferences.sourceConfigurationReader
@@ -54,6 +62,7 @@ final class AppModel {
             guard let self else { return }
             self.session.accept(snapshot, shouldSearch: !self.lyricsBlocked(for: snapshot.track))
             self.updateMainLyricSelection()
+            self.mainLyricPresentation.update(model: self)
             self.ticker?.scheduleEarlier(self.lyricClockInterval())
             self.updateArtwork(self.session.track)
             self.flexbar.synchronizePlayback()
@@ -66,6 +75,7 @@ final class AppModel {
             self?.session.rejectPendingSeek()
             self?.bridge.refresh()
         }
+        observeMainLyricPresentation()
     }
     private static let gapCharacters = CharacterSet(charactersIn: ".·•…⋯・。 \t\n")
     var overlayPresentationMode: OverlayPresentationMode {
@@ -96,7 +106,9 @@ final class AppModel {
 
     func start() {
         guard ticker == nil else { return }
+        let wasStopped = presentationStopped
         presentationStopped = false
+        if wasStopped { observeMainLyricPresentation() }
         displays.start()
         dockVisibility.start()
         observeDockVisibility()
@@ -147,6 +159,9 @@ final class AppModel {
         withObservationTracking {
             playing = session.isPlaying
             _ = session.documentRevision
+            _ = mainWindowVisible
+            _ = preferences.overlayVisible
+            _ = preferences.showMenubarLyrics
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeTickerActivity() }
         }
@@ -157,10 +172,26 @@ final class AppModel {
             ticker?.scheduleEarlier(lyricClockInterval())
         } else { ticker?.stop() }
     }
+    private func observeMainLyricPresentation() {
+        guard !presentationStopped else { return }
+        withObservationTracking {
+            _ = session.trackRevision
+            _ = session.documentRevision
+            _ = session.isSearching
+            _ = mainLyricIndex
+            _ = mainWindowVisible
+            _ = preferences.reduceMotion
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeMainLyricPresentation() }
+        }
+        mainLyricPresentation.update(model: self)
+    }
     func stop() {
         ticker?.stop(); ticker = nil; artworkTask?.cancel(); artworkTask = nil; presentationStopped = true
         artworkThemeTask?.cancel(); artworkThemeTask = nil
         artworkHandoverTask?.cancel(); artworkHandoverTask = nil
+        artworkLoading = false; artworkHandover.finish()
+        mainLyricPresentation.stop()
         displays.stop()
         flexbar.stop()
         dockVisibility.stop()
@@ -370,33 +401,43 @@ final class AppModel {
         }
     }
     private func updateArtwork(_ track: Track?) {
+        guard !presentationStopped else { return }
         let identity = "\(session.trackRevision):" + (track?.artworkURL?.absoluteString ?? "")
         guard identity != artworkIdentity || track?.artworkData != artworkBytes else { return }
         artworkIdentity = identity; artworkBytes = track?.artworkData; artworkTask?.cancel()
         artworkThemeTask?.cancel(); artworkHandoverTask?.cancel()
         artworkGeneration &+= 1
         let generation = artworkGeneration
-        guard track?.artworkData != nil || track?.artworkURL != nil else {
-            artworkTask = nil; artworkHandoverTask = nil; artwork = nil
+        guard track != nil else {
+            artworkTask = nil; artworkHandoverTask = nil; artworkLoading = false
+            artworkHandover.finish(); artwork = nil
             return
         }
-        // Decode replacement pixels before clearing the existing cover. A
-        // short bounded hold avoids nil -> image flashes for cached artwork.
+        let hasSource = track?.artworkData != nil || track?.artworkURL != nil
+        artworkLoading = true
+        let deadline = artworkHandover.begin(at: ProcessInfo.processInfo.systemUptime)
+        // Track metadata often arrives before bytes or an artwork URL. Keep
+        // one bounded hold across both observations and across rapid skips.
         artworkHandoverTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
-            guard let self, !self.presentationStopped, self.artworkGeneration == generation else { return }
+            do { try await Task.sleep(for: .seconds(max(0, deadline - ProcessInfo.processInfo.systemUptime))) } catch { return }
+            guard !Task.isCancelled, let self, !self.presentationStopped, self.artworkGeneration == generation else { return }
             self.artwork = nil
+            // While a known source is loading, a quiet surface avoids an
+            // incorrect default-note flash. No-source songs settle at expiry.
+            if !hasSource { self.artworkLoading = false }
             self.artworkHandoverTask = nil
         }
+        guard hasSource else { artworkTask = nil; return }
         let data = track?.artworkData, url = track?.artworkURL
-        artworkTask = Task { [weak self] in
-            let decoded = await ArtworkDecoder.shared.load(data: data, url: url)
+        artworkTask = Task { [weak self, loader = artworkLoader] in
+            let decoded = await loader(data, url)
             let theme = if let decoded { await ArtworkThemeExtractor.shared.theme(for: decoded) } else { ArtworkTheme?.none }
             // Cancellation also covers a newer byte payload for the same track
             // and URL, which an identity-only check cannot distinguish.
             guard !Task.isCancelled, let self, !self.presentationStopped,
                   self.artworkIdentity == identity, self.artworkGeneration == generation else { return }
             self.artworkHandoverTask?.cancel(); self.artworkHandoverTask = nil
+            self.artworkLoading = false
             if let decoded {
                 // The cover and its lyric palette publish in one main-actor
                 // turn; the palette must not arrive as a second visual update.
@@ -405,6 +446,7 @@ final class AppModel {
                 self.artwork = NSImage(cgImage: decoded, size: .zero)
                 if self.preferences.artworkTheme != theme { self.preferences.artworkTheme = theme }
                 self.publishingArtwork = false
+                self.artworkHandover.finish()
             } else { self.artwork = nil }
             self.artworkTask = nil
         }

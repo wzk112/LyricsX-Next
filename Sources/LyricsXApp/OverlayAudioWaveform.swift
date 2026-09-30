@@ -422,6 +422,9 @@ final class OverlayWaveformView: NSView {
     private let gradientMask = CAShapeLayer()
     private let clock = LyricFrameView(frame: .zero)
     private var smoothed = [Float](repeating: 0, count: WaveformSpectrumAnalyzer.bandCount)
+    private var drawnBands: [Float]?
+    private var drawnSize = CGSize.zero
+    private var drawnStyle: OverlayWaveformStyle?
     private var worker: WaveformCaptureWorker?
     private var sourceID: String?
     private var lastFrame = 0.0
@@ -608,9 +611,15 @@ final class OverlayWaveformView: NSView {
     }
     #endif
     private func drawBands() {
+        // Capture/status delivery continues during silence; identical pixels
+        // do not need a new path or three compositor layer updates.
+        guard drawnBands != smoothed || drawnSize != bounds.size || drawnStyle != style else { return }
         let points = OverlayWaveformGeometry.points(for: smoothed,
             width: bounds.width, height: bounds.height)
         guard !points.isEmpty else { return }
+        drawnBands = smoothed
+        drawnSize = bounds.size
+        drawnStyle = style
         // The bands are ordered low to high frequency, left to right. The
         // curve has one contour; silence remains a fixed horizontal baseline.
         func appendContour(_ points: [CGPoint], to path: CGMutablePath) {
@@ -642,8 +651,7 @@ final class OverlayWaveformView: NSView {
         underlay.strokeColor = NSColor.black.withAlphaComponent(edgeAlpha).cgColor
         stroke.strokeColor = NSColor.white.withAlphaComponent(
             lightGlass && style == .monochrome ? 0.55 : 1).cgColor
-        gradient.colors = [Self.color(theme.sung).cgColor, Self.color(theme.accent).cgColor,
-            Self.color(theme.secondary).cgColor]
+        gradient.colors = theme.waveformColors.map { Self.color($0).cgColor }
         gradient.startPoint = CGPoint(x: 0, y: 0.5)
         gradient.endPoint = CGPoint(x: 1, y: 0.5)
         CATransaction.commit()

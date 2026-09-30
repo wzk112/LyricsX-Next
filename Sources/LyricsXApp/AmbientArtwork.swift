@@ -31,7 +31,8 @@ actor AmbientArtworkRenderer {
         let wash = CIImage(color: CIColor(red: channels[0] / peak, green: channels[1] / peak,
             blue: channels[2] / peak, alpha: theme == .neutral ? 0 : 0.10))
         let result = wash.composited(over: blurred)
-        guard let rendered = context.createCGImage(result, from: CGRect(x: 0, y: 0, width: width, height: height)) else { return nil }
+        guard let rendered = context.createCGImage(result, from: CGRect(x: 0, y: 0, width: width, height: height)),
+              !Task.isCancelled else { return nil }
         cached = (key, source, rendered)
         return rendered
     }
@@ -48,4 +49,13 @@ struct AmbientArtworkKey: Hashable, Sendable {
         height = max(64, Int(ceil(size.height / 64)) * 64)
     }
     var size: CGSize { CGSize(width: width, height: height) }
+}
+
+struct AmbientBackdrop {
+    let image: CGImage
+    let key: AmbientArtworkKey
+
+    func animatesReplacement(of previous: Self?, reduced: Bool) -> Bool {
+        !reduced && previous?.key.artwork != key.artwork
+    }
 }

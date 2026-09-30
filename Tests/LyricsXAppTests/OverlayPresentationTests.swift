@@ -9,6 +9,19 @@ private struct PendingOverlayRepository: LyricsRepository {
     func save(_ document: LyricsDocument, for track: Track) async throws {}
 }
 
+private struct NativeOverlaySongCardFixture: View {
+    let model: AppModel
+    var animated = true
+    var body: some View {
+        let display = OverlayDisplaySnapshot(model: model, at: ProcessInfo.processInfo.systemUptime)
+        OverlaySongCardTransition(display: display,
+            layout: .init(width: 620, title: display.track?.title, artist: display.track?.artist),
+            lightGlass: false, animated: animated)
+            .modifier(OverlayContentTransition(identity: .init(track: String(display.trackRevision)), animatesArrival: false))
+            .foregroundStyle(.white).frame(width: 620, height: 120).background(.black)
+    }
+}
+
 private func whiteInkBounds(_ bitmap: NSBitmapImageRep, columns: Range<Int>? = nil) throws -> CGRect {
     let image = try #require(bitmap.cgImage)
     let context = try #require(CGContext(data: nil, width: bitmap.pixelsWide, height: bitmap.pixelsHigh,
@@ -84,6 +97,131 @@ private func whiteInkBounds(_ bitmap: NSBitmapImageRep, columns: Range<Int>? = n
             presentation.update(model: model, at: 10.19)
             #expect(presentation.held == nil) // No repeated old-frame hold during a slow search.
         }
+    }
+
+    @Test func songCardsWithoutDocumentsHoldAcrossRapidSkipsAndCommitCachedResults() throws {
+        try fixture { model in
+            model.session.suppressLyrics()
+            #expect(model.session.document == nil && model.overlayPresentationMode == .song)
+            let presentation = OverlayPresentation(); defer { presentation.stop() }
+            presentation.update(model: model, at: 10)
+            for index in 0..<3 {
+                model.session.accept(.init(track: .init(playerID: "test", playerName: "Test", title: "Skip \(index)"), position: 0, isPlaying: true))
+                presentation.update(model: model, at: 10.01 + Double(index) * 0.04)
+                let held = try #require(presentation.held)
+                #expect(held.track?.title == "First" && held.document == nil && held.mode == .song)
+                #expect(presentation.preparingSince == 10.01)
+            }
+            model.session.use(.init(plainText: "Instrumental"), persist: false)
+            presentation.update(model: model, at: 10.13)
+            #expect(presentation.held == nil && model.overlayPresentationMode == .song)
+            presentation.finishIfDue(model: model, at: 11)
+            #expect(presentation.held == nil && model.session.track?.title == "Skip 2")
+        }
+    }
+
+    @Test func compactSearchHandoverExpiresOnceAndReduceMotionCancelsIt() throws {
+        try fixture { model in
+            model.session.suppressLyrics()
+            let presentation = OverlayPresentation(); defer { presentation.stop() }
+            presentation.update(model: model, at: 10)
+            model.session.accept(.init(track: .init(playerID: "test", playerName: "Test", title: "Waiting"), position: 0, isPlaying: false))
+            presentation.update(model: model, at: 10.01)
+            #expect(presentation.held?.mode == .song)
+            presentation.finishIfDue(model: model, at: 10.18)
+            #expect(presentation.held == nil)
+            for time in [10.19, 10.3, 10.5] {
+                presentation.update(model: model, at: time)
+                #expect(presentation.held == nil)
+            }
+            model.session.accept(.init(track: .init(playerID: "test", playerName: "Test", title: "Latest"), position: 0, isPlaying: false))
+            presentation.update(model: model, at: 10.6)
+            #expect(presentation.held?.track?.title == "Waiting")
+            model.preferences.reduceMotion = true
+            presentation.update(model: model, at: 10.61)
+            #expect(presentation.held == nil && presentation.preparingSince == nil)
+        }
+    }
+
+    @Test func nativeSongCardArtworkHoldsThroughMissingMetadataAndCrossfadesToLatest() async throws {
+        _ = NSApplication.shared
+        let suite = "LyricsXTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = AppModel(repository: PendingOverlayRepository(), preferences: Preferences(defaults: defaults))
+        defer { model.stop() }
+        model.session.accept(.init(track: .init(playerID: "test", playerName: "Test", title: "Artwork"), position: 0, isPlaying: false), shouldSearch: false)
+        func image(_ color: NSColor) -> NSImage {
+            NSImage(size: .init(width: 64, height: 64), flipped: false) { rect in
+                color.setFill(); rect.fill(); return true
+            }
+        }
+        model.artwork = image(.red)
+        let host = NSHostingView(rootView: NativeOverlaySongCardFixture(model: model))
+        let window = NSWindow(contentRect: .init(x: 80, y: 100, width: 620, height: 120),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host; window.orderFrontRegardless()
+        defer { window.orderOut(nil); window.contentView = nil }
+        func colorCounts() throws -> (red: Int, blue: Int, mixed: Int, green: Int, redPresent: Int, bluePresent: Int) {
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let source = try #require(bitmap.cgImage)
+            let context = try #require(CGContext(data: nil, width: source.width, height: source.height,
+                bitsPerComponent: 8, bytesPerRow: source.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(source, in: .init(x: 0, y: 0, width: source.width, height: source.height))
+            let bytes = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+            var red = 0, blue = 0, mixed = 0, green = 0, redPresent = 0, bluePresent = 0
+            for pixel in 0..<(source.width * source.height) {
+                let r = Int(bytes[pixel * 4]), g = Int(bytes[pixel * 4 + 1]), b = Int(bytes[pixel * 4 + 2])
+                if r > 180 && g < 30 && b < 30 { red += 1 }
+                if b > 180 && g < 30 && r < 30 { blue += 1 }
+                if r > 35 && b > 35 && g < 30 { mixed += 1 }
+                if g > 180 && r < 30 && b < 30 { green += 1 }
+                if r > 35 && g < 30 && b < 30 { redPresent += 1 }
+                if b > 35 && g < 30 && r < 30 { bluePresent += 1 }
+            }
+            return (red, blue, mixed, green, redPresent, bluePresent)
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(try colorCounts().red > 1000)
+        var replacement = Track(playerID: "test", playerName: "Test", title: "Replacement")
+        model.bridge.onSnapshot?(.init(track: replacement, position: 0, isPlaying: false))
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(try colorCounts().red > 1000) // A new revision with late bytes never exposes the note.
+        replacement.artworkData = try #require(NSBitmapImageRep(cgImage: try #require(image(.blue)
+            .cgImage(forProposedRect: nil, context: nil, hints: nil))).representation(using: .png, properties: [:]))
+        model.bridge.onSnapshot?(.init(track: replacement, position: 0, isPlaying: false))
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(try colorCounts().mixed > 300) // Both old and new pixels exist mid-transition.
+        try await Task.sleep(for: .milliseconds(450))
+        let settled = try colorCounts()
+        #expect(settled.blue > 1000 && settled.red == 0 && settled.mixed == 0)
+        // A whole-row transition keeps both cards in their own positions:
+        // moving between one and two title lines must not teleport the cover.
+        for (title, color, expectsRed) in [
+            (String(repeating: "A long title with featured musicians ", count: 4), NSColor.red, true),
+            ("Short", NSColor.blue, false)
+        ] {
+            model.session.accept(.init(track: .init(playerID: "test", playerName: "Test", title: title),
+                position: 0, isPlaying: false), shouldSearch: false)
+            model.artwork = image(color)
+            try await Task.sleep(for: .milliseconds(150))
+            let midway = try colorCounts()
+            #expect(midway.redPresent + midway.mixed > 300 && midway.bluePresent + midway.mixed > 300, "title: \(title), counts: \(midway)")
+            try await Task.sleep(for: .milliseconds(450))
+            let latest = try colorCounts()
+            if expectsRed { #expect(latest.red > 1000 && latest.blue == 0 && latest.mixed == 0) }
+            else { #expect(latest.blue > 1000 && latest.red == 0 && latest.mixed == 0) }
+        }
+        model.artwork = image(.red)
+        try await Task.sleep(for: .milliseconds(50))
+        model.artwork = image(.green); host.rootView = NativeOverlaySongCardFixture(model: model, animated: false)
+        try await Task.sleep(for: .milliseconds(60))
+        let cancelled = try colorCounts()
+        #expect(cancelled.green > 1000 && cancelled.red == 0 && cancelled.blue == 0 && cancelled.mixed == 0)
     }
 
     @Test func introEmptyLinesAndDotPlaceholdersUseWaitingDots() throws {
