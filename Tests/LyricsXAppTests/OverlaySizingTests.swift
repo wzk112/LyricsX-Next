@@ -46,6 +46,37 @@ private struct SizingRepository: LyricsRepository {
     func save(_ document: LyricsDocument, for track: Track) async throws {}
 }
 
+@MainActor @Test func disablingWaveformRemovesItsSpaceWithoutGrowingCenteredLyrics() throws {
+    let suite = "LyricsXNoWaveSpacing-" + UUID().uuidString
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let prefs = Preferences(defaults: defaults)
+    let doc = LyricsDocument(lines: [
+        .init(id: 0, time: 0, text: "見つめて Believe in me, my mind", translation: "凝望着我 请相信我"),
+        .init(id: 1, time: 8, text: "Next lyric")])
+    for width in [320.0, 620.0, 1000.0] {
+        for adaptive in [false, true] {
+            for mode in OverlaySecondaryMode.allCases {
+                prefs.overlayAdaptiveSize = adaptive; prefs.overlaySecondaryMode = mode
+                prefs.overlayWaveformEnabled = true
+                let enabled = OverlayWaveformLayout.totalHeight(content:
+                    OverlayLyricsWindowLayout.baseHeight(document: doc, index: 0,
+                        preferences: prefs, maximumWidth: width), enabled: true)
+                prefs.overlayWaveformEnabled = false
+                let disabled = OverlayLyricsWindowLayout.baseHeight(document: doc, index: 0,
+                    preferences: prefs, maximumWidth: width)
+                let visible = OverlayTextMeasure.visibleHeight(document: doc, index: 0,
+                    preferences: prefs, maximumWidth: width)
+                #expect(disabled >= visible + 80)
+                if adaptive {
+                    #expect(disabled <= enabled)
+                    #expect(abs(disabled - visible - 80) < 0.001)
+                }
+            }
+        }
+    }
+}
+
 @MainActor @Test func renderedLyricsReportTheirHeightWithoutControllerObservationOrHover() async throws {
     _ = NSApplication.shared
     let suite = "LyricsXTests-" + UUID().uuidString
@@ -725,7 +756,7 @@ func nativeNoWaveContentCentersItsVisibleInkInsideGlass() async throws {
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         let bytes = try #require(context.data).assumingMemoryBound(to: UInt8.self)
         let scale = CGFloat(image.width) / overlay.panel.frame.width
-        let startY = Int((header ? 50 : 8) * scale)
+        let startY = Int((header ? 40 : 8) * scale)
         let endY = image.height - Int(7 * scale)
         var first = image.height, last = 0
         for y in startY..<endY {
@@ -737,6 +768,20 @@ func nativeNoWaveContentCentersItsVisibleInkInsideGlass() async throws {
             }
         }
         #expect(first < last, "No visible lyric/card ink in \(name)")
+        if header {
+            var headerBottom = 0
+            for y in Int(8 * scale)..<startY {
+                for x in Int(24 * scale)..<min(image.width - Int(24 * scale), Int(260 * scale)) {
+                    let i = y * context.bytesPerRow + x * 4
+                    if bytes[i] > 135 && bytes[i + 1] > 135 && bytes[i + 2] > 135 {
+                        headerBottom = max(headerBottom, y)
+                    }
+                }
+            }
+            #expect(headerBottom > 0)
+            #expect(CGFloat(first - headerBottom) / scale >= 4,
+                "\(name) needs clearance between the title and lyric ink")
+        }
         print("CENTER PIXELS \(name): panel=\(overlay.panel.frame.height), first=\(CGFloat(first) / scale), last=\(CGFloat(last) / scale), centerError=\((CGFloat(first + last) / 2 - CGFloat(image.height) / 2) / scale)")
         return (CGFloat(first + last) / 2 - CGFloat(image.height) / 2) / scale
     }
@@ -771,7 +816,7 @@ func nativeNoWaveContentCentersItsVisibleInkInsideGlass() async throws {
                 let error = try capture(overlay, name: name, header: true)
                 let visibleHeight = OverlayTextMeasure.visibleHeight(document: doc, index: 0,
                     preferences: prefs, maximumWidth: width)
-                #expect(overlay.panel.frame.height >= visibleHeight + 104 - 1)
+                #expect(overlay.panel.frame.height >= visibleHeight + 80 - 1)
                 // SwiftUI's actual glyph ink has asymmetric ascender/descender
                 // whitespace inside the measured line boxes. The line block
                 // itself is centered to sub-point accuracy; this native pixel

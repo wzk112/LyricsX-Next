@@ -137,9 +137,10 @@ final class OverlayViewport {
 }
 
 @MainActor enum OverlayLyricsWindowLayout {
-    // With the header layered at the glass top, a centered visible lyric block
-    // needs 48pt for the header plus 4pt clearance on each side of the center.
-    static let centeredChromeHeight = 104.0
+    // Center the visible block with 40pt on either side. The pinned header's
+    // 30pt hosting frame includes transparent space around its 11pt text;
+    // reserving that entire frame twice made disabling the waveform taller.
+    static let centeredChromeHeight = OverlayLayoutMetrics.chromeHeight
     static func baseHeight(document: LyricsDocument?, index: Int?, preferences p: Preferences,
                            maximumWidth: Double) -> Double {
         guard let document, let index else { return OverlayLayoutMetrics.height(preferences: p) }
