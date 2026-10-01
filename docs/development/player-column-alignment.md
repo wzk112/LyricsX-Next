@@ -19,3 +19,7 @@
 原生验证截图：`outputs/player-column-alignment-2026-10-02/`。正式发布下一版本时，再同步公开与应用内更新日志。
 
 完整 Swift 测试 452 项通过（Services 104、Core 42、App 306），包含此次对齐、底部留白及波形恢复的原生检查。此项未改动 Flexbar。
+
+最终构建已安装到 `/Applications/LyricsX Next.app`，严格签名和执行文件哈希均与测试构建一致。实际主窗口的封面和播放条两边对齐，Apple Music 播放进度与歌词正常继续更新；关闭再开启波形后未显示连接或权限错误，原有设置保留。
+
+本机仍标记为 2.0.40（275）的修复构建，尚未发布新版。安装前备份：`build/installation-backups/all-layout-recovery-2026-10-02/LyricsX Next.app`。
