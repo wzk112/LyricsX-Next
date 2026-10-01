@@ -55,7 +55,7 @@ enum GuideContent {
             "没有识别到播放器？前往“设置 → 播放器”选择来源或重新连接。系统询问控制播放器的权限时，请允许。",
             "应用会自动搜索并保存歌词。等待歌词时显示三个点，纯音乐或没有歌词时显示歌曲信息。"], illustration: "player"),
         .init(id: "main", title: "主窗口与菜单栏", subtitle: "播放、切歌和查看歌词", symbol: "text.quote", points: [
-            "点击歌词可跳到那一句；底部可以播放、暂停、切歌和拖动进度。在“设置 → 歌词”可将主窗口当前歌词设为居中或上方，手动滚动后可返回正在唱的地方。",
+            "点击歌词可跳到那一句；底部可以播放、暂停、切歌和拖动进度。在“设置 → 歌词 → 文字”可将主窗口当前歌词设为居中、上方或自定义百分比（5%–95%，越小越靠上），手动滚动后可返回正在唱的地方。",
             "关闭主窗口也能继续看悬浮歌词。菜单栏歌词、Dock 图标和登录启动，可在“设置 → 通用”调整。",
             "默认 ⌥⌘O 打开主窗口，⌥⌘L 显示或隐藏悬浮窗。在“设置 → 通用”可自定义或清除全局快捷键；清除后，可重新打开应用进入主窗口。"], illustration: "player"),
         .init(id: "search", title: "选择合适的歌词", subtitle: "点击放大镜，或按 ⌘F", symbol: "magnifyingglass", points: [
@@ -403,7 +403,8 @@ struct FeatureGuideView: View {
                                     .frame(height: min(230, max(185, guideSize.size.height * 0.36)))
                             } else if page.illustration.hasPrefix("live") || ["style", "overlay"].contains(page.illustration) {
                                 GuideLiveDemo(kind: page.illustration, reduced: preferences?.reduceMotion == true, viewportHeight: scrollHeight,
-                                    mainPosition: page.id == "position39" ? preferences?.mainLyricPosition : nil)
+                                    mainPosition: page.id == "position39" ? preferences?.mainLyricPosition : nil,
+                                    mainCustomPercent: page.id == "position39" ? preferences?.mainLyricCustomPercent : nil)
                                     .frame(height: min(300, max(230, guideSize.size.height * 0.43)))
                             } else {
                                 GuideIllustration(kind: page.illustration, appReduced: preferences?.reduceMotion == true)

@@ -364,7 +364,7 @@ private final class CloseQAWindow: NSWindow {
         }
         func expectPreludeAnchor() throws {
             let scroll = try #require(scrollView(host))
-            let fraction = prefs.mainLyricPosition.fraction
+            let fraction = prefs.mainLyricPlacement.fraction
             // SwiftUI exposes semantic button labels through its accessibility
             // tree, rather than through the FocusRingView wrapper's label.
             let screenFrame = try #require(accessibilityFrame(for: doc.lines[0].text, in: host))

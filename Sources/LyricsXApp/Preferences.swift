@@ -127,6 +127,17 @@ final class Preferences {
     var mainLyricFontSize: Double { didSet { save("mainLyricFontSize", mainLyricFontSize) } }
     var mainTranslationFontSize: Double { didSet { save("mainTranslationFontSize", mainTranslationFontSize) } }
     var mainLyricPosition: MainLyricPosition { didSet { save("mainLyricPosition", mainLyricPosition.rawValue) } }
+    private var savedMainLyricCustomPercent: Double
+    var mainLyricCustomPercent: Double {
+        get { savedMainLyricCustomPercent }
+        set {
+            let value = MainLyricPosition.normalizedPercent(newValue)
+            guard value != savedMainLyricCustomPercent else { return }
+            savedMainLyricCustomPercent = value
+            save("mainLyricCustomPercent", value)
+        }
+    }
+    var mainLyricPlacement: MainLyricPlacement { mainLyricPosition.placement(customPercent: mainLyricCustomPercent) }
     var showTranslation: Bool { didSet { save("showTranslation", showTranslation) } }
     var flexbarEnabled: Bool { didSet { save("flexbarEnabled", flexbarEnabled) } }
     var showMenubarLyrics: Bool { didSet { save("showMenubarLyrics", showMenubarLyrics) } }
@@ -214,6 +225,8 @@ final class Preferences {
         mainLyricFontSize = number("mainLyricFontSize", 30, 20...42)
         mainTranslationFontSize = number("mainTranslationFontSize", 14, 11...24)
         mainLyricPosition = MainLyricPosition(savedValue: d.string(forKey: "mainLyricPosition"))
+        savedMainLyricCustomPercent = MainLyricPosition.normalizedPercent(
+            number("mainLyricCustomPercent", MainLyricPosition.defaultCustomPercent, MainLyricPosition.customRange))
         showTranslation = d.object(forKey: "showTranslation") as? Bool ?? true
         flexbarEnabled = d.bool(forKey: "flexbarEnabled")
         showMenubarLyrics = d.bool(forKey: "showMenubarLyrics")

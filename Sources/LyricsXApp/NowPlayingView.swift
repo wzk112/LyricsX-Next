@@ -223,7 +223,7 @@ private struct LyricsScrollContent: View {
     }
     private func syncedLyrics(_ doc: LyricsDocument) -> some View {
         GeometryReader { geometry in
-            let placement = model.preferences.mainLyricPosition
+            let placement = model.preferences.mainLyricPlacement
             let insets = placement.insets(viewportHeight: geometry.size.height)
             let input = MainLyricFollowInput(index: live ? model.mainLyricIndex : display.index,
                 browsing: browsing, reduced: reduced,
@@ -257,7 +257,7 @@ private struct LyricsScrollContent: View {
                     }
                 }
             }
-            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.13), .init(color: .black, location: 0.83), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: placement.topFadeEnd), .init(color: .black, location: placement.bottomFadeStart), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
             .onChange(of: input, initial: true) { previous, current in
                 guard let policy = current.policy(comparedTo: previous) else { return }
                 returnTask?.cancel(); returnTask = nil
@@ -284,7 +284,7 @@ private struct LyricsScrollContent: View {
             // Before the first timestamp, anchor that first row too. Scrolling
             // to the top only accounts for padding, not the row's own height.
             if let target = index.map({ doc.lines[$0] }) ?? doc.lines.first {
-                position.scrollTo(id: target.id, anchor: model.preferences.mainLyricPosition.anchor)
+                position.scrollTo(id: target.id, anchor: model.preferences.mainLyricPlacement.anchor)
             }
             else { position.scrollTo(edge: .top) }
         }

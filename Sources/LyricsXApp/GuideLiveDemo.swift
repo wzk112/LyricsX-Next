@@ -105,6 +105,7 @@ struct GuideLiveDemo: View {
     let reduced: Bool
     var viewportHeight: CGFloat = 600
     var mainPosition: MainLyricPosition?
+    var mainCustomPercent: Double?
     @State private var demo: GuideDemoSession?
     @State private var visible = false
     @State private var inViewport = true
@@ -116,9 +117,10 @@ struct GuideLiveDemo: View {
     }
 
     init(kind: String, reduced: Bool, viewportHeight: CGFloat = 600, session: GuideDemoSession? = nil,
-         mainPosition: MainLyricPosition? = nil) {
+         mainPosition: MainLyricPosition? = nil, mainCustomPercent: Double? = nil) {
         self.kind = kind; self.reduced = reduced; self.viewportHeight = viewportHeight
         self.mainPosition = mainPosition
+        self.mainCustomPercent = mainCustomPercent
         _demo = State(initialValue: session)
     }
 
@@ -178,10 +180,14 @@ struct GuideLiveDemo: View {
                 if demo == nil { demo = GuideDemoSession(reduced: effectiveReduced) }
                 demo?.setReducedMotion(effectiveReduced)
                 if let mainPosition { demo?.model.preferences.mainLyricPosition = mainPosition }
+                if let mainCustomPercent { demo?.model.preferences.mainLyricCustomPercent = mainCustomPercent }
                 if kind == "liveTheme" { demo?.model.preferences.followArtworkColors = true }
             }
             .onChange(of: mainPosition) { _, value in
                 if let value { demo?.model.preferences.mainLyricPosition = value }
+            }
+            .onChange(of: mainCustomPercent) { _, value in
+                if let value { demo?.model.preferences.mainLyricCustomPercent = value }
             }
             .onChange(of: effectiveReduced) { _, value in demo?.setReducedMotion(value) }
             .onDisappear { demo?.stop(); demo = nil }

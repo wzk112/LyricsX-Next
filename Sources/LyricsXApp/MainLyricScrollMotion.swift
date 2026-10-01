@@ -15,7 +15,7 @@ extension EnvironmentValues {
 struct MainLyricFollowInput: Equatable {
     struct Layout: Equatable {
         let viewport: CGSize
-        let position: MainLyricPosition
+        let position: MainLyricPlacement
         let primaryFontSize: Double
         let translationFontSize: Double
         let showTranslation: Bool

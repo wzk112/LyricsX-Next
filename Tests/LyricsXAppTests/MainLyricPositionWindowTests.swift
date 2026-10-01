@@ -8,8 +8,15 @@ import LyricsXCore
 // This suite owns the AppKit event pump. Run it alone with LYRICSX_WINDOW_QA=1.
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["LYRICSX_WINDOW_QA"] == "1"))
 @MainActor struct MainLyricPositionWindowTests {
+    private final class FixtureDelegate: NSObject, NSApplicationDelegate {
+        func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+        func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply { .terminateCancel }
+    }
     @Test func actualMainRowsReachUpperAnchorAtBothEndsAndAfterReflow() async throws {
         _ = NSApplication.shared
+        let delegate = FixtureDelegate(), oldDelegate = NSApp.delegate
+        NSApp.delegate = delegate
+        defer { NSApp.delegate = oldDelegate; withExtendedLifetime(delegate) {} }
         NSApp.finishLaunching()
         struct Repository: LyricsRepository {
             func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> { .init { $0.finish() } }
@@ -54,34 +61,38 @@ import LyricsXCore
         }
         func focusFrames(_ view: NSView) -> [NSRect] {
             let own = String(describing: type(of: view)).contains("FocusRingView")
-                ? [view.convert(view.bounds, to: host)] : []
+                ? [panel.convertToScreen(view.convert(view.bounds, to: nil))] : []
             return own + view.subviews.flatMap(focusFrames)
         }
-        func check(_ index: Int, fraction: Double, prelude: Bool = false) async throws {
+        func currentFrame(viewport: NSRect, fraction: Double) throws -> NSRect {
+            // The in-process hosting view does not always expose SwiftUI's
+            // semantic AX children. Compare native button frames by their
+            // actual fractional anchor, not by midY (wrong near the edges).
+            try #require(focusFrames(host).filter { $0.height > 40 }.min {
+                abs(viewport.maxY - $0.maxY + $0.height * fraction - viewport.height * fraction)
+                    < abs(viewport.maxY - $1.maxY + $1.height * fraction - viewport.height * fraction)
+            })
+        }
+        @discardableResult func check(_ index: Int, fraction: Double, prelude: Bool = false) async throws -> CGFloat {
             model.session.seek(to: prelude ? 0 : 5 + Double(index) * 2)
             model.updateMainLyricSelection()
             #expect(model.mainLyricIndex == (prelude ? nil : index))
             try await settle()
             let scroll = try #require(scrollView(host))
-            print("Native focus frames \(index): \(focusFrames(host))")
-            let frame = try #require(focusFrames(host).filter { $0.height > 40 }.min {
-                abs($0.midY - host.bounds.height * fraction) < abs($1.midY - host.bounds.height * fraction)
-            })
-            let screenFrame = panel.convertToScreen(host.convert(frame, to: nil))
             let viewport = panel.convertToScreen(scroll.contentView.convert(scroll.contentView.bounds, to: nil))
+            let screenFrame = try currentFrame(viewport: viewport, fraction: fraction)
             let rowAnchor = viewport.maxY - screenFrame.maxY + screenFrame.height * fraction
             #expect(abs(rowAnchor - viewport.height * fraction) < 3,
-                    "Row \(index), height \(frame.height), anchor \(rowAnchor), viewport \(viewport.height), fraction \(fraction)")
+                    "Row \(index), height \(screenFrame.height), anchor \(rowAnchor), viewport \(viewport.height), fraction \(fraction)")
             let offset = scroll.contentView.bounds.minY
             try await settle()
-            let settledFrame = try #require(focusFrames(host).filter { $0.height > 40 }.min {
-                abs($0.midY - host.bounds.height * fraction) < abs($1.midY - host.bounds.height * fraction)
-            })
+            let settledFrame = try currentFrame(viewport: viewport, fraction: fraction)
             // Lazy estimates can change the absolute content offset while
             // compensating the visible row. Check the actual on-screen frame.
-            #expect(abs(settledFrame.minY - frame.minY) < 2 && abs(settledFrame.height - frame.height) < 2,
+            #expect(abs(settledFrame.minY - screenFrame.minY) < 2 && abs(settledFrame.height - screenFrame.height) < 2,
                     "The visible row must not drift after settling")
-            print("Main lyric row \(index): height=\(frame.height), anchor=\(rowAnchor), viewport=\(viewport.height), offset=\(offset)")
+            print("Main lyric row \(index): height=\(screenFrame.height), anchor=\(rowAnchor), viewport=\(viewport.height), offset=\(offset)")
+            return scroll.contentView.bounds.minY
         }
 
         try await check(0, fraction: 0.5, prelude: true)
@@ -104,5 +115,24 @@ import LyricsXCore
         try await check(15, fraction: 0.3)
         preferences.mainLyricPosition = .center
         try await check(15, fraction: 0.5)
+        preferences.mainLyricPosition = .custom
+        for percent in [5.0, 12, 80, 95] {
+            preferences.mainLyricCustomPercent = percent
+            try await check(0, fraction: percent / 100, prelude: true)
+            let beginning = try await check(0, fraction: percent / 100)
+            let middle = try await check(15, fraction: percent / 100)
+            let end = try await check(34, fraction: percent / 100)
+            let returned = try await check(15, fraction: percent / 100)
+            // Also prove that distant seeks moved the list itself. A stale
+            // previously anchored row must not satisfy the geometry check.
+            #expect(middle > beginning + 100 && end > middle + 100 && returned < end - 100)
+        }
+        preferences.mainLyricCustomPercent = 12
+        try await check(15, fraction: 0.12)
+        preferences.showTranslation = false
+        panel.setContentSize(.init(width: 540, height: 480))
+        try await check(15, fraction: 0.12)
+        preferences.showTranslation = true
+        try await check(15, fraction: 0.12)
     }
 }
