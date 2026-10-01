@@ -124,6 +124,16 @@ final class Preferences {
     var translationFontSize: Double { didSet { save("translationFontSize", translationFontSize) } }
     var nextLineFontSize: Double { didSet { save("nextLineFontSize", nextLineFontSize) } }
     var overlaySecondaryMode: OverlaySecondaryMode { didSet { save("overlaySecondaryMode", overlaySecondaryMode.rawValue) } }
+    private var savedOverlayTextSpacing: OverlayTextSpacing
+    var overlayTextSpacing: OverlayTextSpacing {
+        get { savedOverlayTextSpacing }
+        set {
+            let value = newValue.normalized()
+            guard value != savedOverlayTextSpacing else { return }
+            savedOverlayTextSpacing = value
+            if let data = try? JSONEncoder().encode(value) { save("overlayTextSpacing", data) }
+        }
+    }
     var mainLyricFontSize: Double { didSet { save("mainLyricFontSize", mainLyricFontSize) } }
     var mainTranslationFontSize: Double { didSet { save("mainTranslationFontSize", mainTranslationFontSize) } }
     var mainLyricPosition: MainLyricPosition { didSet { save("mainLyricPosition", mainLyricPosition.rawValue) } }
@@ -165,8 +175,8 @@ final class Preferences {
     var directory: URL
     var launchAtLogin = SMAppService.mainApp.status == .enabled
     var overlayLayoutWidth: Double { min(1000, max(320, overlayWidth)) }
-    var overlayPrimarySpacing: Double { max(10, fontSize * 0.44) }
-    var overlaySecondarySpacing: Double { max(8, max(translationFontSize, nextLineFontSize) * 0.6) }
+    var overlayPrimarySpacing: Double { overlayTextSpacing.automaticGaps ? max(10, fontSize * 0.44) : overlayTextSpacing.primaryGap }
+    var overlaySecondarySpacing: Double { overlayTextSpacing.automaticGaps ? max(8, max(translationFontSize, nextLineFontSize) * 0.6) : overlayTextSpacing.secondaryGap }
     init(defaults d: UserDefaults = .standard) {
         defaults = d
         globalHotkeys = HotkeyPreferences(defaults: d)
@@ -222,6 +232,7 @@ final class Preferences {
         translationFontSize = number("translationFontSize", 13, 10...24)
         nextLineFontSize = number("nextLineFontSize", 12, 10...24)
         overlaySecondaryMode = OverlaySecondaryMode(rawValue: d.string(forKey: "overlaySecondaryMode") ?? "translation") ?? .translation
+        savedOverlayTextSpacing = OverlayTextSpacing.load(d.data(forKey: "overlayTextSpacing"))
         mainLyricFontSize = number("mainLyricFontSize", 30, 20...42)
         mainTranslationFontSize = number("mainTranslationFontSize", 14, 11...24)
         mainLyricPosition = MainLyricPosition(savedValue: d.string(forKey: "mainLyricPosition"))

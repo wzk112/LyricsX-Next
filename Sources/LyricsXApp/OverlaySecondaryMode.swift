@@ -39,13 +39,14 @@ enum OverlaySecondaryMode: String, CaseIterable, Identifiable {
         case .none: return .init()
         }
     }
-    func reservedHeight(translationSize: Double, nextSize: Double, primarySpacing: Double, secondarySpacing: Double) -> Double {
+    func reservedHeight(translationSize: Double, nextSize: Double, primarySpacing: Double, secondarySpacing: Double,
+                        translationLineSpacing: Double = 0, nextLineSpacing: Double = 0) -> Double {
         switch self {
         case .none: 0
-        case .translation: ceil(translationSize * 1.4) * 2 + primarySpacing
-        case .next: nextSize * 2.8 + primarySpacing
-        case .either: max(ceil(translationSize * 1.4) * 2, nextSize * 2.8) + primarySpacing
-        case .both: ceil(translationSize * 1.4) * 2 + nextSize * 2.8 + primarySpacing + secondarySpacing
+        case .translation: ceil(translationSize * 1.4) * 2 + translationLineSpacing + primarySpacing
+        case .next: nextSize * 2.8 + nextLineSpacing + primarySpacing
+        case .either: max(ceil(translationSize * 1.4) * 2 + translationLineSpacing, nextSize * 2.8 + nextLineSpacing) + primarySpacing
+        case .both: ceil(translationSize * 1.4) * 2 + translationLineSpacing + nextSize * 2.8 + nextLineSpacing + primarySpacing + secondarySpacing
         }
     }
 }

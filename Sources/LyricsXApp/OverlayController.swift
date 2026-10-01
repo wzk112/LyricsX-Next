@@ -587,7 +587,8 @@ final class OverlayController: NSObject, NSWindowDelegate {
         let configuration = [maximum, p.fontSize, p.translationFontSize,
             p.nextLineFontSize, Double(OverlaySecondaryMode.allCases.firstIndex(of: p.overlaySecondaryMode) ?? 0),
             p.overlayAdaptiveSize ? 1 : 0, Double(mode.rawValue), p.showTranslation ? 1 : 0,
-            p.overlayPrimarySpacing, p.overlaySecondarySpacing]
+            p.overlayPrimarySpacing, p.overlaySecondarySpacing,
+            p.overlayTextSpacing.primaryLineSpacing, p.overlayTextSpacing.translationLineSpacing]
             + [p.overlayWaveformEnabled ? 1 : 0]
         let changed = configuration != lastSizingConfiguration
         let replaced = display.documentRevision != sizingDocumentRevision

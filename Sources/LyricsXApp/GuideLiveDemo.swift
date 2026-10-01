@@ -15,6 +15,7 @@ import LyricsXCore
     private(set) var floating = false
     private var panel: OverlayController?
     private var stopped = false
+    private let demoDocument: LyricsDocument
     @ObservationIgnored private var startedAt = ProcessInfo.processInfo.systemUptime
     private static let artwork = [0.0, 110.0].map { hue in
         ImageRenderer(content: AnyView(CoverArtwork(artwork: nil, demo: true)
@@ -28,7 +29,12 @@ import LyricsXCore
             .init(text: "每一句，", start: 6, end: 7.4), .init(text: "清楚", start: 7.4, end: 8.8),
             .init(text: "呈现", start: 8.8, end: 11.8)])
     ])
-    init(reduced: Bool) {
+    private static let spacingDocument = LyricsDocument(title: "文字间距演示", source: "原创示例", duration: 12, lines: [
+        .init(id: 0, time: 0, text: "悬浮窗原文第一行\n悬浮窗原文第二行", translation: "翻译第一行\n翻译第二行"),
+        .init(id: 1, time: 6, text: "下一句预览第一行\n下一句预览第二行", translation: "下一句翻译第一行\n下一句翻译第二行")
+    ])
+    init(reduced: Bool, spacingDemo: Bool = false) {
+        demoDocument = spacingDemo ? Self.spacingDocument : Self.document
         let prefs = Preferences(defaults: UserDefaults(suiteName: suite)!)
         prefs.overlayWidth = 520; prefs.overlayVisible = false
         // Guide previews never create a system-audio tap, including when the
@@ -36,13 +42,13 @@ import LyricsXCore
         prefs.overlayWaveformEnabled = false
         prefs.overlayLocked = true; prefs.hideOverlayOnHover = false
         prefs.hideWhenPaused = false; prefs.reduceMotion = reduced
-        prefs.overlaySecondaryMode = .translation
+        prefs.overlaySecondaryMode = spacingDemo ? .both : .translation
         prefs.lyricHDRBrightness = 3; prefs.overlayTheme = .dark
         model = AppModel(repository: Repository(), preferences: prefs)
         selectTrack()
     }
     var height: Double {
-        OverlayTextMeasure.height(document: Self.document, index: model.session.currentLineIndex ?? 0,
+        OverlayTextMeasure.height(document: model.session.document ?? demoDocument, index: model.session.currentLineIndex ?? 0,
                                  preferences: model.preferences, maximumWidth: 520)
     }
     func selectTrack(now: Double = ProcessInfo.processInfo.systemUptime) {
@@ -51,7 +57,7 @@ import LyricsXCore
             ? "更长的歌名，也保持播放控件的位置" : "材质与动效演示", artist: alternate ? "LyricsX Next · 独立演示" : "LyricsX Next",
             album: alternate ? "不同长度的专辑信息" : "原创示例", duration: 12)
         model.session.accept(.init(track: track, position: 0, isPlaying: !model.preferences.reduceMotion, sampledAt: now), now: now, shouldSearch: false)
-        model.session.use(Self.document, persist: false)
+        model.session.use(demoDocument, persist: false)
         model.artwork = Self.artwork[alternate ? 1 : 0]
         model.updateMainLyricSelection()
     }
@@ -106,6 +112,7 @@ struct GuideLiveDemo: View {
     var viewportHeight: CGFloat = 600
     var mainPosition: MainLyricPosition?
     var mainCustomPercent: Double?
+    var overlaySpacing: OverlayTextSpacing?
     @State private var demo: GuideDemoSession?
     @State private var visible = false
     @State private var inViewport = true
@@ -117,10 +124,11 @@ struct GuideLiveDemo: View {
     }
 
     init(kind: String, reduced: Bool, viewportHeight: CGFloat = 600, session: GuideDemoSession? = nil,
-         mainPosition: MainLyricPosition? = nil, mainCustomPercent: Double? = nil) {
+         mainPosition: MainLyricPosition? = nil, mainCustomPercent: Double? = nil, overlaySpacing: OverlayTextSpacing? = nil) {
         self.kind = kind; self.reduced = reduced; self.viewportHeight = viewportHeight
         self.mainPosition = mainPosition
         self.mainCustomPercent = mainCustomPercent
+        self.overlaySpacing = overlaySpacing
         _demo = State(initialValue: session)
     }
 
@@ -156,7 +164,7 @@ struct GuideLiveDemo: View {
                                         colorScheme: demo.model.preferences.overlayEffectiveTheme.resolvedScheme)
                                         .padding(6)
                                 }
-                                .scaleEffect(min(1, (geometry.size.width - 16) / 520))
+                                .scaleEffect(min(1, (geometry.size.width - 16) / 520, geometry.size.height / demo.height))
                                 .frame(width: geometry.size.width, height: geometry.size.height)
                         }
                     }.clipShape(.rect(cornerRadius: 14))
@@ -177,10 +185,11 @@ struct GuideLiveDemo: View {
                 return rect.maxY > 0 && rect.minY < viewportHeight
             } action: { inViewport = $0 }
             .onAppear {
-                if demo == nil { demo = GuideDemoSession(reduced: effectiveReduced) }
+                if demo == nil { demo = GuideDemoSession(reduced: effectiveReduced, spacingDemo: kind == "liveSpacing") }
                 demo?.setReducedMotion(effectiveReduced)
                 if let mainPosition { demo?.model.preferences.mainLyricPosition = mainPosition }
                 if let mainCustomPercent { demo?.model.preferences.mainLyricCustomPercent = mainCustomPercent }
+                if let overlaySpacing { demo?.model.preferences.overlayTextSpacing = overlaySpacing }
                 if kind == "liveTheme" { demo?.model.preferences.followArtworkColors = true }
             }
             .onChange(of: mainPosition) { _, value in
@@ -188,6 +197,9 @@ struct GuideLiveDemo: View {
             }
             .onChange(of: mainCustomPercent) { _, value in
                 if let value { demo?.model.preferences.mainLyricCustomPercent = value }
+            }
+            .onChange(of: overlaySpacing) { _, value in
+                if let value { demo?.model.preferences.overlayTextSpacing = value }
             }
             .onChange(of: effectiveReduced) { _, value in demo?.setReducedMotion(value) }
             .onDisappear { demo?.stop(); demo = nil }

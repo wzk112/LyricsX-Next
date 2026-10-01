@@ -47,8 +47,8 @@ struct GuidePage: Identifiable {
 
 enum GuideContent {
     // Changed only when the introduction itself is revised, never for a routine rebuild.
-    static let revision = "playback-controls-39"
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.39"
+    static let revision = "lyrics-layout-40"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.40"
     static let tutorial: [GuidePage] = [
         .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
             "打开 Apple Music、Spotify、网易云或 QQ 音乐播放歌曲，即可自动同步歌词。自动识别不包含浏览器。",
@@ -91,7 +91,7 @@ enum GuideContent {
             "没有封面时使用中性配色。自动配色优先于手动颜色，但不会覆盖它们，关闭即可恢复。",
             "主窗口背景也会随封面变化。背景与歌词的配色分别处理，关闭歌词跟色不会关掉封面背景。"], illustration: "theme"),
         .init(id: "text", title: "翻译、下一句与简繁体", subtitle: "设置 → 歌词", symbol: "text.alignleft", points: [
-            "开启“显示翻译”后，有译文的歌词会显示翻译。辅助内容还可选下一句或两者都显示。",
+            "开启“显示翻译”后，有译文的歌词会显示翻译。辅助内容还可选下一句或两者都显示。悬浮窗原文、翻译行距和段间距可在“设置 → 歌词 → 悬浮窗文字间距”独立调整。",
             "“翻译或下一句”会在没有翻译时显示下一句；“仅翻译”则留空。下一句换到当前句时会平滑上移。",
             "可选择原文、简体或繁体显示，简繁转换后仍保留逐字进度。"], illustration: "conversion"),
         .init(id: "effects", title: "让歌词随演唱亮起来", subtitle: "设置 → 动效", symbol: "sparkles", points: [
@@ -117,7 +117,7 @@ enum GuideContent {
     ]
     // Add new release entries here; a version jump includes every intervening
     // entry, while a first upgrade from versions without receipts gets a recap.
-    static let releases: [(version: String, page: GuidePage)] = release39Pages.map { ("2.0.39", $0) } + [
+    static let releases: [(version: String, page: GuidePage)] = release40Pages.map { ("2.0.40", $0) } + release39Pages.map { ("2.0.39", $0) } + [
         ("2.0.38", .init(id: "waveform38", title: "悬浮窗音频波形", subtitle: "新增 · 设置 → 悬浮窗", symbol: "waveform", points: [
             "在“设置 → 悬浮窗”可开启实时音频波形，选择白色或封面彩色；默认关闭，不会因升级自动开始采集。",
             "首次开启时 macOS 可能请求系统音频录制权限。波形仅尝试读取当前识别播放器的音频，暂停、隐藏或减少动态效果时停止。",
@@ -195,8 +195,17 @@ enum GuideContent {
             "简繁体转换后仍能显示逐字进度。自定义颜色保留 EDR 辉光，改善窗口首次显示时的屏幕能力识别。",
             "改善部分 QQ 音乐歌词的读取、搜索与封面显示；修复缓存文件变化及异常设置值引起的显示问题。"], illustration: "conversion"))
     ]
-    // Current release pages are also included in the numbered history above.
-    // An upgrade from 2.0.38 displays only these four pages.
+    static let release40Pages: [GuidePage] = [
+        .init(id: "position40", title: "自定义主歌词位置", subtitle: "新增 · 设置 → 歌词 → 文字 → 主窗口当前歌词位置", symbol: "text.aligncenter", points: [
+            "在居中和上方之外，可选择自定义百分比：5%–95%，数值越小越靠上。滑块和数值输入均可使用。",
+            "切回预设仍保留自定义数值；靠近边缘时调整淡出范围，首尾歌词、长句、翻译和窗口缩放均按所选位置对齐。",
+            "下方控制实际设置；演示使用独立播放会话，不改变正在播放的歌曲。"], illustration: "livePlayer"),
+        .init(id: "spacing40", title: "悬浮窗文字间距", subtitle: "新增 · 设置 → 歌词 → 悬浮窗文字间距", symbol: "arrow.up.and.down.text.horizontal", points: [
+            "原文换行行距和翻译换行行距可独立调整，只在文字换成两行时增加间距。",
+            "关闭段间距跟随字号后，可调整原文与辅助行、翻译与下一句之间的距离；自动高度下没有辅助内容时不增加留白。",
+            "默认保持原来的排版；自动高度会适配间距，下一句晋升继续使用相同的缩放布局。可一键恢复默认间距。"], illustration: "liveSpacing")
+    ]
+    // Historical 2.0.39 pages remain available on multi-version upgrades.
     static let release39Pages: [GuidePage] = [
         .init(id: "position39", title: "主歌词位置", subtitle: "新增 · 设置 → 歌词 → 主窗口当前歌词位置", symbol: "text.aligncenter", points: [
             "当前句可选择居中或上方。第一句尚未开始、首尾歌词、长句和翻译均按所选位置对齐。",
@@ -222,7 +231,7 @@ enum GuideContent {
         updates(after: previous)
     }
     // The previous public version defines the manual current-release introduction.
-    static let latestBaseline: String? = "2.0.38"
+    static let latestBaseline: String? = "2.0.39"
     static func updates(after previous: String?) -> [GuidePage] {
         let pages = releases.filter { entry in
             guard let previous else { return true }
@@ -403,8 +412,9 @@ struct FeatureGuideView: View {
                                     .frame(height: min(230, max(185, guideSize.size.height * 0.36)))
                             } else if page.illustration.hasPrefix("live") || ["style", "overlay"].contains(page.illustration) {
                                 GuideLiveDemo(kind: page.illustration, reduced: preferences?.reduceMotion == true, viewportHeight: scrollHeight,
-                                    mainPosition: page.id == "position39" ? preferences?.mainLyricPosition : nil,
-                                    mainCustomPercent: page.id == "position39" ? preferences?.mainLyricCustomPercent : nil)
+                                    mainPosition: ["position39", "position40"].contains(page.id) ? preferences?.mainLyricPosition : nil,
+                                    mainCustomPercent: ["position39", "position40"].contains(page.id) ? preferences?.mainLyricCustomPercent : nil,
+                                    overlaySpacing: page.id == "spacing40" ? preferences?.overlayTextSpacing : nil)
                                     .frame(height: min(300, max(230, guideSize.size.height * 0.43)))
                             } else {
                                 GuideIllustration(kind: page.illustration, appReduced: preferences?.reduceMotion == true)
@@ -448,7 +458,7 @@ private struct GuideQuickSettings: View {
     let page: String
     @Bindable var preferences: Preferences
     let model: AppModel?
-    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects", "waveform", "waveform38", "performanceFlexbar38", "flexbar", "position39", "colors39", "transitions39"].contains(page) }
+    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects", "waveform", "waveform38", "performanceFlexbar38", "flexbar", "position39", "position40", "spacing40", "colors39", "transitions39"].contains(page) }
     var body: some View {
         if available {
             VStack(alignment: .leading, spacing: 10) {
@@ -476,8 +486,10 @@ private struct GuideQuickSettings: View {
             }
         case "flexbar", "performanceFlexbar38":
             SettingToggle(title: "在 Flexbar 上显示歌词", detail: "需要另行安装和配置 FlexDesigner 歌词插件。入口在设置 → 开发者选项 → Flexbar。", value: $preferences.flexbarEnabled)
-        case "position39":
+        case "position39", "position40":
             MainLyricPositionSettings(preferences: preferences)
+        case "spacing40":
+            OverlayTextSpacingSettings(preferences: preferences)
         case "transitions39":
             SettingToggle(title: "减少动态效果", detail: "停止模糊和位移过渡；系统的同名设置也会生效。", value: $preferences.reduceMotion)
         case "main":

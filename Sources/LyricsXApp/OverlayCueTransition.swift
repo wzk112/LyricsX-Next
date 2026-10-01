@@ -15,6 +15,7 @@ struct OverlayCueSnapshot: Equatable {
     let previewCenter: Double?
     let previewScale: Double
     var fontName = ""
+    var lineSpacing = 0.0
     // The preview and primary coordinates are local to the visible lyric
     // block. A centered block can change height at a cue boundary.
     var blockHeight = 0.0
@@ -61,7 +62,7 @@ struct OverlayCueTransition {
         var result = self
         result.current = cue
         if let current, current.document == cue.document, current.index == cue.index, current.text == cue.text {
-            let reflowed = current.fontName != cue.fontName || current.height != cue.height || current.fontSize != cue.fontSize || current.previewCenter != cue.previewCenter
+            let reflowed = current.fontName != cue.fontName || current.height != cue.height || current.fontSize != cue.fontSize || current.previewCenter != cue.previewCenter || current.lineSpacing != cue.lineSpacing
                 || current.blockHeight != cue.blockHeight || current.centered != cue.centered
             if !animated || reflowed { result.settle() }
             return result

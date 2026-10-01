@@ -43,6 +43,7 @@ final class OverlayViewport {
         let weight: Double
         let minimumScale: Double
         let fontName: String
+        let lineSpacing: Double
     }
     private static var layoutCache: [LayoutKey: TextLayout] = [:]
 
@@ -51,11 +52,12 @@ final class OverlayViewport {
     /// shrinking a measured two-row string back into one bottom-aligned row.
     static func layout(_ text: String, font: Double, canvasWidth: Double, tracking: Double = -0.4,
                        weight: NSFont.Weight = .semibold, minimumScale: Double = 0.6,
-                       typography: LyricTypography = .init()) -> TextLayout {
+                       typography: LyricTypography = .init(), lineSpacing: Double = 0) -> TextLayout {
         // Use the same content width as SwiftUI. A conservative inset here
         // reserves a second row even when the rendered line fits on one.
         let available = max(1, canvasWidth)
-        let key = LayoutKey(text: text, font: font, width: available, tracking: tracking, weight: weight.rawValue, minimumScale: minimumScale, fontName: typography.fontName)
+        let gap = lineSpacing.isFinite ? max(0, lineSpacing) : 0
+        let key = LayoutKey(text: text, font: font, width: available, tracking: tracking, weight: weight.rawValue, minimumScale: minimumScale, fontName: typography.fontName, lineSpacing: gap)
         if let value = layoutCache[key] { return value }
         var measuredHeight = 0.0
         func rows(at size: Double) -> Int {
@@ -89,20 +91,23 @@ final class OverlayViewport {
         // NSTextStorage also measures fallback glyphs (e.g. Chinese text in a
         // Latin font). The selected font's ascender alone cannot contain them.
         let height = typography.fontName.isEmpty || count > 2 ? nominalHeight : max(nominalHeight, ceil(measuredHeight))
-        let value = TextLayout(fontSize: size, height: height, rows: min(2, count))
+        // SwiftUI lineSpacing adds space only BETWEEN the displayed rows.
+        // Measure wrapping without it, then add it once for a two-row layout;
+        // NSTextStorage paragraph spacing can include a trailing fragment gap.
+        let value = TextLayout(fontSize: size, height: height + gap * Double(min(2, count) - 1), rows: min(2, count))
         if layoutCache.count >= 256 { layoutCache.removeAll(keepingCapacity: true) }
         layoutCache[key] = value
         return value
     }
     static func primaryLayout(document: LyricsDocument, index: Int, preferences: Preferences, canvasWidth: Double) -> TextLayout {
-        layout(layoutText(document: document, index: index, preferences: preferences), font: preferences.fontSize, canvasWidth: canvasWidth, typography: preferences.typography)
+        layout(layoutText(document: document, index: index, preferences: preferences), font: preferences.fontSize, canvasWidth: canvasWidth, typography: preferences.typography, lineSpacing: preferences.overlayTextSpacing.primaryLineSpacing)
     }
     static func primaryHeight(document: LyricsDocument, index: Int, preferences: Preferences, canvasWidth: Double) -> Double {
         primaryLayout(document: document, index: index, preferences: preferences, canvasWidth: canvasWidth).height
     }
-    static func translationHeight(_ text: String?, font: Double, canvasWidth: Double, typography: LyricTypography = .init()) -> Double {
+    static func translationHeight(_ text: String?, font: Double, canvasWidth: Double, typography: LyricTypography = .init(), lineSpacing: Double = 0) -> Double {
         guard let text else { return 0 }
-        return layout(text, font: font, canvasWidth: canvasWidth, tracking: 0, weight: .medium, minimumScale: 0.75, typography: typography).height
+        return layout(text, font: font, canvasWidth: canvasWidth, tracking: 0, weight: .medium, minimumScale: 0.75, typography: typography, lineSpacing: lineSpacing).height
     }
     static func desiredSize(document: LyricsDocument, index: Int, preferences p: Preferences, maximumWidth: Double) -> NSSize {
         .init(width: maximumWidth, height: height(document: document, index: index, preferences: p, maximumWidth: maximumWidth))
@@ -119,7 +124,7 @@ final class OverlayViewport {
         let next = primaryHeight(document: document, index: index + 1, preferences: p, canvasWidth: maximumWidth - 60) * p.nextLineFontSize / p.fontSize
         let auxiliary = secondary(document: document, index: index, preferences: p)
         return primary + auxiliary.height(
-            translationHeight: translationHeight(auxiliary.translation, font: p.translationFontSize, canvasWidth: maximumWidth - 60, typography: p.typography), nextHeight: next,
+            translationHeight: translationHeight(auxiliary.translation, font: p.translationFontSize, canvasWidth: maximumWidth - 60, typography: p.typography, lineSpacing: p.overlayTextSpacing.translationLineSpacing), nextHeight: next,
             primarySpacing: p.overlayPrimarySpacing, secondarySpacing: p.overlaySecondarySpacing)
     }
     static func height(document: LyricsDocument, index: Int, preferences p: Preferences, maximumWidth: Double) -> Double {

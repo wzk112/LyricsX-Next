@@ -335,6 +335,9 @@ struct PreferencesView: View {
                 if p.showTranslation && p.overlaySecondaryMode.supportsTranslation { SettingSlider(title: "翻译字号", detail: "调整悬浮窗译文大小，长译文最多显示两行。", value: $p.translationFontSize, range: 10...24) }
                 if p.overlaySecondaryMode.supportsNext { SettingSlider(title: "下一句字号", detail: "调整下一句预览大小，换句时会放大并上移为当前句。", value: $p.nextLineFontSize, range: 10...24) }
             }
+            SettingsCard(title: "悬浮窗文字间距") {
+                OverlayTextSpacingSettings(preferences: p)
+            }
             SettingsCard(title: "同步") {
                 SettingRow(title: "歌词时间偏移", detail: "在主窗口底部或菜单栏调整。正值提前显示，负值延后显示。", impact: "偏移会保存回当前歌词文件，下次播放继续沿用。") { EmptyView() }
             }

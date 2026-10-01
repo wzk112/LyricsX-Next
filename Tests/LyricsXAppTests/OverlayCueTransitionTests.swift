@@ -29,6 +29,19 @@ import LyricsXCore
             plan: .init(start: line.time, duration: min(0.84, interval * 0.8), stablePrefixCount: prefix ? 3 : 0, layoutTail: ""),
             height: height, fontSize: 26, previewText: "Line \(index + 1)", previewCenter: 90, previewScale: 0.5)
     }
+    @Test func changingLineSpacingSettlesAnExistingDepartureEvenForSingleRows() throws {
+        var first = cue(0)
+        first.lineSpacing = 6
+        let second = cue(1)
+        let moving = OverlayCueTransition().updating(to: first, lyricTime: 2.9, at: 10, animated: true)
+            .updating(to: second, lyricTime: 3, at: 10.1, animated: true)
+        #expect(try #require(moving.departure).cue.lineSpacing == 6)
+        var changed = second
+        changed.lineSpacing = 10
+        let settled = moving.updating(to: changed, lyricTime: 3.05, at: 10.15, animated: true)
+        #expect(settled.departure == nil && settled.promotionDistance == nil)
+        #expect(!settled.needsFrames(at: 10.15, reduced: false))
+    }
 
     @Test func departureStartsImmediatelyMovesUpAndEndsEvenWhenPlaybackPauses() throws {
         let first = cue(0), second = cue(1)
