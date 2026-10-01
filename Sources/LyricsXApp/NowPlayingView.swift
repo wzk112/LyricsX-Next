@@ -55,15 +55,16 @@ struct NowPlayingView: View {
             CoverArtwork(artwork: model.artwork, animated: !model.preferences.reduceMotion && !reduceMotion,
                         loading: model.artworkLoading, managedHandover: true,
                         showsPlaceholderSymbol: model.session.track == nil)
-                .shadow(color: .black.opacity(0.35), radius: 30, y: 20)
-                .scaleEffect(model.session.isPlaying ? 1 : 0.94)
+                .shadow(color: .black.opacity(model.session.isPlaying ? 0.35 : 0.24),
+                    radius: model.session.isPlaying ? 30 : 22,
+                    y: model.session.isPlaying ? 20 : 12)
                 .animation(model.preferences.reduceMotion || reduceMotion ? nil : .spring(response: 0.65, dampingFraction: 0.8), value: model.session.isPlaying)
             ZStack(alignment: .topLeading) {
                 TrackMetadata(track: model.session.track).id(model.session.trackRevision)
                     .transition(model.preferences.reduceMotion || reduceMotion ? .identity : .artworkBlur)
             }
                 .animation(model.preferences.reduceMotion || reduceMotion ? nil : .easeInOut(duration: 0.45), value: model.session.trackRevision)
-            VStack(spacing: 12) {
+            PlayerTransportLayout {
                 PlaybackProgressView(model: model)
                 playbackButtons(compact: false).frame(maxWidth: .infinity)
             }
@@ -321,8 +322,9 @@ private struct LyricsScrollContent: View {
     }
 }
 
-/// The transport owns the bottom anchor. Measure metadata first, then fit the
-/// artwork into the remaining space, even while both transition views exist.
+/// Fit one shared width into the available height, then center the cover,
+/// metadata and transport together. Metadata and transport have fixed row
+/// heights, including while both metadata transition views exist.
 struct PlayerColumnLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         proposal.replacingUnspecifiedDimensions(by: .init(width: 300, height: 560))
@@ -332,13 +334,33 @@ struct PlayerColumnLayout: Layout {
         let fullWidth = ProposedViewSize(width: bounds.width, height: nil)
         let metadata = subviews[1].sizeThatFits(fullWidth)
         let transport = subviews[2].sizeThatFits(fullWidth)
-        let artwork = max(0, min(bounds.width, bounds.height - metadata.height - transport.height - 38))
-        subviews[0].place(at: bounds.origin, anchor: .topLeading,
-                          proposal: .init(width: artwork, height: artwork))
-        subviews[1].place(at: .init(x: bounds.minX, y: bounds.minY + artwork + 20),
-                          anchor: .topLeading, proposal: fullWidth)
-        subviews[2].place(at: .init(x: bounds.minX, y: bounds.maxY),
-                          anchor: .bottomLeading, proposal: fullWidth)
+        let width = max(0, min(bounds.width, bounds.height - metadata.height - transport.height - 38))
+        let x = bounds.midX - width / 2
+        let sharedWidth = ProposedViewSize(width: width, height: nil)
+        subviews[0].place(at: .init(x: x, y: bounds.minY), anchor: .topLeading,
+                          proposal: .init(width: width, height: width))
+        subviews[1].place(at: .init(x: x, y: bounds.minY + width + 20),
+                          anchor: .topLeading, proposal: sharedWidth)
+        subviews[2].place(at: .init(x: x, y: bounds.maxY),
+                          anchor: .bottomLeading, proposal: sharedWidth)
+    }
+}
+
+/// Keep the progress width independent of the buttons' minimum width in a
+/// short window. The existing button sizes can extend around the same center.
+private struct PlayerTransportLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let width = proposal.width ?? 300
+        let row = ProposedViewSize(width: width, height: nil)
+        return .init(width: width,
+            height: subviews[0].sizeThatFits(row).height + 12 + subviews[1].sizeThatFits(row).height)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let row = ProposedViewSize(width: bounds.width, height: nil)
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: row)
+        subviews[1].place(at: .init(x: bounds.midX, y: bounds.maxY), anchor: .bottom, proposal: row)
     }
 }
 
