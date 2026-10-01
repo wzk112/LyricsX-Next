@@ -137,10 +137,19 @@ final class OverlayViewport {
 }
 
 @MainActor enum OverlayLyricsWindowLayout {
-    // Center the visible block with 40pt on either side. The pinned header's
-    // 30pt hosting frame includes transparent space around its 11pt text;
-    // reserving that entire frame twice made disabling the waveform taller.
+    // Trim the window's empty bottom region separately from lyric placement.
+    // The old 104pt layout budget still determines the visible text's top.
     static let centeredChromeHeight = OverlayLayoutMetrics.chromeHeight
+    static let originalChromeHeight = 104.0
+    static func bottomTrim(document: LyricsDocument?, index: Int?, preferences p: Preferences,
+                           maximumWidth: Double) -> Double {
+        guard !p.overlayWaveformEnabled, let document, let index else { return 0 }
+        let visible = OverlayTextMeasure.visibleHeight(document: document, index: index,
+            preferences: p, maximumWidth: maximumWidth)
+        let height = baseHeight(document: document, index: index, preferences: p,
+            maximumWidth: maximumWidth)
+        return max(0, visible + originalChromeHeight - height)
+    }
     static func baseHeight(document: LyricsDocument?, index: Int?, preferences p: Preferences,
                            maximumWidth: Double) -> Double {
         guard let document, let index else { return OverlayLayoutMetrics.height(preferences: p) }

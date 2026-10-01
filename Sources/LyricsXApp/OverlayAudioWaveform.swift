@@ -75,36 +75,111 @@ enum WaveformCaptureFailure: Equatable {
     case noPCM
 }
 
-/// A silent player can recover at a discrete playback boundary. Permission
-/// and device setup failures stay blocked until the user retries or toggles
-/// the feature, so observation updates cannot repeatedly prompt for access.
+/// Rebuild a stream that has already delivered PCM at most three times per
+/// playback boundary. Initial/permission failures require a discrete boundary
+/// or a manual retry, so observer updates never become permission polling.
 struct WaveformRetryPolicy {
+    static let recoveryDelays: [TimeInterval] = [1, 3, 8]
     private var blockedSource: String?
     private var failure: WaveformCaptureFailure?
+    private var establishedSource: String?
+    private var recoveryAttempts = 0
+    private var pendingRecovery = false
     private var previousPlaying = false
     private var previousSource: String?
     private var previousTrackRevision: UInt64?
 
     mutating func observe(enabled: Bool, playing: Bool, source: String?, trackRevision: UInt64 = 0) {
         if !enabled { clear() }
-        else if failure == .noPCM,
+        else if failure != .setup,
                 (playing && !previousPlaying || source != previousSource
-                    || trackRevision != previousTrackRevision) { clear() }
+                    || trackRevision != previousTrackRevision) {
+            clear(resetEstablishedSource: source != previousSource)
+        }
         previousPlaying = playing
         previousSource = source
         previousTrackRevision = trackRevision
     }
-    mutating func failed(source: String?, reason: WaveformCaptureFailure) {
+    mutating func receivedPCM(source: String?) { establishedSource = source }
+    @discardableResult
+    mutating func failed(source: String?, reason: WaveformCaptureFailure) -> TimeInterval? {
         blockedSource = source
         failure = reason
+        pendingRecovery = false
+        guard reason == .noPCM, let source, establishedSource == source,
+              recoveryAttempts < Self.recoveryDelays.count else { return nil }
+        let delay = Self.recoveryDelays[recoveryAttempts]
+        recoveryAttempts += 1
+        pendingRecovery = true
+        return delay
     }
+    mutating func automaticRetry(source: String?) -> Bool {
+        guard failure == .noPCM, pendingRecovery, blockedSource == source else { return false }
+        blockedSource = nil; failure = nil; pendingRecovery = false
+        return true
+    }
+    mutating func cancelPendingRecovery() { pendingRecovery = false }
     mutating func wake() { if failure == .noPCM { clear() } }
+    mutating func outputRouteChanged() -> Bool {
+        guard failure != .setup else { return false }
+        clear(resetEstablishedSource: false)
+        return true
+    }
     mutating func manualRetry() { clear() }
     func allows(source: String?) -> Bool {
         if failure == .setup { return false }
         return blockedSource != source || failure == nil
     }
-    private mutating func clear() { blockedSource = nil; failure = nil }
+    private mutating func clear(resetEstablishedSource: Bool = true) {
+        blockedSource = nil; failure = nil
+        if resetEstablishedSource { establishedSource = nil }
+        recoveryAttempts = 0; pendingRecovery = false
+    }
+}
+
+/// Listen only while waveform capture is eligible. Route changes can keep a
+/// tap alive while it delivers zeros, so freshness checks alone cannot repair
+/// the old aggregate device. The player may use its own output route; only
+/// changes to macOS default routes are observable here.
+@MainActor
+private final class WaveformOutputRouteMonitor {
+    private let callback: @MainActor () -> Void
+    private var listener: AudioObjectPropertyListenerBlock?
+    private var generation: UInt64 = 0
+    private var registeredSelectors: [AudioObjectPropertySelector] = []
+    init(callback: @escaping @MainActor () -> Void) { self.callback = callback }
+    func start() {
+        guard listener == nil else { return }
+        generation &+= 1
+        let registrationGeneration = generation
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.listener != nil,
+                      self.generation == registrationGeneration else { return }
+                self.callback()
+            }
+        }
+        self.listener = listener
+        for selector in [kAudioHardwarePropertyDefaultOutputDevice,
+                         kAudioHardwarePropertyDefaultSystemOutputDevice] {
+            var address = AudioObjectPropertyAddress(mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            if AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
+                &address, .main, listener) == noErr { registeredSelectors.append(selector) }
+        }
+    }
+    isolated deinit { stop() }
+    func stop() {
+        generation &+= 1
+        guard let listener else { return }
+        for selector in registeredSelectors {
+            var address = AudioObjectPropertyAddress(mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
+                &address, .main, listener)
+        }
+        registeredSelectors.removeAll(); self.listener = nil
+    }
 }
 
 /// A fixed-size, lossy transfer from the Core Audio callback to the UI clock.
@@ -309,10 +384,32 @@ final class PlayerAudioWaveformTap {
     deinit { stop() }
 }
 
+/// Initial player attachment may take longer than recovery of an established
+/// stream. Fresh PCM includes zero samples: an actual silent passage is healthy.
+struct WaveformPCMProgress {
+    static let initialTimeout: TimeInterval = 10
+    static let stalledTimeout: TimeInterval = 3
+    private var lastPCMTime: TimeInterval
+    private var receivedPCM = false
+    init(startedAt: TimeInterval) { lastPCMTime = startedAt }
+    mutating func receivedFrame(at time: TimeInterval) {
+        lastPCMTime = time; receivedPCM = true
+    }
+    func isExpired(at time: TimeInterval) -> Bool {
+        time - lastPCMTime > (receivedPCM ? Self.stalledTimeout : Self.initialTimeout)
+    }
+}
+
 /// All Core Audio lifecycle operations and FFT work run on this one queue.
 /// The main thread only takes a 24-value snapshot; the audio callback only
 /// appends to its preallocated ring and never waits for analysis.
-final class WaveformCaptureWorker: @unchecked Sendable {
+protocol WaveformCaptureSession: AnyObject {
+    func start()
+    func stop()
+    func snapshot() -> (WaveformCaptureWorker.State, [Float])
+}
+
+final class WaveformCaptureWorker: WaveformCaptureSession, @unchecked Sendable {
     enum State: Equatable { case starting, live, unavailable(WaveformCaptureFailure) }
     private let queue = DispatchQueue(label: "LyricsX.WaveformAnalysis", qos: .utility)
     private let lock = NSLock()
@@ -324,7 +421,7 @@ final class WaveformCaptureWorker: @unchecked Sendable {
     private var latest = [Float](repeating: 0, count: WaveformSpectrumAnalyzer.bandCount)
     private var state: State = .starting
     private var cancelled = false
-    private var lastPCMTime = 0.0
+    private var pcmProgress = WaveformPCMProgress(startedAt: 0)
     private var lastWrites: UInt64 = 0
     #if DEBUG
     private let diagnosticsEnabled = ProcessInfo.processInfo.environment["LYRICSX_WAVEFORM_DIAGNOSTICS"] == "1"
@@ -343,9 +440,10 @@ final class WaveformCaptureWorker: @unchecked Sendable {
             }
             tap = newTap
             analyzer = WaveformSpectrumAnalyzer()
-            lastPCMTime = ProcessInfo.processInfo.systemUptime
+            let now = ProcessInfo.processInfo.systemUptime
+            pcmProgress = WaveformPCMProgress(startedAt: now)
             #if DEBUG
-            lastDiagnosticTime = lastPCMTime
+            lastDiagnosticTime = now
             #endif
             let timer = DispatchSource.makeTimerSource(queue: queue)
             timer.schedule(deadline: .now(), repeating: .milliseconds(16), leeway: .milliseconds(3))
@@ -382,7 +480,7 @@ final class WaveformCaptureWorker: @unchecked Sendable {
         if let frame = ring.latest(WaveformSpectrumAnalyzer.sampleCount),
            frame.writes != lastWrites, let tap, let analyzer {
             lastWrites = frame.writes
-            lastPCMTime = now
+            pcmProgress.receivedFrame(at: now)
             let bands = analyzer.bands(left: frame.left, right: frame.right, sampleRate: tap.sampleRate)
             setState(.live, bands: bands)
             #if DEBUG
@@ -393,7 +491,7 @@ final class WaveformCaptureWorker: @unchecked Sendable {
                 diagnosticBandMax = max(diagnosticBandMax, bands.max() ?? 0)
             }
             #endif
-        } else if now - lastPCMTime > 3 {
+        } else if pcmProgress.isExpired(at: now) {
             timer?.cancel(); timer = nil
             tap?.stop(); tap = nil
             analyzer = nil
@@ -425,7 +523,22 @@ final class OverlayWaveformView: NSView {
     private var drawnBands: [Float]?
     private var drawnSize = CGSize.zero
     private var drawnStyle: OverlayWaveformStyle?
-    private var worker: WaveformCaptureWorker?
+    private var worker: (any WaveformCaptureSession)?
+    private var makeWorker: (String) -> any WaveformCaptureSession = { WaveformCaptureWorker(bundleID: $0) }
+    private struct Configuration {
+        let enabled: Bool, visible: Bool, playing: Bool, reducedMotion: Bool
+        let bundleID: String?
+        let style: OverlayWaveformStyle
+        let lightGlass: Bool
+        let theme: ArtworkTheme?
+        let frameRateLimit: Int
+        let trackRevision: UInt64
+    }
+    private var recoveryConfiguration: Configuration?
+    private var recoveryTimer: Timer?
+    private var routeRecoveryTimer: Timer?
+    private var recoveryGeneration: UInt64 = 0
+    private var routeMonitor: WaveformOutputRouteMonitor?
     private var sourceID: String?
     private var lastFrame = 0.0
     private var isActive = false
@@ -444,6 +557,7 @@ final class OverlayWaveformView: NSView {
     #endif
     override init(frame: NSRect) {
         super.init(frame: frame)
+        routeMonitor = WaveformOutputRouteMonitor { [weak self] in self?.outputRouteChanged() }
         wantsLayer = true
         layer?.masksToBounds = true
         edgeMask.colors = OverlayWaveformEdgeFade.alphas.map {
@@ -470,11 +584,23 @@ final class OverlayWaveformView: NSView {
         addSubview(clock)
         isHidden = true
     }
+    isolated deinit {
+        recoveryTimer?.invalidate()
+        routeRecoveryTimer?.invalidate()
+        routeMonitor?.stop()
+        worker?.stop()
+        #if DEBUG
+        viewDiagnosticTimer?.invalidate()
+        #endif
+    }
     /// Stop capture at fade start while the compositor keeps the last path
     /// visible for the few remaining frames of the window transition.
     func freezeVisualForFade(enabled: Bool, playing: Bool, source: String?, trackRevision: UInt64) {
         retryPolicy.observe(enabled: enabled, playing: playing, source: source,
             trackRevision: trackRevision)
+        cancelRecovery()
+        recoveryConfiguration = nil
+        routeMonitor?.stop()
         guard isActive || worker != nil || clock.running else { return }
         isActive = false; sourceID = nil
         clock.running = false
@@ -516,16 +642,24 @@ final class OverlayWaveformView: NSView {
             stop()
             return
         }
+        let pendingRouteSource = routeRecoveryTimer != nil ? recoveryConfiguration?.bundleID : nil
+        if recoveryConfiguration == nil { retryPolicy.wake() }
+        recoveryConfiguration = Configuration(enabled: enabled, visible: visible, playing: playing,
+            reducedMotion: reducedMotion, bundleID: bundleID, style: style, lightGlass: lightGlass,
+            theme: theme, frameRateLimit: frameRateLimit, trackRevision: trackRevision)
+        routeMonitor?.start()
         guard retryPolicy.allows(source: bundleID) else { return }
+        if routeRecoveryTimer != nil, pendingRouteSource == bundleID { return }
+        cancelRecovery()
         isHidden = false
         drawBands()
         if !isActive || sourceID != bundleID {
-            stop()
+            stopCapture()
             isHidden = false
             isActive = true
             startedAt = ProcessInfo.processInfo.systemUptime
             sourceID = bundleID
-            let worker = WaveformCaptureWorker(bundleID: bundleID!)
+            let worker = makeWorker(bundleID!)
             self.worker = worker
             onStatusChange?("正在连接当前播放器音频…")
             lastReportedState = .starting
@@ -537,6 +671,12 @@ final class OverlayWaveformView: NSView {
         }
     }
     func stop() {
+        cancelRecovery()
+        recoveryConfiguration = nil
+        routeMonitor?.stop()
+        stopCapture()
+    }
+    private func stopCapture() {
         #if DEBUG
         viewDiagnosticTimer?.invalidate(); viewDiagnosticTimer = nil
         displayTicks = 0
@@ -560,22 +700,39 @@ final class OverlayWaveformView: NSView {
         #endif
         guard isActive else { return }
         let (state, measured) = worker?.snapshot() ?? (.unavailable(.setup), [])
-        if state == .starting && time - startedAt > 10 {
+        if state == .starting && time - startedAt > 15 {
             retryPolicy.failed(source: sourceID, reason: .setup)
-            stop()
+            stopCapture()
             onStatusChange?("音频采集未开始；请检查系统音频录制权限后重试。")
             return
         }
         if case .unavailable(let reason) = state {
-            retryPolicy.failed(source: sourceID, reason: reason)
-            stop()
+            cancelRecovery()
+            let generation = recoveryGeneration
+            let source = sourceID
+            let delay = retryPolicy.failed(source: source, reason: reason)
+            stopCapture()
+            if reason == .noPCM {
+                // Keep the enabled surface in place during an audio gap. No
+                // capture/display clock is needed for this static baseline.
+                isHidden = false
+                drawBands()
+            }
+            if let delay {
+                recoveryTimer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+                    Task { @MainActor [weak self] in self?.recoverAfterPCMFailure(source: source, generation: generation) }
+                }
+                RunLoop.main.add(recoveryTimer!, forMode: .common)
+            }
             onStatusChange?(reason == .noPCM
-                ? "当前播放器暂时没有可捕获音频；播放恢复、切歌或唤醒时会重试。"
+                ? (delay != nil ? "播放器音频暂时中断；稍后自动重新连接。"
+                    : "当前播放器暂时没有可捕获音频；播放恢复、切歌、输出切换或唤醒时会重试。")
                 : "音频采集未获准或设备创建失败；请检查权限后重试。")
             return
         }
         let delta = lastFrame > 0 ? max(0, min(0.1, time - lastFrame)) : 1.0 / 60
         lastFrame = time
+        if state == .live { retryPolicy.receivedPCM(source: sourceID) }
         if state == .live, lastReportedState != .live {
             onStatusChange?(""); lastReportedState = .live
         }
@@ -587,7 +744,61 @@ final class OverlayWaveformView: NSView {
         }
         drawBands()
     }
+    private func cancelRecovery() {
+        recoveryGeneration &+= 1
+        recoveryTimer?.invalidate(); recoveryTimer = nil
+        routeRecoveryTimer?.invalidate(); routeRecoveryTimer = nil
+        retryPolicy.cancelPendingRecovery()
+    }
+    private func recoverAfterPCMFailure(source: String?, generation: UInt64) {
+        guard generation == recoveryGeneration else { return }
+        recoveryTimer?.invalidate(); recoveryTimer = nil
+        guard recoveryConfiguration?.bundleID == source,
+              retryPolicy.automaticRetry(source: source) else { return }
+        applyRecoveryConfiguration()
+    }
+    private func outputRouteChanged() {
+        let state = worker?.snapshot().0
+        guard recoveryConfiguration != nil, state != .starting,
+              state != .unavailable(.setup), retryPolicy.outputRouteChanged() else { return }
+        cancelRecovery()
+        stopCapture()
+        let generation = recoveryGeneration
+        // Default music and system routes often change together.
+        routeRecoveryTimer = Timer(timeInterval: 0.3, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, generation == self.recoveryGeneration else { return }
+                self.routeRecoveryTimer = nil
+                self.applyRecoveryConfiguration()
+            }
+        }
+        RunLoop.main.add(routeRecoveryTimer!, forMode: .common)
+    }
+    private func applyRecoveryConfiguration() {
+        guard let c = recoveryConfiguration else { return }
+        configure(enabled: c.enabled, visible: c.visible, playing: c.playing,
+            reducedMotion: c.reducedMotion, bundleID: c.bundleID, style: c.style,
+            lightGlass: c.lightGlass, theme: c.theme, frameRateLimit: c.frameRateLimit,
+            trackRevision: c.trackRevision)
+    }
     #if DEBUG
+    func useCaptureFactoryForTest(_ factory: @escaping (String) -> any WaveformCaptureSession) {
+        makeWorker = factory
+    }
+    var hasPendingRecoveryForTest: Bool { recoveryTimer != nil || routeRecoveryTimer != nil }
+    func tickForTest(at time: Double) { tick(at: time) }
+    func recoverForTest() {
+        recoverAfterPCMFailure(source: recoveryConfiguration?.bundleID, generation: recoveryGeneration)
+    }
+    var recoveryGenerationForTest: UInt64 { recoveryGeneration }
+    func recoverStaleTimerForTest(source: String?, generation: UInt64) {
+        recoverAfterPCMFailure(source: source, generation: generation)
+    }
+    func finishRouteRecoveryForTest() {
+        routeRecoveryTimer?.invalidate(); routeRecoveryTimer = nil
+        applyRecoveryConfiguration()
+    }
+    func outputRouteChangedForTest() { outputRouteChanged() }
     private func startViewDiagnostics() {
         guard viewDiagnosticsEnabled, viewDiagnosticTimer == nil else { return }
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in

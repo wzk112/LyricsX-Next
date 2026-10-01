@@ -247,6 +247,247 @@ private struct WaveformQARepository: LyricsRepository {
     #expect(policy.allows(source: source))
 }
 
+@Test func waveformPCMProgressAllowsSlowInitialAttachmentThenDetectsEstablishedStreamStalls() {
+    var progress = WaveformPCMProgress(startedAt: 100)
+    #expect(!progress.isExpired(at: 103.1))
+    #expect(!progress.isExpired(at: 110))
+    #expect(progress.isExpired(at: 110.1))
+    progress.receivedFrame(at: 111)
+    #expect(!progress.isExpired(at: 114))
+    #expect(progress.isExpired(at: 114.1))
+    // Callback freshness, including digital silence, keeps capture healthy.
+    for second in 115...130 {
+        progress.receivedFrame(at: Double(second))
+        #expect(!progress.isExpired(at: Double(second) + 2.9))
+    }
+}
+
+@Test func establishedPCMRecoveryHasABoundedBackoffAndDoesNotResetAfterOneLiveFrame() {
+    var policy = WaveformRetryPolicy()
+    let source = "com.apple.Music"
+    policy.observe(enabled: true, playing: true, source: source, trackRevision: 1)
+    // A first attempt with no PCM does not repeatedly create permission taps.
+    #expect(policy.failed(source: source, reason: .noPCM) == nil)
+    policy.manualRetry()
+    policy.receivedPCM(source: source)
+    for delay in WaveformRetryPolicy.recoveryDelays {
+        #expect(policy.failed(source: source, reason: .noPCM) == delay)
+        #expect(!policy.allows(source: source))
+        let didRetry = policy.automaticRetry(source: source)
+        #expect(didRetry)
+        let repeatedRetry = policy.automaticRetry(source: source)
+        #expect(!repeatedRetry)
+        policy.receivedPCM(source: source)
+    }
+    #expect(policy.failed(source: source, reason: .noPCM) == nil)
+    let exhaustedRetry = policy.automaticRetry(source: source)
+    #expect(!exhaustedRetry)
+    policy.observe(enabled: true, playing: true, source: source, trackRevision: 2)
+    #expect(policy.failed(source: source, reason: .noPCM) == 1)
+}
+
+@Test func waveformPendingRecoveryRejectsCancelledAndDifferentSourceAttempts() {
+    var policy = WaveformRetryPolicy()
+    let source = "com.apple.Music"
+    policy.observe(enabled: true, playing: true, source: source)
+    policy.receivedPCM(source: source)
+    #expect(policy.failed(source: source, reason: .noPCM) == 1)
+    let wrongSourceRetry = policy.automaticRetry(source: "com.spotify.client")
+    #expect(!wrongSourceRetry)
+    policy.cancelPendingRecovery()
+    let cancelledRetry = policy.automaticRetry(source: source)
+    #expect(!cancelledRetry)
+    #expect(!policy.allows(source: source))
+    let routeRecovery = policy.outputRouteChanged()
+    #expect(routeRecovery)
+    #expect(policy.allows(source: source))
+    policy.failed(source: source, reason: .setup)
+    let setupRouteRecovery = policy.outputRouteChanged()
+    #expect(!setupRouteRecovery)
+    #expect(!policy.allows(source: source))
+}
+
+private final class WaveformRecoveryTestCapture: WaveformCaptureSession {
+    var state: WaveformCaptureWorker.State = .starting
+    var starts = 0
+    var stops = 0
+    func start() { starts += 1 }
+    func stop() { stops += 1 }
+    func snapshot() -> (WaveformCaptureWorker.State, [Float]) {
+        (state, [Float](repeating: 0.35, count: WaveformSpectrumAnalyzer.bandCount))
+    }
+}
+
+@MainActor
+private final class WaveformRecoveryHarness {
+    let view = OverlayWaveformView(frame: NSRect(x: 0, y: 0, width: 568, height: 18))
+    var captures: [WaveformRecoveryTestCapture] = []
+    init() {
+        view.useCaptureFactoryForTest { [unowned self] _ in
+            let capture = WaveformRecoveryTestCapture()
+            captures.append(capture)
+            return capture
+        }
+    }
+    func configure(enabled: Bool = true, visible: Bool = true, playing: Bool = true,
+                   reducedMotion: Bool = false, source: String = "com.apple.Music",
+                   revision: UInt64 = 1) {
+        view.configure(enabled: enabled, visible: visible, playing: playing,
+            reducedMotion: reducedMotion, bundleID: source, style: .monochrome,
+            lightGlass: false, theme: nil, frameRateLimit: 30, trackRevision: revision)
+    }
+    func liveThenStall() {
+        captures.last!.state = .live
+        view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+        captures.last!.state = .unavailable(.noPCM)
+        view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+    }
+}
+
+@MainActor @Test func waveformViewRebuildsAnEstablishedStalledCaptureWithBoundedAttempts() {
+    let h = WaveformRecoveryHarness()
+    defer { h.view.stop() }
+    h.configure()
+    for attempt in 0..<WaveformRetryPolicy.recoveryDelays.count {
+        h.liveThenStall()
+        #expect(h.view.hasPendingRecoveryForTest)
+        #expect(h.captures.last!.stops == 1)
+        for _ in 0..<10 { h.configure() }
+        #expect(h.captures.count == attempt + 1)
+        h.view.recoverForTest()
+        #expect(h.captures.count == attempt + 2)
+        #expect(h.captures.last!.starts == 1)
+    }
+    h.liveThenStall()
+    #expect(!h.view.hasPendingRecoveryForTest)
+    h.view.recoverForTest()
+    #expect(h.captures.count == 4)
+    h.view.retry(); h.configure()
+    #expect(h.captures.count == 5)
+}
+
+@MainActor @Test func waveformPCMFailureKeepsAStaticBaselineVisibleDuringRecovery() {
+    let h = WaveformRecoveryHarness()
+    defer { h.view.stop() }
+    h.configure(); h.liveThenStall()
+    #expect(!h.view.isHidden)
+    #expect(h.view.hasPendingRecoveryForTest)
+    #expect(!h.view.subviews.compactMap { $0 as? LyricFrameView }.first!.running)
+    let container = h.view.layer!.sublayers!.first!
+    let shape = container.sublayers!.compactMap { $0 as? CAShapeLayer }.first!
+    let path = shape.path!
+    #expect(abs(path.boundingBox.height) < 0.001)
+    h.configure()
+    #expect(!h.view.isHidden)
+    h.view.recoverForTest()
+    #expect(h.captures.count == 2)
+    #expect(!h.view.isHidden)
+    h.captures[1].state = .live
+    h.view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+    #expect(shape.path!.boundingBox.minY > OverlayWaveformGeometry.baseline(height: 18))
+    h.captures[1].state = .unavailable(.setup)
+    h.view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+    #expect(h.view.isHidden)
+    #expect(!h.view.hasPendingRecoveryForTest)
+    h.configure()
+    #expect(h.captures.count == 2)
+}
+
+@MainActor @Test func waveformViewCancelsRecoveryAtEveryCaptureGateAndRejectsOldCallbacks() {
+    for boundary in 0..<5 {
+        let h = WaveformRecoveryHarness()
+        defer { h.view.stop() }
+        h.configure(); h.liveThenStall()
+        let generation = h.view.recoveryGenerationForTest
+        switch boundary {
+        case 0: h.configure(enabled: false)
+        case 1: h.configure(visible: false)
+        case 2: h.configure(playing: false)
+        case 3: h.configure(reducedMotion: true)
+        default: h.configure(source: "com.spotify.client")
+        }
+        #expect(!h.view.hasPendingRecoveryForTest)
+        if boundary < 4 { #expect(h.view.isHidden) }
+        let count = h.captures.count
+        h.view.recoverStaleTimerForTest(source: "com.apple.Music", generation: generation)
+        #expect(h.captures.count == count)
+        h.configure()
+        // Returning to visibility/playback is a discrete recovery boundary.
+        #expect(h.captures.count >= 2)
+    }
+}
+
+@MainActor @Test func waveformLiveCaptureKeepsRecoveryAfterSamePlayerTrackBoundary() {
+    let h = WaveformRecoveryHarness()
+    defer { h.view.stop() }
+    h.configure()
+    h.captures[0].state = .live
+    h.view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+    h.configure(revision: 2)
+    #expect(h.captures.count == 1)
+    h.captures[0].state = .unavailable(.noPCM)
+    h.view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+    #expect(h.view.hasPendingRecoveryForTest)
+    h.view.recoverForTest()
+    #expect(h.captures.count == 2)
+}
+
+@MainActor @Test func waveformOutputRouteRecoveryRebuildsLiveCaptureAndCoalescesEvents() {
+    let h = WaveformRecoveryHarness()
+    defer { h.view.stop() }
+    h.configure()
+    h.captures[0].state = .live
+    h.view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+    h.view.outputRouteChangedForTest()
+    h.view.outputRouteChangedForTest()
+    for _ in 0..<10 { h.configure() }
+    #expect(h.captures[0].stops == 1)
+    #expect(h.captures.count == 1)
+    #expect(h.view.hasPendingRecoveryForTest)
+    h.view.finishRouteRecoveryForTest()
+    #expect(h.captures.count == 2)
+    h.view.outputRouteChangedForTest() // A starting tap may be awaiting permission.
+    #expect(!h.view.hasPendingRecoveryForTest)
+    h.captures[1].state = .unavailable(.setup)
+    h.view.outputRouteChangedForTest() // Failure may arrive before the UI observes it.
+    #expect(!h.view.hasPendingRecoveryForTest)
+    h.view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+    h.view.outputRouteChangedForTest()
+    h.view.finishRouteRecoveryForTest()
+    #expect(h.captures.count == 2)
+    #expect(!h.view.hasPendingRecoveryForTest)
+}
+
+@MainActor @Test func waveformDeallocationStopsAnActiveCaptureWithoutExplicitStop() {
+    weak var releasedView: OverlayWaveformView?
+    let capture = WaveformRecoveryTestCapture()
+    autoreleasepool {
+        let view = OverlayWaveformView(frame: NSRect(x: 0, y: 0, width: 568, height: 18))
+        releasedView = view
+        view.useCaptureFactoryForTest { _ in capture }
+        view.configure(enabled: true, visible: true, playing: true, reducedMotion: false,
+            bundleID: "com.apple.Music", style: .monochrome, lightGlass: false,
+            theme: nil, frameRateLimit: 30, trackRevision: 1)
+        #expect(capture.starts == 1)
+    }
+    #expect(releasedView == nil)
+    #expect(capture.stops == 1)
+}
+
+@MainActor @Test func waveformFadeCancelsPendingRecoveryAndUsesFreshConfigurationWhenShown() {
+    let h = WaveformRecoveryHarness()
+    defer { h.view.stop() }
+    h.configure(); h.liveThenStall()
+    let generation = h.view.recoveryGenerationForTest
+    h.view.freezeVisualForFade(enabled: true, playing: true,
+        source: "com.apple.Music", trackRevision: 1)
+    #expect(!h.view.hasPendingRecoveryForTest)
+    h.view.recoverStaleTimerForTest(source: "com.apple.Music", generation: generation)
+    #expect(h.captures.count == 1)
+    h.configure(source: "com.spotify.client", revision: 4)
+    #expect(h.captures.count == 2)
+}
+
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["LYRICSX_WAVEFORM_QA"] == "1"))
 @MainActor struct OverlayWaveformVisualQA {
     @Test func captureRealControllerWithLongTranslationAndNextLine() async throws {

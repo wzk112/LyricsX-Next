@@ -67,7 +67,14 @@ private struct SizingRepository: LyricsRepository {
                     preferences: prefs, maximumWidth: width)
                 let visible = OverlayTextMeasure.visibleHeight(document: doc, index: 0,
                     preferences: prefs, maximumWidth: width)
+                let trim = OverlayLyricsWindowLayout.bottomTrim(document: doc, index: 0,
+                    preferences: prefs, maximumWidth: width)
                 #expect(disabled >= visible + 80)
+                let originalHeight = max(disabled, visible + 104)
+                // With a top-anchored window, the old and new lyric origins
+                // must match; only the bottom edge is allowed to move.
+                #expect(abs((disabled - visible) / 2 + trim / 2
+                    - (originalHeight - visible) / 2) < 0.001)
                 if adaptive {
                     #expect(disabled <= enabled)
                     #expect(abs(disabled - visible - 80) < 0.001)
@@ -737,7 +744,7 @@ private struct SizingStreamRepository: LyricsRepository {
 }
 
 @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["LYRICSX_CENTERING_QA"] == "1"))
-func nativeNoWaveContentCentersItsVisibleInkInsideGlass() async throws {
+func nativeNoWaveLyricsKeepTheirTopPlacementWhenBottomSpaceIsTrimmed() async throws {
     _ = NSApplication.shared
     let directory = URL(fileURLWithPath: "/tmp/lyricsx-centering-qa", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -817,12 +824,13 @@ func nativeNoWaveContentCentersItsVisibleInkInsideGlass() async throws {
                 let visibleHeight = OverlayTextMeasure.visibleHeight(document: doc, index: 0,
                     preferences: prefs, maximumWidth: width)
                 #expect(overlay.panel.frame.height >= visibleHeight + 80 - 1)
-                // SwiftUI's actual glyph ink has asymmetric ascender/descender
-                // whitespace inside the measured line boxes. The line block
-                // itself is centered to sub-point accuracy; this native pixel
-                // bound catches a visually meaningful drift without tailoring
-                // offsets to one font, script, or secondary-mode fixture.
-                #expect(abs(error) <= 6, "\(name) visible ink center is \(error)pt from glass center")
+                let trim = OverlayLyricsWindowLayout.bottomTrim(document: doc, index: 0,
+                    preferences: prefs, maximumWidth: width)
+                // The original center stays fixed in screen coordinates as
+                // the bottom edge is cropped. Allow the normal difference
+                // between glyph ink and its measured line boxes.
+                #expect(abs(error - trim / 2) <= 6,
+                    "\(name) text moved from its original top placement")
                 overlay.stop(); model.stop()
             }
         }

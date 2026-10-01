@@ -835,6 +835,11 @@ struct OverlayView: View {
                 } else if centeredLyrics {
                     lyricBody(display: display, maximum: maximum, lightGlass: lightGlass,
                         centerVisibleContent: true)
+                        // Reducing the glass's bottom edge must not move the
+                        // title, lyric or translation upward with its center.
+                        .offset(y: OverlayLyricsWindowLayout.bottomTrim(document: display.document,
+                            index: display.index, preferences: model.preferences,
+                            maximumWidth: maximum) / 2)
                 } else {
                     VStack(spacing: 0) {
                         Spacer(minLength: 4)
