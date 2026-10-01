@@ -78,11 +78,11 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
 
 主窗口的歌词滚动位置按歌曲和歌词版本独立管理。切歌或重新载入歌词后，前奏尚未进入第一句时，第一行按居中、上方或自定义百分比设置对齐并保持未唱状态；进入歌词后平滑跟随当前句，清除上一首的手动浏览状态与延迟返回任务。
 
-### 本机更新 / 当前源码 2.0.40
+### 2.0.40 更新
 
 新增主窗口歌词自定义百分比（5%–95%）和悬浮窗原文、翻译行距与段间距设置。入口分别在「设置 → 歌词 → 文字」和「设置 → 歌词 → 悬浮窗文字间距」；升级后可在「设置 → 关于 → 本次更新」直接调整。现有设置保留，默认间距维持原样。
 
-2.0.40 当前用于本机更新，GitHub 公开下载仍为 2.0.39。当前源码的版本说明见 [`docs/releases/v2.0.40.md`](docs/releases/v2.0.40.md)，完整记录见 [`CHANGELOG.md`](CHANGELOG.md)。
+2.0.40 的版本说明见 [`docs/releases/v2.0.40.md`](docs/releases/v2.0.40.md)，完整记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 设置
 
@@ -90,7 +90,7 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
 
 ## 安装
 
-从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载 `LyricsX-Next-2.0.39.zip`，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
+从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载 `LyricsX-Next-2.0.40.zip`，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
 
 本次包使用本机 ad-hoc 签名，没有 Developer ID 公证票据。首次打开时如果 macOS 提示无法验证开发者：
 
@@ -102,7 +102,7 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
    xattr -dr com.apple.quarantine "/Applications/LyricsX Next.app"
    ```
 
-完整的安装、签名和版本说明见 [`docs/releases/v2.0.39.md`](docs/releases/v2.0.39.md)。
+完整的安装、签名和版本说明见 [`docs/releases/v2.0.40.md`](docs/releases/v2.0.40.md)。
 
 ## 播放器权限
 
