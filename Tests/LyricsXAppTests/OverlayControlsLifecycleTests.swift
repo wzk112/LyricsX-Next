@@ -110,7 +110,12 @@ private struct ControlsRepository: LyricsRepository {
         #expect(overlay.controlsView.alphaValue == 1)
 
         prefs.overlayVisible = false
-        try await Task.sleep(for: .milliseconds(240))
+        // AppKit completion handlers can run late while the full native
+        // rendering suite is busy. Require the final state within a bound.
+        for _ in 0..<50 {
+            if !overlay.panel.isVisible && !overlay.controlPanel.isVisible && overlay.controlsView.isHidden { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(!overlay.panel.isVisible && !overlay.controlPanel.isVisible)
         #expect(overlay.controlsView.isHidden)
     }

@@ -10,6 +10,92 @@ private actor DownloadCounts {
     func start() { active += 1; maximum = max(maximum, active) }
     func finish() { active -= 1 }
 }
+
+private struct QQLiveDiagnosticClient: HTTPClient {
+    let client: SecureLyricsHTTPClient
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let response = try await client.data(for: request)
+        if request.url?.path.contains("musicu") == true || request.url?.path.contains("smartbox") == true,
+           let json = try? JSONSerialization.jsonObject(with: response.0) as? [String: Any] {
+            let req = json["req_1"] as? [String: Any]
+            let body = (req?["data"] as? [String: Any])?["body"] as? [String: Any]
+            let songs = (body?["song"] as? [String: Any])?["list"] as? [[String: Any]]
+            print("QQ_ENDPOINT path=\(request.url!.path) topCode=\(json["code"] ?? "nil") code=\(req?["code"] ?? "nil") songs=\(songs?.count ?? 0)")
+        }
+        return response
+    }
+}
+
+@Test(.enabled(if: ProcessInfo.processInfo.environment["LYRICSX_QQ_LIVE_DIAGNOSTIC"] == "1"))
+func qqLiveSearchAndFetchKnownCatalogTrack() async throws {
+    let session = URLSession(configuration: .ephemeral)
+    defer { session.invalidateAndCancel() }
+    let provider = LyricsProviders.QQMusic(httpClient: QQLiveDiagnosticClient(client: .init(session: session)))
+    let tokens = try await provider.search(for: .init(searchTerm: .keyword("In My World DENONBU KOTONOHOUSE"), duration: 251, limit: 12))
+    let token = try #require(tokens.first { $0.value.name.lowercased().contains("prod. kotonohouse") })
+    let lyrics = try await provider.fetch(with: token)
+    let document = LyricsCodec.convert(lyrics, source: "QQMusic")
+    let track = Track(playerID: "test", playerName: "", title: "In My World", artist: "DENONBU,KOTONOHOUSE", duration: 251)
+    print("QQ_KNOWN_TRACK title=\(document.title) artist=\(document.artist) lines=\(document.lines.count) word=\(document.hasWordTiming) duration=\(document.duration) score=\(CandidateRanker.score(document, for: track))")
+    #expect(CandidateRanker.score(document, for: track) >= 60)
+    #expect(document.plainText?.isEmpty == false && !document.isSynced)
+}
+
+private actor QQRecoveryResponseClient: HTTPClient {
+    var searchCalls = 0
+    let failures: Int
+    let code: Int
+    init(failures: Int, code: Int = 2001) { self.failures = failures; self.code = code }
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let url = request.url!
+        let text: String
+        if url.path.contains("smartbox") { text = #"{"code":0,"data":{}}"# }
+        else if url.path.contains("musicu") {
+            let body = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
+            if body.contains("songinfo") { throw URLError(.resourceUnavailable) }
+            searchCalls += 1
+            text = searchCalls <= failures ? "{\"req_1\":{\"code\":\(code)}}"
+                : #"{"req_1":{"code":0,"data":{"body":{"song":{"list":[{"id":1,"mid":"fixture","name":"Song (Prod. Producer)","singer":[{"name":"Singer"}]}]}}}}}"#
+        } else {
+            text = "<root><content><![CDATA[First line\nSecond line]]></content></root>"
+        }
+        return (Data(text.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    }
+}
+
+@Test func qqRecoversOneTransient2001AndPreservesUntimedLyrics() async throws {
+    let client = QQRecoveryResponseClient(failures: 1)
+    let provider = LyricsProviders.Service.qq.create(httpClient: client)
+    var documents: [LyricsDocument] = []
+    for try await lyrics in provider.lyrics(for: .init(searchTerm: .keyword("Song"), duration: 0, limit: 1)) {
+        documents.append(LyricsCodec.convert(lyrics))
+    }
+    let doc = try #require(documents.first)
+    #expect(await client.searchCalls == 2)
+    #expect(doc.plainText == "First line\nSecond line")
+    #expect(!doc.isSynced && !doc.hasWordTiming && doc.lines.isEmpty)
+    #expect(doc.providerID == "fixture" && doc.source == "QQMusic")
+    #expect(LyricsCodec.export(doc) == doc.plainText)
+}
+
+@Test(arguments: [2001, 403]) func qqRetryIsBoundedAndDoesNotRetryAuthorizationErrors(code: Int) async {
+    let client = QQRecoveryResponseClient(failures: 10, code: code)
+    let provider = LyricsProviders.Service.qq.create(httpClient: client)
+    await #expect(throws: LyricsProviderError.self) {
+        for try await _ in provider.lyrics(for: .init(searchTerm: .keyword("Song"), duration: 0, limit: 1)) { }
+    }
+    #expect(await client.searchCalls == (code == 2001 ? 2 : 1))
+}
+
+@Test func qqMalformedTimedOrEncryptedContentDoesNotBecomePlainLyrics() {
+    for text in ["", "A0F1", "<?xml version=\"1.0\"?><QrcInfos/>", "[00:01]", "[1000,900]broken"] {
+        #expect(QQMusicXMLDecoder.plainLyrics(text) == nil)
+    }
+    #expect(QQMusicXMLDecoder.plainLyrics("First line\nSecond line") != nil)
+    let normalized = QQMusicXMLDecoder.plainLyrics("First &amp; second\r\nNext &#39;line&#39;\rLast")
+    #expect(normalized == "First & second\nNext 'line'\nLast")
+    #expect(normalized?.split(separator: "\n").first == "First & second")
+}
 private struct SlowFirstProvider: _LyricsProvider {
     static let service = "fixture"
     let counts: DownloadCounts
@@ -114,6 +200,42 @@ private final class StatusRecorder: @unchecked Sendable {
     private var entries: [SourceSearchStatus] = []
     func add(_ value: SourceSearchStatus) { lock.withLock { entries.append(value) } }
     var values: [SourceSearchStatus] { lock.withLock { entries } }
+}
+
+@Test func successfulFallbackClearsAnEarlierSourceErrorButLaterFailuresRemainVisible() async {
+    let statuses = StatusRecorder()
+    let stream = AsyncThrowingStream<LyricCandidate, Error>.makeStream()
+    var config = SourceConfiguration(); config.enabled = ["QQMusic"]
+    let collector = SearchCollector(track: .init(playerID: "test", playerName: "", title: "Song", artist: "Singer"),
+        keyword: "Song", complete: true, configuration: config, fallbackGrace: .seconds(1),
+        continuation: stream.continuation, onSourceUpdate: { statuses.add($0) })
+    await collector.begin()
+    await collector.completed(source: "QQMusic", error: "服务响应异常（2001）")
+    #expect(statuses.values.last?.issue != nil)
+    await collector.completed(source: "QQMusic", error: nil)
+    #expect(statuses.values.last?.issue == nil)
+    await collector.completed(source: "QQMusic", error: "搜索超时")
+    #expect(statuses.values.last?.issue == "搜索超时")
+    await collector.cancel()
+    stream.continuation.finish()
+}
+
+@Test func catalogQueriesShortenCastCreditsWithoutChangingMatchingMetadata() {
+    let artist = "DENONBU,KOTONOHOUSE,Karin Houou (CV: Kana Sukoya), Mitsuki Seto (CV: Sister Claire), Lucia Taiga (CV: Sara Hoshikawa)"
+    #expect(TrackSearchText.searchArtist(artist) == "DENONBU KOTONOHOUSE")
+    #expect(TrackSearchText.catalogArtists(artist) == ["DENONBU", "KOTONOHOUSE", "Karin Houou", "Mitsuki Seto", "Lucia Taiga"])
+    #expect(TrackSearchText.searchArtist("Fred V & Grafix") == "Fred V & Grafix")
+    #expect(TrackSearchText.searchArtist("Adele") == "Adele")
+    #expect(TrackSearchText.searchArtist("鳳凰火凛（CV：健屋花那）") == "鳳凰火凛")
+    let track = Track(playerID: "test", playerName: "", title: "In My World", artist: artist)
+    #expect(CandidateRanker.compatibleArtists("DEN-ON-BU", for: track))
+    #expect(!CandidateRanker.compatibleArtists("Unrelated Artist", for: track))
+    #expect(track.artist == artist)
+    let document = LyricsDocument(title: "In my world (Prod. KOTONOHOUSE)", artist: "DEN-ON-BU",
+        source: "QQMusic", lines: [.init(id: 0, time: 0, text: "Fixture")])
+    #expect(CandidateRanker.score(document, for: track) >= 60)
+    #expect(!CandidateRanker.equivalentTitle("In My World (Remix)", track.title))
+    #expect(!CandidateRanker.equivalentTitle("In My World (Live)", track.title))
 }
 
 @Test func sourceFailuresAreReportedSeparatelyAndEqualLyricsFromDifferentVersionsSurvive() async throws {

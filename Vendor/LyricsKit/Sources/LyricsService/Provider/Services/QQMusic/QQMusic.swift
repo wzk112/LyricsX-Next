@@ -35,9 +35,18 @@ extension LyricsProviders.QQMusic: _LyricsProvider {
         async let hints = searchResult(for: request, full: false)
         async let details = searchResult(for: request, full: true)
         var endpoints = await [hints, details]
-        if endpoints.count == 2,
-           case .success(let hints) = endpoints[0], !hints.isEmpty,
-           case .success(let details) = endpoints[1], details.isEmpty {
+        let retryFullSearch: Bool
+        switch endpoints[1] {
+        case .failure(LyricsProviderError.serviceResponse(code: 2001)):
+            // Observed to alternate with success for the identical public
+            // query. One delayed retry, never an authentication/rate-limit loop.
+            retryFullSearch = true
+        case .success(let details) where details.isEmpty:
+            if case .success(let hints) = endpoints[0] { retryFullSearch = !hints.isEmpty }
+            else { retryFullSearch = false }
+        default: retryFullSearch = false
+        }
+        if retryFullSearch {
             // An existing smartbox hit is evidence that an empty full search
             // may be transient. Retry once, rather than amplifying every
             // legitimate zero-result query into repeated requests.
@@ -146,9 +155,15 @@ extension LyricsProviders.QQMusic: _LyricsProvider {
         }
 
         let normalizedOrigContent = QQMusicXMLDecoder.normalizeExtendedLrcTimestamps(origContent)
-        guard let lrc = Lyrics(qqmusicQrcContent: origContent)
+        let lrc: Lyrics
+        if let timed = Lyrics(qqmusicQrcContent: origContent)
             ?? Lyrics(normalizedOrigContent)
-            ?? Lyrics(origContent) else {
+            ?? Lyrics(origContent) {
+            lrc = timed
+        } else if let plain = QQMusicXMLDecoder.plainLyrics(normalizedOrigContent) {
+            lrc = Lyrics(lines: [], idTags: [:])
+            lrc.metadata.plainText = plain
+        } else {
             throw LyricsProviderError.processingFailed(reason: "Failed to parse or decrypt QQMusic QRC lyrics.")
         }
         lrc.applyQQMusicKanaFurigana()

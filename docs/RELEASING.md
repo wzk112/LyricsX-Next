@@ -10,3 +10,9 @@ This checklist applies to every public version. The release tag and GitHub asset
 6. Push the commit and tag. Create a **draft** GitHub release from that exact full SHA and upload the verified asset(s). Download the assets from GitHub, compare SHA-256, inspect the extracted app, then publish the draft. Confirm `/releases/latest` points to the new version and the app update check can discover it. Record the tag, commit, tests, signature type, and asset hashes in the release verification notes.
 
 If a release gate cannot be verified, report the specific gap in the notes and decide whether it is acceptable for the optional feature before publication. Do not claim a native permission flow, physical device frame rate, or Apple notarization from simulated tests alone.
+
+## Local installation signing
+
+For local repair builds use `scripts/build-local.sh release`. It uses the existing Apple Development / Developer ID Application certificate when exactly one is available, or an explicitly selected `LYRICSX_SIGN_IDENTITY`. It refuses an ad-hoc fallback. Keep the same bundle identifier and certificate identity across local updates so macOS can recognize existing audio recording permissions. The first migration from an ad-hoc app may require granting the existing system-audio-only permission again; never reset the entire privacy database or add screen recording access just to repair a waveform.
+
+This local signing workflow does not change the public distribution identity or imply notarization. `scripts/build.sh` remains the packaging entry point for the release checklist above.

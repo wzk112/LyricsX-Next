@@ -3,6 +3,23 @@ import LyricsCore
 import FoundationToolbox
 
 enum QQMusicXMLDecoder {
+    static func plainLyrics(_ text: String) -> String? {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !isStrictHex(value), !value.contains("\u{0000}"),
+              value.range(of: #"(?i)<(?:\?xml|html\b|QrcInfos\b)|\[\d+[:,]\d"#, options: .regularExpression) == nil else { return nil }
+        // Tidy XML can leave escaped entities in this legacy CDATA response.
+        // Normalize CRLF too: Swift treats CRLF as one Character, so splitting
+        // a preview on LF alone otherwise displays the whole song as its teaser.
+        return lyricFormat(value)
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&apos;", with: "'")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&amp;", with: "&")
+    }
+
     static func decodeLyricContents(from document: XMLDocument) -> [String: String] {
         let mappings: [(xpath: String, key: String)] = [
             ("//content", "orig"),

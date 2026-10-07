@@ -2,8 +2,28 @@ import Foundation
 
 /// Search-only names; never rewrite the player title or cached lyric contents.
 public enum TrackSearchText {
+    /// Search hints only. Keep full player metadata for identity/ranking.
+    public static func catalogArtists(_ artist: String) -> [String] {
+        let all = artists(artist)
+        let full = CandidateRanker.normalized(artist)
+        let components = all.filter { CandidateRanker.normalized($0) != full }
+        var seen: Set<String> = []
+        return (components.isEmpty ? all : components).map {
+            $0.replacingOccurrences(of: #"(?i)[(（]\s*(?:cv|voice)\s*[:：].*?[)）]"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !CandidateRanker.normalized($0).isEmpty && seen.insert(CandidateRanker.normalized($0)).inserted }
+    }
+
+    public static func searchArtist(_ artist: String) -> String {
+        let names = catalogArtists(artist)
+        // Long cast lists make catalog APIs reject or overconstrain the query.
+        // Preserve ordinary solo/duet names and explicit free-text searches.
+        return names.count > 2 || artist.range(of: #"(?i)[(（]\s*(?:cv|voice)\s*[:：]"#, options: .regularExpression) != nil
+            ? names.prefix(2).joined(separator: " ") : artist
+    }
+
     public static func titles(_ title: String) -> [String] {
-        let withoutCredit = title.replacingOccurrences(of: #"(?i)[(（\[]\s*(?:feat(?:uring)?\.?|ft\.?)\s+[^)）\]]+[)）\]]"#, with: "", options: .regularExpression)
+        let withoutCredit = title.replacingOccurrences(of: #"(?i)[(（\[]\s*(?:feat(?:uring)?\.?|ft\.?|prod\.?(?:\s+by)?)\s+[^)）\]]+[)）\]]"#, with: "", options: .regularExpression)
         let cleaned = withoutCredit.replacingOccurrences(of: #"(?i)[(（\[]\s*(?:full(?:\s+ver(?:sion)?\.?)?|完整版|フル(?:バージョン|ver\.?)?)\s*[)）\]]"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var names = [title, cleaned]

@@ -47,8 +47,8 @@ struct GuidePage: Identifiable {
 
 enum GuideContent {
     // Changed only when the introduction itself is revised, never for a routine rebuild.
-    static let revision = "lyrics-layout-40"
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.40"
+    static let revision = "music-search-41"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.41"
     static let tutorial: [GuidePage] = [
         .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
             "打开 Apple Music、Spotify、网易云或 QQ 音乐播放歌曲，即可自动同步歌词。自动识别不包含浏览器。",
@@ -61,7 +61,7 @@ enum GuideContent {
         .init(id: "search", title: "选择合适的歌词", subtitle: "点击放大镜，或按 ⌘F", symbol: "magnifyingglass", points: [
             "输入歌名或歌手，点“预览”查看效果，再点“应用当前歌词”使用。列表会保持打开，方便继续挑选。",
             "“完整搜索”会查找更多版本，但可能需要更久；平时保持关闭即可。",
-            "下方可调整来源顺序、逐字或双语优先。改好后，对当前歌曲点“重新搜索”，即可重新选择。"], illustration: "search"),
+            "下方可调整来源顺序、逐字或双语优先。Apple Music 云端歌词需在“设置 → 搜索”主动开启并登录，歌词格式取决于歌曲。改好后可对当前歌曲重新搜索。"], illustration: "search"),
         .init(id: "overlay", title: "把歌词放在桌面上", subtitle: "设置 → 悬浮窗", symbol: "rectangle.on.rectangle", points: [
             "悬浮窗显示在其他窗口上方，可随长句自动换行并平滑调整高度。关闭波形时歌词内容会在玻璃窗中居中；关闭自动高度后可手动调整宽度。",
             "解锁后拖动窗口，锁定后避免误拖。“点击穿透”让你直接操作后面的应用，并自动锁定位置。",
@@ -117,7 +117,7 @@ enum GuideContent {
     ]
     // Add new release entries here; a version jump includes every intervening
     // entry, while a first upgrade from versions without receipts gets a recap.
-    static let releases: [(version: String, page: GuidePage)] = release40Pages.map { ("2.0.40", $0) } + release39Pages.map { ("2.0.39", $0) } + [
+    static let releases: [(version: String, page: GuidePage)] = release41Pages.map { ("2.0.41", $0) } + release40Pages.map { ("2.0.40", $0) } + release39Pages.map { ("2.0.39", $0) } + [
         ("2.0.38", .init(id: "waveform38", title: "悬浮窗音频波形", subtitle: "新增 · 设置 → 悬浮窗", symbol: "waveform", points: [
             "在“设置 → 悬浮窗”可开启实时音频波形，选择白色或封面彩色；默认关闭，不会因升级自动开始采集。",
             "首次开启时 macOS 可能请求系统音频录制权限。波形仅尝试读取当前识别播放器的音频，暂停、隐藏或减少动态效果时停止。",
@@ -195,6 +195,29 @@ enum GuideContent {
             "简繁体转换后仍能显示逐字进度。自定义颜色保留 EDR 辉光，改善窗口首次显示时的屏幕能力识别。",
             "改善部分 QQ 音乐歌词的读取、搜索与封面显示；修复缓存文件变化及异常设置值引起的显示问题。"], illustration: "conversion"))
     ]
+    static let release41Pages: [GuidePage] = [
+        .init(id: "cloud41", title: "Apple Music 在线歌词", subtitle: "新增 · 设置 → 搜索 → Apple Music 云端歌词", symbol: "music.note", points: [
+            "开启后登录 Apple Music，可读取当前歌曲的在线歌词。需要有效订阅；逐字、逐行或纯文本取决于歌曲版本和账号地区。默认关闭。",
+            "内嵌与云端歌词共用一个 Apple Music 来源。登录完成后无需在网页播放；可以检查登录、测试当前歌曲，再打开搜索预览。测试不会替换现有歌词。",
+            "此页提供实际设置。空闲时会释放网页并保留登录，下次读取自动连接；读取失败时继续使用其他来源。"], illustration: "cloudSettings41"),
+        .init(id: "search41", title: "预览更稳，搜索更准", subtitle: "改进 · 主窗口 → 搜索歌词；设置 → 搜索", symbol: "magnifyingglass", points: [
+            "先预览，再点击“应用当前歌词”。切歌后清除旧结果和旧预览，避免把上一首歌词应用到新歌；手动滚动后可返回同步位置。",
+            "改进多位歌手、角色声优和制作人信息的匹配。QQ 音乐临时错误会有限重试，成功后清除旧错误；纯文本能正常预览，不伪造时间轴。",
+            "精简搜索合并相同正文；不同内容的歌词版本分别保留。此页使用独立歌曲演示正式歌词组件，不改变正在播放的音乐。"], illustration: "livePlayer"),
+        .init(id: "players41", title: "更多音乐播放器可被识别", subtitle: "改进 · 设置 → 播放器", symbol: "play.circle", points: [
+            "自动识别新增 Petrichor、Swinsian、Doppler、Cog、foobar2000、VOX、Pine Player、Colibri、Musique、Strawberry、Listen1、洛雪音乐和 MusicFree。",
+            "这些播放器仍需向系统提供曲目和进度；音乐类应用保留分类识别，浏览器继续排除。浏览器占用系统播放状态时仍可能无法取得音乐信息。",
+            "修复 Music 退出后被后台读取再次启动的问题。此页使用独立歌曲演示正式播放界面，不控制你的播放器。"], illustration: "livePlayer"),
+        .init(id: "overlay41", title: "悬浮窗更好调，也更协调", subtitle: "新增与修复 · 悬浮窗控制条；设置 → 悬浮窗 → 外观", symbol: "slider.horizontal.3", points: [
+            "点击悬浮窗控制条的“歌词同步”，按 0.1 秒提前、延后或重置；调整按歌曲保存。切歌或更换歌词后关闭旧面板，纯文本不提供同步调整。",
+            "“显示顶部歌曲信息”可隐藏歌名与艺人，同时保持歌词位置。改善控制按钮的清晰度、无波形时的留白，以及封面与进度条在不同窗口宽度下的对齐。",
+            "面板与显隐动画遵循减少动态效果。此页使用正式悬浮窗组件实时演示，不操作正在播放的歌曲。"], illustration: "liveGlass"),
+        .init(id: "waveform41", title: "波形恢复与后台运行", subtitle: "修复 · 设置 → 悬浮窗 → 实时波形", symbol: "waveform", points: [
+            "曾正常采集的波形在断流、唤醒或重新显示后会有限重连；持续收到静音数据时提供状态提示，恢复声音后自动清除。",
+            "权限或音频不可用时，可在设置中查看状态并重试。公开包尚未公证，更新后 macOS 可能需要重新确认系统音频录制权限；不需要因此开启屏幕录制。",
+            "暂停和隐藏时减少刷新，空闲登录网页会释放。此页提供实际波形设置；打开更新介绍不会额外启动音频采集，主动开启波形后才尝试读取。"], illustration: "waveSettings41")
+    ]
+
     static let release40Pages: [GuidePage] = [
         .init(id: "position40", title: "自定义主歌词位置", subtitle: "新增 · 设置 → 歌词 → 文字 → 主窗口当前歌词位置", symbol: "text.aligncenter", points: [
             "在居中和上方之外，可选择自定义百分比：5%–95%，数值越小越靠上。滑块和数值输入均可使用。",
@@ -231,7 +254,7 @@ enum GuideContent {
         updates(after: previous)
     }
     // The previous public version defines the manual current-release introduction.
-    static let latestBaseline: String? = "2.0.39"
+    static let latestBaseline: String? = "2.0.40"
     static func updates(after previous: String?) -> [GuidePage] {
         let pages = releases.filter { entry in
             guard let previous else { return true }
@@ -389,7 +412,7 @@ struct FeatureGuideView: View {
                         navigation.scrollTo(pages[value].id)
                     }
                 }
-                Text("无需登录 · 设置自动保存").font(.caption).foregroundStyle(.secondary)
+                Text("设置自动保存 · 可随时重看").font(.caption).foregroundStyle(.secondary)
             }.padding(16).frame(width: guideSize.size.width < 900 ? 184 : 205).background(.quaternary.opacity(0.25))
             Divider()
             VStack(alignment: .leading, spacing: 0) {
@@ -399,7 +422,11 @@ struct FeatureGuideView: View {
                         Text(page.subtitle).font(.subheadline).foregroundStyle(.secondary)
                         Text(page.title).font(.system(size: guideSize.size.width < 900 ? 24 : 27, weight: .bold)).fixedSize(horizontal: false, vertical: true)
                         Group {
-                            if page.illustration == "liveHotkeys", let preferences {
+                            if page.illustration == "cloudSettings41", let model {
+                                AppleMusicCloudSettingsView(model: model)
+                            } else if page.illustration == "waveSettings41", let preferences {
+                                GuideQuickSettings(page: page.id, preferences: preferences, model: model)
+                            } else if page.illustration == "liveHotkeys", let preferences {
                                 HotkeySettingsView(settings: preferences.globalHotkeys)
                             } else if page.illustration == "releaseWaveform38" {
                                 GuideReleaseVisual(kind: .waveform38)
@@ -428,7 +455,7 @@ struct FeatureGuideView: View {
                                 Text(item.element).font(.body).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
                             }
                         }
-                        if let preferences {
+                        if let preferences, page.illustration != "waveSettings41" {
                             GuideQuickSettings(page: page.id, preferences: preferences, model: model)
                         }
                     }.padding(guideSize.size.width < 900 ? 18 : 26)
@@ -458,7 +485,7 @@ private struct GuideQuickSettings: View {
     let page: String
     @Bindable var preferences: Preferences
     let model: AppModel?
-    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects", "waveform", "waveform38", "performanceFlexbar38", "flexbar", "position39", "position40", "spacing40", "colors39", "transitions39"].contains(page) }
+    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects", "waveform", "waveform38", "performanceFlexbar38", "flexbar", "position39", "position40", "spacing40", "colors39", "transitions39", "search41", "players41", "overlay41", "waveform41"].contains(page) }
     var body: some View {
         if available {
             VStack(alignment: .leading, spacing: 10) {
@@ -472,7 +499,7 @@ private struct GuideQuickSettings: View {
     }
     @ViewBuilder private var controls: some View {
         switch page {
-        case "waveform", "waveform38":
+        case "waveform", "waveform38", "waveform41":
             SettingToggle(title: "显示实时波形", detail: "开启后才尝试采集当前播放器音频，首次可能请求 macOS 系统音频录制权限。", value: $preferences.overlayWaveformEnabled)
             SettingRow(title: "波形颜色", detail: "白色或封面多色渐变，沿悬浮窗底部显示。") {
                 Picker("波形颜色", selection: $preferences.overlayWaveformStyle) {
@@ -484,6 +511,15 @@ private struct GuideQuickSettings: View {
                     Button("重试") { model?.overlay?.retryWaveform() }.disabled(model == nil)
                 }
             }
+        case "players41":
+            SettingRow(title: "读取来源", detail: "自动模式排除浏览器；其他播放器需向系统提供播放状态。") {
+                Picker("读取来源", selection: $preferences.playerMode) {
+                    ForEach(PlayerMode.allCases) { Text($0.title).tag($0) }
+                }.labelsHidden().frame(width: 160)
+            }
+        case "overlay41":
+            SettingToggle(title: "显示顶部歌曲信息", detail: "隐藏歌名和艺人后保持歌词位置，无歌词的歌曲卡片仍显示。", value: $preferences.overlayShowSongInfo)
+            SettingToggle(title: "减少动态效果", detail: "减少位移和模糊过渡，也遵循系统设置。", value: $preferences.reduceMotion)
         case "flexbar", "performanceFlexbar38":
             SettingToggle(title: "在 Flexbar 上显示歌词", detail: "需要另行安装和配置 FlexDesigner 歌词插件。入口在设置 → 开发者选项 → Flexbar。", value: $preferences.flexbarEnabled)
         case "position39", "position40":
@@ -515,7 +551,7 @@ private struct GuideQuickSettings: View {
             SettingToggle(title: "鼠标经过时隐藏", detail: preferences.overlayLocked ? "经过歌词时暂时隐藏，离开后恢复。" : "先锁定位置才会生效；设置会保留。", value: $preferences.hideOverlayOnHover)
             SettingToggle(title: "暂停时隐藏", detail: "暂停播放后隐藏，继续播放后恢复。", value: $preferences.hideWhenPaused)
             SettingToggle(title: "自动调整高度", detail: "宽度保持固定，根据当前句换行调整高度。", value: $preferences.overlayAdaptiveSize)
-        case "search":
+        case "search", "search41":
             SettingToggle(title: "逐字优先", detail: "优先选择带逐字时间的版本，找不到时尝试双语。", value: $preferences.preferWordTiming)
             SettingToggle(title: "双语优先", detail: "优先带翻译的版本；两项同时打开时先逐字、后双语。", value: $preferences.preferBilingual)
             SettingToggle(title: "严格匹配", detail: "更重视歌名准确匹配。关闭后允许可信的别名与标题变体，但需留意同名歌。", value: $preferences.strictLyricsMatching)

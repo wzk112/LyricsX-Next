@@ -10,7 +10,7 @@ private func version(_ source: String, translation: String? = nil) -> LyricsDocu
 }
 
 @Test func sourceOrderIsNormalizedWithoutLosingDisabledOrNewSources() {
-    #expect(SourceConfiguration.normalizedOrder(["QQMusic", "Unknown", "QQMusic", "NetEase"]) == ["QQMusic", "NetEase", "LRCLIB", "Kugou", "Musixmatch"])
+    #expect(SourceConfiguration.normalizedOrder(["QQMusic", "Unknown", "QQMusic", "NetEase"]) == ["QQMusic", "NetEase", "LRCLIB", "Kugou", "Musixmatch", "Apple Music"])
 }
 
 @Test func sourcePriorityAndBilingualPreferenceChangeTheWinner() {

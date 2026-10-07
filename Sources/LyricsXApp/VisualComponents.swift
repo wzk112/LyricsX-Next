@@ -205,12 +205,19 @@ struct SymbolButton: View {
     var active = false
     var inactiveOpacity = 0.6
     var ink: Color = .white
+    var appReduceMotion = false
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     let action: () -> Void
     var body: some View {
-        Button(action: action) { Image(systemName: symbol).font(.system(size: 15, weight: .medium)).frame(width: 30, height: 30) }
-            .buttonStyle(.plain).foregroundStyle(active ? ink : ink.opacity(inactiveOpacity))
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 15, weight: .medium)).frame(width: 30, height: 30)
+                .contentTransition(appReduceMotion || systemReduceMotion ? .identity : .symbolEffect(.replace))
+        }
+            .buttonStyle(OverlayControlButtonStyle(reducedMotion: appReduceMotion || systemReduceMotion))
+            .foregroundStyle(active ? ink : ink.opacity(inactiveOpacity))
             .background(active ? ink.opacity(0.1) : .clear, in: .circle)
             .contentShape(.circle).help(help).accessibilityLabel(help)
+            .animation(appReduceMotion || systemReduceMotion ? nil : .easeInOut(duration: 0.18), value: active)
     }
 }
 

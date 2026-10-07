@@ -54,9 +54,15 @@ actor SearchCollector {
         self.useTrackHints = LyricsStore.usesTrackHints(track: track, keyword: keyword)
         self.isAutomatic = keyword == nil
         self.completeManualSearch = complete
-        self.track = track; self.configuration = configuration; self.continuation = continuation
+        var effectiveConfiguration = configuration
+        if track.playerID != "com.apple.Music" || !LyricsStore.usesTrackHints(track: track, keyword: keyword) {
+            effectiveConfiguration.enabled.remove(AppleMusicLyricsSource.name)
+            effectiveConfiguration.appleMusicCloudEnabled = false
+        }
+        self.track = track; self.configuration = effectiveConfiguration; self.continuation = continuation
         let queries = LyricsStore.queryKeywords(track: track, keyword: keyword, complete: complete || keyword == nil).map { Query(track: track, keyword: $0) }
-        for source in configuration.availableSources {
+        for source in effectiveConfiguration.availableSources {
+            if source == AppleMusicLyricsSource.name { queues[source] = []; continue }
             queues[source] = queries
             queryKeys[source] = Set(queries.map(\.key))
         }
@@ -77,8 +83,9 @@ actor SearchCollector {
         publish(candidate, key: key)
         considerAutomaticCandidate(candidate)
         finishSatisfiedAutomaticSearch()
-        updateCompactLimit(for: document.source)
-        if !finished { report(document.source) }
+        let source = SourceConfiguration.sourceKey(document.source)
+        updateCompactLimit(for: source)
+        if !finished { report(source) }
         return discovered
     }
     @discardableResult func addAliases(_ values: [Track]) -> [Track] {
@@ -90,6 +97,7 @@ actor SearchCollector {
                 && CandidateRanker.normalized($0.artist) == CandidateRanker.normalized(value.artist) }) else { continue }
             aliases.append(value); added.append(value)
             for source in configuration.availableSources {
+                if source == AppleMusicLyricsSource.name { continue }
                 if satisfiedSources.contains(source) { continue }
                 let queries = LyricsStore.queryKeywords(track: value, keyword: nil, complete: isAutomatic || completeManualSearch).map { Query(track: value, keyword: $0) }
                     .filter { queryKeys[source, default: []].insert($0.key).inserted }
@@ -124,10 +132,11 @@ actor SearchCollector {
             || !(configuration.preferWordTiming || configuration.preferBilingual) {
             armFallbackDeadline()
         }
-        if !satisfiedSources.contains(candidate.document.source),
+        let source = SourceConfiguration.sourceKey(candidate.document.source)
+        if !satisfiedSources.contains(source),
            configuration.satisfiesAutomaticPreferences(candidate.document, for: track, aliases: aliases) {
-            satisfiedSources.insert(candidate.document.source)
-            queues[candidate.document.source] = []
+            satisfiedSources.insert(source)
+            queues[source] = []
         }
     }
     private func finishSatisfiedAutomaticSearch() {
@@ -169,7 +178,7 @@ actor SearchCollector {
     }
     private func updateCompactLimit(for source: String) {
         guard !isAutomatic, !completeManualSearch else { return }
-        let visibleCount = visibleKeys.lazy.filter({ self.candidates[$0]?.document.source == source }).count
+        let visibleCount = visibleKeys.lazy.filter({ self.candidates[$0].map { SourceConfiguration.sourceKey($0.document.source) == source } == true }).count
         if visibleCount >= LyricsStore.compactManualResultsPerSource || (catalogDone && completedQueries[source, default: 0] >= 2) {
             satisfiedSources.insert(source)
             queues[source] = []
@@ -184,15 +193,24 @@ actor SearchCollector {
         continuation.yield(candidate)
     }
     func sourceShouldStop(_ source: String) -> Bool { satisfiedSources.contains(source) }
-    func begin() { for source in configuration.availableSources { report(source) } }
-    func completed(source: String, error: String?) {
+    func begin() {
+        if configuration.enabled.contains(AppleMusicLyricsSource.name) { activeSources.insert(AppleMusicLyricsSource.name) }
+        for source in configuration.availableSources { report(source) }
+    }
+    func completed(source: String, error: String?, emptyIssue: String? = nil) {
         guard !finished else { return }
         activeSources.remove(source)
         completedQueries[source, default: 0] += 1
         if let error { failures += 1; sourceErrors[source] = error }
-        else { successes += 1; successfulAutomaticQueries[source, default: 0] += 1 }
+        else {
+            successes += 1; successfulAutomaticQueries[source, default: 0] += 1
+            // A later successful query supersedes an earlier request failure.
+            // Otherwise a recovered provider remains labelled unavailable.
+            sourceErrors[source] = emptyIssue
+        }
         updateCompactLimit(for: source)
         finishAutomaticRoundIfReady()
+        finishWaitingIfDrained()
         if !finished { report(source) }
     }
     func catalogFinished() {
@@ -233,8 +251,9 @@ actor SearchCollector {
         cancel()
     }
     private func report(_ source: String, finished: Bool = false, timedOut: Bool = false) {
-        let count = visibleKeys.lazy.filter { self.candidates[$0]?.document.source == source }.count
-        onSourceUpdate(.init(source: source, count: count, isSearching: !finished,
+        let count = visibleKeys.lazy.filter { self.candidates[$0].map { SourceConfiguration.sourceKey($0.document.source) == source } == true }.count
+        onSourceUpdate(.init(source: source, count: count,
+                             isSearching: !finished && (source != AppleMusicLyricsSource.name || activeSources.contains(source)),
                              issue: sourceErrors[source] ?? (timedOut ? "搜索超时，已保留结果" : nil)))
     }
 }

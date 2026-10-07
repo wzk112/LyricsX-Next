@@ -119,7 +119,7 @@ struct WaveformRetryPolicy {
         return true
     }
     mutating func cancelPendingRecovery() { pendingRecovery = false }
-    mutating func wake() { if failure == .noPCM { clear() } }
+    mutating func wake() { if failure == .noPCM { clear(resetEstablishedSource: false) } }
     mutating func outputRouteChanged() -> Bool {
         guard failure != .setup else { return false }
         clear(resetEstablishedSource: false)
@@ -400,6 +400,19 @@ struct WaveformPCMProgress {
     }
 }
 
+/// Fresh zero-filled callbacks prove that the device clock runs, not that the
+/// selected player's audio is accessible. Report sustained silence without
+/// repeatedly requesting permission or restarting a genuinely silent song.
+struct WaveformSignalProgress {
+    static let silenceDelay: TimeInterval = 8
+    private var lastSignalTime: TimeInterval
+    init(startedAt: TimeInterval) { lastSignalTime = startedAt }
+    mutating func observe(peak: Float, at time: TimeInterval) -> Bool {
+        if peak.isFinite, peak > 0.0000001 { lastSignalTime = time }
+        return time - lastSignalTime >= Self.silenceDelay
+    }
+}
+
 /// All Core Audio lifecycle operations and FFT work run on this one queue.
 /// The main thread only takes a 24-value snapshot; the audio callback only
 /// appends to its preallocated ring and never waits for analysis.
@@ -410,7 +423,7 @@ protocol WaveformCaptureSession: AnyObject {
 }
 
 final class WaveformCaptureWorker: WaveformCaptureSession, @unchecked Sendable {
-    enum State: Equatable { case starting, live, unavailable(WaveformCaptureFailure) }
+    enum State: Equatable { case starting, live, silent, unavailable(WaveformCaptureFailure) }
     private let queue = DispatchQueue(label: "LyricsX.WaveformAnalysis", qos: .utility)
     private let lock = NSLock()
     private let bundleID: String
@@ -422,6 +435,7 @@ final class WaveformCaptureWorker: WaveformCaptureSession, @unchecked Sendable {
     private var state: State = .starting
     private var cancelled = false
     private var pcmProgress = WaveformPCMProgress(startedAt: 0)
+    private var signalProgress = WaveformSignalProgress(startedAt: 0)
     private var lastWrites: UInt64 = 0
     #if DEBUG
     private let diagnosticsEnabled = ProcessInfo.processInfo.environment["LYRICSX_WAVEFORM_DIAGNOSTICS"] == "1"
@@ -442,6 +456,7 @@ final class WaveformCaptureWorker: WaveformCaptureSession, @unchecked Sendable {
             analyzer = WaveformSpectrumAnalyzer()
             let now = ProcessInfo.processInfo.systemUptime
             pcmProgress = WaveformPCMProgress(startedAt: now)
+            signalProgress = WaveformSignalProgress(startedAt: now)
             #if DEBUG
             lastDiagnosticTime = now
             #endif
@@ -482,11 +497,13 @@ final class WaveformCaptureWorker: WaveformCaptureSession, @unchecked Sendable {
             lastWrites = frame.writes
             pcmProgress.receivedFrame(at: now)
             let bands = analyzer.bands(left: frame.left, right: frame.right, sampleRate: tap.sampleRate)
-            setState(.live, bands: bands)
+            var leftPeak: Float = 0, rightPeak: Float = 0
+            vDSP_maxmgv(frame.left, 1, &leftPeak, vDSP_Length(frame.left.count))
+            vDSP_maxmgv(frame.right, 1, &rightPeak, vDSP_Length(frame.right.count))
+            let silent = signalProgress.observe(peak: max(leftPeak, rightPeak), at: now)
+            setState(silent ? .silent : .live, bands: bands)
             #if DEBUG
             if diagnosticsEnabled {
-                let leftPeak = frame.left.reduce(Float(0)) { max($0, abs($1)) }
-                let rightPeak = frame.right.reduce(Float(0)) { max($0, abs($1)) }
                 diagnosticPeak = max(diagnosticPeak, max(leftPeak, rightPeak))
                 diagnosticBandMax = max(diagnosticBandMax, bands.max() ?? 0)
             }
@@ -732,12 +749,16 @@ final class OverlayWaveformView: NSView {
         }
         let delta = lastFrame > 0 ? max(0, min(0.1, time - lastFrame)) : 1.0 / 60
         lastFrame = time
-        if state == .live { retryPolicy.receivedPCM(source: sourceID) }
-        if state == .live, lastReportedState != .live {
-            onStatusChange?(""); lastReportedState = .live
+        let receivingPCM = state == .live || state == .silent
+        if receivingPCM { retryPolicy.receivedPCM(source: sourceID) }
+        if receivingPCM, lastReportedState != state {
+            onStatusChange?(state == .silent
+                ? "已连接，但持续收到静音。若播放器有声音，尤其是更新应用后，请检查系统设置 → 隐私与安全性 → 屏幕与系统音频录制 → 仅系统音频录制，再点重试。"
+                : "")
+            lastReportedState = state
         }
         for index in smoothed.indices {
-            let target = state == .live ? measured[index] : 0
+            let target = receivingPCM ? measured[index] : 0
             let tau = target > smoothed[index] ? 0.075 : 0.22
             let factor = Float(1 - exp(-delta / tau))
             smoothed[index] += (target - smoothed[index]) * factor
@@ -812,6 +833,7 @@ final class OverlayWaveformView: NSView {
         switch worker?.snapshot().0 {
         case .starting: state = "starting"
         case .live: state = "live"
+        case .silent: state = "silent"
         case .unavailable(.setup): state = "setup-failed"
         case .unavailable(.noPCM): state = "no-pcm"
         case nil: state = "none"

@@ -127,16 +127,19 @@ public struct LyricsDocument: Codable, Hashable, Sendable, Identifiable {
     public var offsetMilliseconds: Int
     public var isInstrumental: Bool
     public var originalLRC: String
+    /// Original cloud document retained for lossless cache/export round trips.
+    public var originalTTML: String?
     public var artworkURL: URL?
     public var providerID: String?
     public init(id: UUID = UUID(), title: String = "", artist: String = "", album: String = "", source: String = "本地",
                 duration: Double = 0, lines: [LyricLine] = [], plainText: String? = nil,
-                offsetMilliseconds: Int = 0, isInstrumental: Bool = false, originalLRC: String = "", artworkURL: URL? = nil, providerID: String? = nil) {
+                offsetMilliseconds: Int = 0, isInstrumental: Bool = false, originalLRC: String = "", originalTTML: String? = nil, artworkURL: URL? = nil, providerID: String? = nil) {
         self.id = id; self.title = title; self.artist = artist; self.album = album; self.source = source
         self.duration = duration; self.lines = lines.filter { $0.time.isFinite && $0.time >= 0 }.sorted { $0.time < $1.time }
         for index in self.lines.indices { self.lines[index].id = index }
         self.plainText = plainText; self.offsetMilliseconds = offsetMilliseconds
         self.isInstrumental = isInstrumental; self.originalLRC = originalLRC; self.artworkURL = artworkURL
+        self.originalTTML = originalTTML
         self.providerID = providerID
     }
     public var hasWordTiming: Bool { lines.contains(where: { $0.hasWordTiming }) }

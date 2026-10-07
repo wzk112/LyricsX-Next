@@ -10,7 +10,8 @@ final class DraggableOverlayPanel: OverlayMaterialPanel {
     var onDragAnchor: ((NSPoint) -> Void)?
     private var pointerOffset: NSPoint?
     func shouldDrag(at point: NSPoint) -> Bool {
-        let controls = NSRect(x: frame.width - 154, y: frame.height - 48, width: 154, height: 48)
+        let reservedWidth = OverlayControlLayout.width + OverlayControlLayout.rightInset
+        let controls = NSRect(x: frame.width - reservedWidth, y: frame.height - 48, width: reservedWidth, height: 48)
         return contentDragEnabled && !controls.contains(point)
     }
     override func sendEvent(_ event: NSEvent) {
@@ -68,6 +69,11 @@ final class OverlayController: NSObject, NSWindowDelegate {
     private var controlsVisible = false
     private var controlsFadeGeneration: UInt64 = 0
     private var motionReductionActive = false
+    private(set) var offsetEditorPanel: NSPanel?
+    private var offsetTarget: OverlayOffsetTarget?
+    private var offsetClickMonitor: Any?
+    private var offsetGlobalClickMonitor: Any?
+    private var retiringOffsetPanels: [NSPanel] = []
     private var controlsDetached = false
     private var hoverHidden = false
     private var windowVisibilityGeneration: UInt64 = 0
@@ -124,7 +130,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         // AppKit may resolve glass activity while the hosting tree attaches.
         // Set the optical appearance before any views enter the window.
         panel.keepsGlassAppearanceActive = !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-        controlPanel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 134, height: 34),
+        controlPanel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: OverlayControlLayout.width, height: OverlayControlLayout.height),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         let viewport = OverlayViewport(width: model.preferences.overlayWidth)
         self.viewport = viewport
@@ -135,6 +141,8 @@ final class OverlayController: NSObject, NSWindowDelegate {
         controls = NSHostingView(rootView: OverlayThemedRoot(preferences: model.preferences,
             content: OverlayControlStrip(model: model)))
         super.init()
+        controls.rootView = OverlayThemedRoot(preferences: model.preferences,
+            content: OverlayControlStrip(model: model, onSync: { [weak self] in self?.toggleOffsetEditor() }))
         waveform.onStatusChange = { [weak model] status in
             guard let model, model.preferences.overlayWaveformStatus != status else { return }
             model.preferences.overlayWaveformStatus = status
@@ -196,6 +204,10 @@ final class OverlayController: NSObject, NSWindowDelegate {
         controls.autoresizingMask = [.minXMargin, .minYMargin]
         controls.isHidden = true
         panel.addChildWindow(controlPanel, ordered: .above)
+        // A separate window at the lyric window's level can enter the clear
+        // glass backdrop sample even when ordered above its parent. Keep the
+        // interactive surface in a higher WindowServer plane.
+        controlPanel.level = NSWindow.Level(rawValue: panel.level.rawValue + 1)
         panel.setAccessibilityLabel("悬浮歌词")
         controlPanel.setAccessibilityLabel("悬浮歌词控制")
         controlPanel.setAccessibilityParent(panel)
@@ -244,6 +256,9 @@ final class OverlayController: NSObject, NSWindowDelegate {
 
     func stop() {
         guard !stopped else { return }
+        closeOffsetEditor(animated: false)
+        for editor in retiringOffsetPanels { editor.orderOut(nil); editor.contentView = nil; editor.close() }
+        retiringOffsetPanels.removeAll()
         waveform.stop()
         windowVisibilityGeneration &+= 1
         windowFadeActive = false
@@ -290,6 +305,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         wasPlaying = model.session.isPlaying
         let autoHidden = prefs.hideWhenPaused && !model.session.isPlaying && !explicitShowWhilePaused
         let visible = prefs.overlayVisible && !autoHidden && model.session.track != nil
+        if offsetTarget.map({ !$0.matches(model.session) }) == true || !visible { closeOffsetEditor(animated: false) }
         let showing = visible && !lastVisible
         if visible != lastVisible {
             if !visible { cancelResize() }
@@ -306,6 +322,10 @@ final class OverlayController: NSObject, NSWindowDelegate {
         for window in [panel as NSPanel, controlPanel] {
             if window.appearance?.name != appearance?.name { window.appearance = appearance }
         }
+        if let editor = offsetEditorPanel, editor.appearance?.name != appearance?.name {
+            editor.appearance = appearance
+        }
+        (offsetEditorPanel?.contentView as? OverlayOffsetSurface)?.configure(prefs)
         // Scope the actual drawing surfaces too, including detached controls.
         // The setting must not depend on activation or a future lyric update.
         for view in [content, header, controls] as [NSView] {
@@ -376,7 +396,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         let point = point ?? pointerLocation()
         let prefs = model.preferences
         let inside = panel.frame.contains(point) || (controlsDetached && controlsVisible && controlPanel.frame.contains(point))
-        let hidden = lastVisible && !dragging && prefs.hideOverlayOnHover && prefs.overlayLocked && inside
+        let hidden = lastVisible && offsetEditorPanel == nil && !dragging && prefs.hideOverlayOnHover && prefs.overlayLocked && inside
         let presenting = lastVisible && !hidden
         let reducedMotion = prefs.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         hoverHidden = hidden
@@ -394,7 +414,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         // Detached controls are a separate interactive window. Hover hiding
         // keeps its unlock/restore affordance available while the lyric panel
         // fades; inline controls naturally share the panel compositor fade.
-        let showControls = lastVisible && (inside || dragging)
+        let showControls = lastVisible && (inside || dragging || offsetEditorPanel != nil)
         if showControls != controlsVisible {
             controlsVisible = showControls
             controlsFadeGeneration &+= 1
@@ -514,7 +534,9 @@ final class OverlayController: NSObject, NSWindowDelegate {
     }
 
     private var inlineControlFrame: NSRect {
-        NSRect(x: root.bounds.width - 148, y: root.bounds.height - 42, width: 134, height: 34)
+        NSRect(x: root.bounds.width - OverlayControlLayout.width - OverlayControlLayout.rightInset,
+            y: root.bounds.height - OverlayControlLayout.height - OverlayControlLayout.topInset,
+            width: OverlayControlLayout.width, height: OverlayControlLayout.height)
     }
 
     private func setControlsDetached(_ detached: Bool) {
@@ -529,7 +551,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         controlsDetached = detached
         controls.removeFromSuperview()
         if detached {
-            controls.frame = NSRect(origin: .zero, size: NSSize(width: 134, height: 34))
+            controls.frame = NSRect(origin: .zero, size: NSSize(width: OverlayControlLayout.width, height: OverlayControlLayout.height))
             controls.autoresizingMask = [.width, .height]
             controlPanel.contentView = controls
             positionControlPanel()
@@ -577,7 +599,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         // Keep one positioning rule through waiting/card/lyric changes.
         // Switching rules before the native resize moved the host instantly.
         centersVisibleContent = !p.overlayWaveformEnabled
-        showsPinnedHeader = mode == .lyrics
+        showsPinnedHeader = mode == .lyrics && p.overlayShowSongInfo
         // No observation of the display clock: only a line/setting change can
         // request a new size. Retarget native animation immediately in either direction.
         let document = display.document
@@ -747,13 +769,108 @@ final class OverlayController: NSObject, NSWindowDelegate {
         positionContent(); positionControlPanel()
     }
 
+    func toggleOffsetEditor() {
+        guard !stopped, lastVisible else { return }
+        if offsetEditorPanel != nil { closeOffsetEditor(); refreshAppearance(); return }
+        guard let target = OverlayOffsetTarget(session: model.session) else { return }
+        offsetTarget = target
+        let editorSize = NSSize(width: min(panel.frame.width, 350), height: 168)
+        let editor = NSPanel(contentRect: NSRect(origin: .zero, size: editorSize),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        editor.isReleasedWhenClosed = false
+        editor.isFloatingPanel = true; editor.level = .floating
+        editor.isOpaque = false; editor.backgroundColor = .clear; editor.hasShadow = false
+        editor.hidesOnDeactivate = false
+        editor.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        editor.appearance = model.preferences.overlayEffectiveTheme.appearance
+        editor.setAccessibilityLabel("歌词同步调节")
+        editor.contentView = OverlayOffsetSurface(model: model, target: target, size: editorSize, close: { [weak self] in
+                self?.closeOffsetEditor(); self?.refreshAppearance()
+            })
+        offsetEditorPanel = editor
+        panel.addChildWindow(editor, ordered: .above)
+        editor.level = NSWindow.Level(rawValue: panel.level.rawValue + 2)
+        positionOffsetEditor()
+        let finalFrame = editor.frame
+        let animate = !model.preferences.reduceMotion && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        editor.alphaValue = animate ? 0 : 1
+        if animate { editor.setFrameOrigin(NSPoint(x: finalFrame.minX, y: finalFrame.minY + 6)) }
+        editor.orderFrontRegardless()
+        if animate {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                editor.animator().alphaValue = 1
+                editor.animator().setFrame(finalFrame, display: true)
+            }
+        }
+        offsetClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, let editor = self.offsetEditorPanel else { return event }
+            let point = NSEvent.mouseLocation
+            let controlRect = self.controls.window.map { self.controls.convert(self.controls.bounds, to: nil).offsetBy(dx: $0.frame.minX, dy: $0.frame.minY) }
+            if !editor.frame.contains(point), controlRect?.contains(point) != true {
+                self.closeOffsetEditor(); self.refreshAppearance()
+            }
+            return event
+        }
+        offsetGlobalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.closeOffsetEditor(); self?.refreshAppearance()
+        }
+        refreshAppearance()
+    }
+
+    func closeOffsetEditor(animated: Bool = true) {
+        if let offsetClickMonitor { NSEvent.removeMonitor(offsetClickMonitor) }
+        if let offsetGlobalClickMonitor { NSEvent.removeMonitor(offsetGlobalClickMonitor) }
+        offsetGlobalClickMonitor = nil
+        offsetClickMonitor = nil; offsetTarget = nil
+        guard let editor = offsetEditorPanel else { return }
+        offsetEditorPanel = nil
+        panel.removeChildWindow(editor)
+        editor.ignoresMouseEvents = true
+        guard animated, !model.preferences.reduceMotion, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+              editor.isVisible else {
+            editor.orderOut(nil); editor.contentView = nil; editor.close(); return
+        }
+        // Retire one immutable surface. Rapid reopen cannot let an old close
+        // completion remove the new editor, and stop releases every retiree.
+        retiringOffsetPanels.append(editor)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            editor.animator().alphaValue = 0
+        } completionHandler: { [weak self, weak editor] in
+            Task { @MainActor in
+                guard let editor else { return }
+                editor.orderOut(nil); editor.contentView = nil; editor.close()
+                self?.retiringOffsetPanels.removeAll { $0 === editor }
+            }
+        }
+    }
+
+    private func positionOffsetEditor() {
+        guard let editor = offsetEditorPanel else { return }
+        var frame = editor.frame
+        frame.origin = NSPoint(x: panel.frame.maxX - frame.width,
+            y: panel.frame.minY - frame.height - 4)
+        if let visible = panel.screen?.visibleFrame {
+            if frame.minY < visible.minY { frame.origin.y = panel.frame.maxY + 4 }
+            frame.origin.x = min(max(visible.minX, frame.minX), visible.maxX - frame.width)
+            frame.origin.y = min(max(visible.minY, frame.minY), visible.maxY - frame.height)
+        }
+        editor.setFrameOrigin(frame.origin)
+    }
+
     private func positionControlPanel() {
-        let origin = NSPoint(x: panel.frame.maxX - 148, y: panel.frame.maxY - 42)
+        let origin = NSPoint(x: panel.frame.maxX - OverlayControlLayout.width - OverlayControlLayout.rightInset,
+            y: panel.frame.maxY - OverlayControlLayout.height - OverlayControlLayout.topInset)
         if controlPanel.frame.origin != origin { controlPanel.setFrameOrigin(origin) }
+        positionOffsetEditor()
     }
 
     func windowDidMove(_ notification: Notification) {
         schedulePointerRefresh()
+        positionControlPanel()
         // Inline controls are part of this window, so dragging needs no second
         // window update, timer, animation, or end-of-drag position correction.
         if !dragging && !resizing && !restoring { saveFrame() }
@@ -811,6 +928,8 @@ struct OverlayView: View {
                 // lyrics document arrives a moment after the metadata.
                 ZStack(alignment: .leading) {
                     OverlaySongHeader(display: display, width: max(260, viewport.width - 60))
+                        .opacity(model.preferences.overlayShowSongInfo ? 1 : 0)
+                        .accessibilityHidden(!model.preferences.overlayShowSongInfo)
                         .id(display.trackRevision)
                         .transition(.artworkBlur)
                 }
@@ -1013,7 +1132,7 @@ private struct OverlayPinnedSongHeader: View {
         let display = presentation.held ?? OverlayDisplaySnapshot(model: model,
             at: ProcessInfo.processInfo.systemUptime)
         ZStack(alignment: .leading) {
-            if display.mode == .lyrics {
+            if display.mode == .lyrics && model.preferences.overlayShowSongInfo {
                 OverlaySongHeader(display: display, width: model.preferences.overlayLayoutWidth - 60)
                     .id(display.trackRevision)
                     .transition(.artworkBlur)
@@ -1033,7 +1152,7 @@ private struct OverlaySongHeader: View {
             Text(display.track?.title ?? "LyricsX Next").lineLimit(1)
             if let artist = display.track?.artist, !artist.isEmpty { Text("· " + artist).lineLimit(1).opacity(0.85) }
             Spacer(minLength: 4)
-            Color.clear.frame(width: 126, height: 30)
+            Color.clear.frame(width: OverlayControlLayout.headerReservation, height: 30)
         }.font(.system(size: 11, weight: .medium))
             .foregroundStyle(colorScheme == .light
                 ? Color(white: 0.16) : .white.opacity(0.92))
@@ -1050,20 +1169,24 @@ private struct OverlaySearchingHeaderRequest: Hashable {
 
 private struct OverlayControlStrip: View {
     @Bindable var model: AppModel
+    var onSync: () -> Void = {}
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         let lightGlass = colorScheme == .light
         let controlInk = lightGlass ? Color(white: 0.18) : Color.white
         HStack(spacing: 2) {
-            SymbolButton(symbol: "arrow.up.left.and.arrow.down.right", help: "打开主窗口", inactiveOpacity: 0.92, ink: controlInk) { model.showMainWindow?() }
-            SymbolButton(symbol: model.preferences.overlayLocked ? "lock.fill" : "lock.open", help: model.preferences.overlayLocked ? "解锁并恢复拖动" : "锁定位置", active: model.preferences.overlayLocked, inactiveOpacity: 0.92, ink: controlInk) {
+            SymbolButton(symbol: "timer", help: "调节歌词同步", inactiveOpacity: 0.92, ink: controlInk, appReduceMotion: model.preferences.reduceMotion, action: onSync)
+                .disabled(OverlayOffsetTarget(session: model.session) == nil)
+            SymbolButton(symbol: "arrow.up.left.and.arrow.down.right", help: "打开主窗口", inactiveOpacity: 0.92, ink: controlInk, appReduceMotion: model.preferences.reduceMotion) { model.showMainWindow?() }
+            SymbolButton(symbol: model.preferences.overlayLocked ? "lock.fill" : "lock.open", help: model.preferences.overlayLocked ? "解锁并恢复拖动" : "锁定位置", active: model.preferences.overlayLocked, inactiveOpacity: 0.92, ink: controlInk, appReduceMotion: model.preferences.reduceMotion) {
                 model.setOverlayLocked(!model.preferences.overlayLocked)
             }
-            SymbolButton(symbol: model.preferences.overlayClickThrough ? "cursorarrow.slash" : "cursorarrow.rays", help: model.preferences.overlayClickThrough ? "关闭点击穿透" : "开启点击穿透", active: model.preferences.overlayClickThrough, inactiveOpacity: 0.92, ink: controlInk) {
+            SymbolButton(symbol: model.preferences.overlayClickThrough ? "cursorarrow.slash" : "cursorarrow.rays", help: model.preferences.overlayClickThrough ? "关闭点击穿透" : "开启点击穿透", active: model.preferences.overlayClickThrough, inactiveOpacity: 0.92, ink: controlInk, appReduceMotion: model.preferences.reduceMotion) {
                 model.setOverlayClickThrough(!model.preferences.overlayClickThrough)
             }
-            SymbolButton(symbol: "xmark", help: "隐藏悬浮歌词", inactiveOpacity: 0.92, ink: controlInk) { model.setOverlayVisible(false) }
+            SymbolButton(symbol: "xmark", help: "隐藏悬浮歌词", inactiveOpacity: 0.92, ink: controlInk, appReduceMotion: model.preferences.reduceMotion) { model.setOverlayVisible(false) }
         }
         .shadow(color: .black.opacity(lightGlass ? 0.12 : 0.65), radius: 1, y: 1)
         .padding(2)
@@ -1072,7 +1195,11 @@ private struct OverlayControlStrip: View {
             : .black.opacity(model.preferences.overlayAppearance == .glass
                 ? 0.16 + 0.12 * (1 - model.preferences.overlayGlassTintTransparency)
                 : max(0.52, 1 - model.preferences.overlayTransparency)), in: .capsule)
-        .glassEffect(.clear, in: .capsule)
+        // A regular blur stays readable when the parent lyric glass hides;
+        // unlike a second clear glass, it cannot refract the control glyphs.
+        .background(.regularMaterial, in: .capsule)
         .overlay { Capsule().strokeBorder(.white.opacity(lightGlass ? 0.25 : 0.16), lineWidth: 0.5).allowsHitTesting(false) }
+        .animation(reduceMotion || model.preferences.reduceMotion ? nil : .easeInOut(duration: 0.18), value: model.preferences.overlayLocked)
+        .animation(reduceMotion || model.preferences.reduceMotion ? nil : .easeInOut(duration: 0.18), value: model.preferences.overlayClickThrough)
     }
 }

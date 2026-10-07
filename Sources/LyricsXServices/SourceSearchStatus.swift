@@ -7,6 +7,9 @@ public struct SourceSearchStatus: Sendable, Equatable, Identifiable {
     public let count: Int
     public let isSearching: Bool
     public let issue: String?
+    public init(source: String, count: Int, isSearching: Bool, issue: String? = nil) {
+        self.source = source; self.count = count; self.isSearching = isSearching; self.issue = issue
+    }
 
     static func describe(_ error: Error) -> String {
         if let error = error as? LyricsProviderError {

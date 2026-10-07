@@ -21,14 +21,15 @@ private final class CloseQAWindow: NSWindow {
     }
     // Keep the AppKit delegate alive for the whole isolated suite.
     private static let fixtureDelegate = FixtureDelegate()
+    private static var launched = false
     init() {
         _ = NSApplication.shared
         NSApp.delegate = Self.fixtureDelegate
+        if !Self.launched { NSApp.finishLaunching(); Self.launched = true }
     }
 
     @Test func compactExpandedResizeKeepsLyricViewportForTheSameSong() async throws {
         _ = NSApplication.shared
-        NSApp.finishLaunching()
         struct Repository: LyricsRepository {
             func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> { .init { $0.finish() } }
             func save(_ document: LyricsDocument, for track: Track) async throws {}
@@ -81,7 +82,6 @@ private final class CloseQAWindow: NSWindow {
 
     @Test func variableHeightLyricRowsFollowWithoutReverseJumpsOrLateFlight() async throws {
         _ = NSApplication.shared
-        NSApp.finishLaunching()
         struct Repository: LyricsRepository {
             func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> { .init { $0.finish() } }
             func save(_ document: LyricsDocument, for track: Track) async throws {}
@@ -108,15 +108,15 @@ private final class CloseQAWindow: NSWindow {
             if let scroll = view as? NSScrollView { return scroll }
             return view.subviews.lazy.compactMap { nativeScroll($0) }.first
         }
-        func samples(_ count: Int, rowLabel: String? = nil) async throws -> [Double] {
+        func samples(_ count: Int, row: NSView? = nil) async throws -> [Double] {
             var offsets: [Double] = []
             for _ in 0..<count {
                 NSApp.updateWindows(); host.layoutSubtreeIfNeeded()
                 try await Task.sleep(for: .milliseconds(20))
                 let scroll = try #require(nativeScroll(host))
-                if let rowLabel {
-                    let frame = try #require(accessibilityFrame(for: rowLabel, in: host))
-                    offsets.append(frame.midY)
+                if let row {
+                    try #require(row.window === panel)
+                    offsets.append(panel.convertToScreen(row.convert(row.bounds, to: nil)).midY)
                 } else { offsets.append(scroll.contentView.bounds.minY) }
             }
             return offsets
@@ -124,19 +124,31 @@ private final class CloseQAWindow: NSWindow {
         print("Native scroll: mounted")
         _ = try await samples(50)
         print("Native scroll: settled initial rows")
+        func frame(_ row: NSView) -> NSRect { panel.convertToScreen(row.convert(row.bounds, to: nil)) }
+        let rowsHost = try #require(nativeScroll(host)?.documentView)
+        var currentRow = try #require(lyricButtons(in: rowsHost).max { frame($0).midY < frame($1).midY })
         for index in 1...6 {
+            // Follow the same mounted native button throughout the animation.
+            // Raw scroll offsets can jump when LazyVStack refines offscreen
+            // height estimates even while the visible row stays stationary.
+            let previousY = frame(currentRow).midY
+            currentRow = try #require(lyricButtons(in: rowsHost).filter { frame($0).midY < previousY - 1 }
+                .max { frame($0).midY < frame($1).midY })
             model.session.seek(to: Double(index) * 2); model.updateMainLyricSelection()
             print("Native scroll: follow row \(index)")
-            let offsets = try await samples(55, rowLabel: doc.lines[index].text)
+            #expect(model.mainLyricIndex == index)
+            let offsets = try await samples(55, row: currentRow)
             let backwards = zip(offsets, offsets.dropFirst()).map { $0 - $1 }.max() ?? 0
+            print("Native row \(index): maximum reverse=\(backwards), final=\(offsets.last ?? 0)")
             #expect(backwards < 2, "Sequential scroll reversed by \(backwards) points at line \(index)")
             let end = try #require(offsets.last)
-            let resting = try await samples(5, rowLabel: doc.lines[index].text)
+            let resting = try await samples(5, row: currentRow)
             #expect(resting.allSatisfy { abs($0 - end) < 2 })
         }
         model.session.seek(to: 70); model.updateMainLyricSelection()
         _ = try await samples(15)
-        let resting = try await samples(20, rowLabel: doc.lines[35].text)
+        #expect(model.mainLyricIndex == 35)
+        let resting = try await samples(20)
         #expect((resting.max() ?? 0) - (resting.min() ?? 0) < 2)
     }
     private func runTracking(for seconds: Double, mode: RunLoop.Mode = .eventTracking) {
@@ -148,12 +160,10 @@ private final class CloseQAWindow: NSWindow {
         }
     }
 
-    private func accessibilityFrame(for label: String, in element: Any, depth: Int = 0) -> NSRect? {
-        guard depth < 32, let element = element as? any NSAccessibilityProtocol else { return nil }
-        if element.accessibilityLabel() == label { return element.accessibilityFrame() }
-        return (element.accessibilityChildren() ?? []).lazy.compactMap {
-            accessibilityFrame(for: label, in: $0, depth: depth + 1)
-        }.first
+    private func lyricButtons(in view: NSView) -> [NSView] {
+        let own = String(describing: type(of: view)).contains("FocusRingView") && view.bounds.height > 20
+            ? [view] : []
+        return own + view.subviews.flatMap { lyricButtons(in: $0) }
     }
 
     @Test func playbackTickerAdvancesDuringTrackingAndCancelsWithoutAQueuedRestart() {
@@ -178,7 +188,6 @@ private final class CloseQAWindow: NSWindow {
 
     @Test func realMainWindowCloseKeepsOverlayFramesAndCueClockMoving() async throws {
         _ = NSApplication.shared
-        NSApp.finishLaunching()
         struct Repository: LyricsRepository {
             func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> { .init { $0.finish() } }
             func save(_ document: LyricsDocument, for track: Track) async throws {}
@@ -252,7 +261,6 @@ private final class CloseQAWindow: NSWindow {
 
     @Test func eachWindowKeepsItsOwnFrameDeliveryDuringMainWindowLifecycle() async throws {
         _ = NSApplication.shared
-        NSApp.finishLaunching()
         let screen = try #require(NSScreen.main)
         let main = NSPanel(contentRect: .init(x: screen.visibleFrame.minX + 30, y: screen.visibleFrame.minY + 30, width: 100, height: 60),
                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -320,7 +328,6 @@ private final class CloseQAWindow: NSWindow {
     }
     @Test func lyricListResetsForPreludeCachedTrackChangeAndLateLoading() async throws {
         _ = NSApplication.shared
-        NSApp.finishLaunching()
         struct Repository: LyricsRepository {
             func lyrics(for track: Track, forceRefresh: Bool) -> AsyncThrowingStream<LyricCandidate, Error> {
                 AsyncThrowingStream { $0.finish() }
@@ -365,9 +372,10 @@ private final class CloseQAWindow: NSWindow {
         func expectPreludeAnchor() throws {
             let scroll = try #require(scrollView(host))
             let fraction = prefs.mainLyricPlacement.fraction
-            // SwiftUI exposes semantic button labels through its accessibility
-            // tree, rather than through the FocusRingView wrapper's label.
-            let screenFrame = try #require(accessibilityFrame(for: doc.lines[0].text, in: host))
+            // At the prelude the first document row is the topmost native
+            // button. Measure its real frame without relying on in-process AX.
+            let frames = lyricButtons(in: host).map { panel.convertToScreen($0.convert($0.bounds, to: nil)) }
+            let screenFrame = try #require(frames.max { $0.maxY < $1.maxY })
             let viewport = panel.convertToScreen(scroll.contentView.convert(scroll.contentView.bounds, to: nil))
             let rowAnchor = viewport.maxY - screenFrame.maxY + screenFrame.height * fraction
             #expect(abs(rowAnchor - viewport.height * fraction) < 3,

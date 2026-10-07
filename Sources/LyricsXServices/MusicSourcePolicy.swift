@@ -2,8 +2,21 @@ import AppKit
 
 /// Source identity is based on the owning app, never on a song title or app name.
 enum MusicSourcePolicy {
-    static let knownPlayers: Set<String> = ["com.apple.music", "com.apple.itunes", "com.spotify.client",
-        "com.netease.163music", "com.tencent.qqmusic", "com.tencent.qqmusicmac", "com.kugou.mac"]
+    // Exact, case-normalized app identities. Only add aliases verified in the
+    // publisher's app bundle, build configuration, or App Store metadata.
+    // Evidence and compatibility limits: docs/development/music-player-recognition-2026-10-07.md.
+    static let knownPlayers: Set<String> = [
+        "com.apple.music", "com.apple.itunes", "com.spotify.client",
+        "com.netease.163music", "com.tencent.qqmusic", "com.tencent.qqmusicmac", "com.kugou.mac",
+        // Local libraries, including explicitly identified build / product variants.
+        "org.petrichor", "org.petrichor.debug", "com.swinsian.swinsian",
+        "co.brushedtype.doppler-macos", "org.cogx.cog", "com.foobar2000.mac",
+        "com.coppertino.vox", "com.digipine.pineplayer", "com.digipine.pineplayer.pro",
+        "com.digipine.pineplayer.origin", "gaborhargitai.colibri", "org.tordini.flavio.musique",
+        "org.strawberrymusicplayer.strawberry",
+        // Standalone online / plugin-based players; their browser editions stay excluded.
+        "com.listen1.listen1", "cn.toside.music.desktop", "fun.upup.musicfree",
+    ]
     static let browsers = ["com.apple.safari", "com.google.chrome", "com.microsoft.edgemac",
         "org.mozilla.firefox", "com.brave.browser", "company.thebrowser.browser", "com.operasoftware.opera",
         "com.vivaldi.vivaldi", "com.kagi.kagimacOS", "app.zen-browser.zen"]

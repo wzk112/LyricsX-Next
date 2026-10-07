@@ -7,6 +7,7 @@ import ScreenCaptureKit
 import CoreImage
 import CoreVideo
 import LyricsXCore
+import LyricsXServices
 @testable import LyricsXApp
 
 private struct EmptyRepository: LyricsRepository {
@@ -154,6 +155,13 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
             #expect(zip(alpha, alpha.dropFirst()).allSatisfy { $0.0 >= $0.1 - 0.02 })
         }
         #expect(overlay.panel.isVisible && overlay.panel.alphaValue == 0)
+        // The compositor can reach alpha zero one frame before AppKit queues
+        // its completion on the main actor. Check resource cleanup separately
+        // from the intermediate fade samples, with a finite completion bound.
+        for _ in 0..<20 {
+            if waveform.isHidden { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(waveform.isHidden, "Capture stops at fade start; the last path clears after fade completion")
         #expect(overlay.lyricHostingView.alphaValue == 1)
         pointer = outside
@@ -938,7 +946,7 @@ private let overlayLyrics = LyricsDocument(title: "Overlay Song", artist: "Artis
         #expect(!restored.showMenuBarIcon && restored.showMenubarLyrics && !restored.combinedMenubarLyrics)
         #expect(restored.translationFontSize == 19 && restored.nextLineFontSize == 15)
         #expect(restored.overlaySecondaryMode == .both)
-        #expect(restored.sourceOrder == ["NetEase", "QQMusic", "LRCLIB", "Kugou", "Musixmatch"])
+        #expect(restored.sourceOrder == ["NetEase", "QQMusic", "LRCLIB", "Kugou", "Musixmatch", "Apple Music"])
         #expect(!restored.preferBilingual && !restored.preferWordTiming && !restored.strictLyricsMatching && restored.disabledSources.contains("Kugou"))
     }
 

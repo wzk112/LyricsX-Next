@@ -51,6 +51,7 @@ final class Preferences {
     var overlayWidth: Double { didSet { save("overlayWidth", overlayWidth) } }
     var overlayAdaptiveSize: Bool { didSet { save("overlayAdaptiveSize", overlayAdaptiveSize) } }
     var overlayFrameRate: OverlayFrameRate { didSet { save("overlayFrameRate", overlayFrameRate.rawValue) } }
+    var overlayShowSongInfo: Bool { didSet { save("overlayShowSongInfo", overlayShowSongInfo) } }
     var overlayWaveformEnabled: Bool { didSet { save("overlayWaveformEnabled", overlayWaveformEnabled) } }
     var overlayWaveformStyle: OverlayWaveformStyle { didSet { save("overlayWaveformStyle", overlayWaveformStyle.rawValue) } }
     var overlayWaveformStatus = ""
@@ -168,6 +169,7 @@ final class Preferences {
     var conversion: String { didSet { save("conversion", conversion) } }
     var playerMode: PlayerMode { didSet { save("playerMode", playerMode.rawValue) } }
     var disabledSources: [String] { didSet { save("disabledSources", disabledSources) } }
+    var appleMusicCloudEnabled: Bool { didSet { save("appleMusicCloudEnabled", appleMusicCloudEnabled) } }
     var sourceOrder: [String] { didSet { save("sourceOrder", sourceOrder) } }
     var preferBilingual: Bool { didSet { save("preferBilingual", preferBilingual) } }
     var preferWordTiming: Bool { didSet { save("preferWordTiming", preferWordTiming) } }
@@ -219,6 +221,7 @@ final class Preferences {
         overlayWidth = number("overlayWidth", 620, 320...1000)
         overlayAdaptiveSize = d.object(forKey: "overlayAdaptiveSize") as? Bool ?? true
         overlayFrameRate = OverlayFrameRate(rawValue: d.string(forKey: "overlayFrameRate") ?? "display") ?? .display
+        overlayShowSongInfo = d.object(forKey: "overlayShowSongInfo") as? Bool ?? true
         overlayWaveformEnabled = d.bool(forKey: "overlayWaveformEnabled")
         overlayWaveformStyle = OverlayWaveformStyle(rawValue: d.string(forKey: "overlayWaveformStyle") ?? "monochrome") ?? .monochrome
         fontSize = number("fontSize", 26, 18...42)
@@ -257,7 +260,34 @@ final class Preferences {
         lyricHDRBrightness = number("lyricHDRBrightness", 1.6, 1...4)
         conversion = ["原文", "简体", "繁體"].first { $0 == d.string(forKey: "conversion") } ?? "原文"
         playerMode = PlayerMode(rawValue: d.string(forKey: "playerMode") ?? "automatic") ?? .automatic
-        disabledSources = d.stringArray(forKey: "disabledSources") ?? []
+        var migratedDisabledSources = d.stringArray(forKey: "disabledSources") ?? []
+        var cloudEnabled = d.bool(forKey: "appleMusicCloudEnabled")
+        // Migrate the first local preview's separate switch into the shared
+        // source list once; subsequent source toggles own this preference.
+        if let oldMusicSwitch = d.object(forKey: "appleMusicLyricsEnabled") as? Bool {
+            if !oldMusicSwitch && !migratedDisabledSources.contains("Apple Music") { migratedDisabledSources.append("Apple Music") }
+            d.set(migratedDisabledSources, forKey: "disabledSources")
+            d.removeObject(forKey: "appleMusicLyricsEnabled")
+        }
+        if d.integer(forKey: "appleMusicUnifiedSourceVersion") < 1 {
+            // Either old enabled reader keeps the combined source enabled.
+            // Never opt an existing installation into cloud access.
+            cloudEnabled = cloudEnabled && !migratedDisabledSources.contains(where: AppleMusicCloudLyricsSource.isCloudSource)
+            if cloudEnabled { migratedDisabledSources.removeAll { $0 == AppleMusicLyricsSource.name } }
+            migratedDisabledSources.removeAll(where: AppleMusicCloudLyricsSource.isCloudSource)
+            d.set(migratedDisabledSources, forKey: "disabledSources")
+            d.set(cloudEnabled, forKey: "appleMusicCloudEnabled")
+            if let savedOrder = d.stringArray(forKey: "sourceOrder"), savedOrder.contains(where: AppleMusicCloudLyricsSource.isCloudSource) {
+                var mergedOrder: [String] = []
+                for source in savedOrder.map(SourceConfiguration.sourceKey) where !mergedOrder.contains(source) {
+                    mergedOrder.append(source)
+                }
+                d.set(mergedOrder, forKey: "sourceOrder")
+            }
+            d.set(1, forKey: "appleMusicUnifiedSourceVersion")
+        }
+        appleMusicCloudEnabled = cloudEnabled
+        disabledSources = migratedDisabledSources
         sourceOrder = SourceConfiguration.normalizedOrder(d.stringArray(forKey: "sourceOrder") ?? [])
         preferBilingual = d.object(forKey: "preferBilingual") as? Bool ?? true
         preferWordTiming = d.object(forKey: "preferWordTiming") as? Bool ?? true
@@ -276,8 +306,18 @@ final class Preferences {
     }
     private func save(_ key: String, _ value: Any) { defaults.set(value, forKey: key) }
     func setSource(_ name: String, enabled: Bool) {
+        if AppleMusicCloudLyricsSource.isCloudSource(name) { setAppleMusicCloudEnabled(enabled); return }
         disabledSources.removeAll { $0 == name }
         if !enabled { disabledSources.append(name) }
+    }
+    func setAppleMusicCloudEnabled(_ enabled: Bool) { appleMusicCloudEnabled = enabled }
+    var sourceSelectionKey: String {
+        var config = SourceConfiguration()
+        config.enabled = Set(SourceConfiguration.defaultOrder).subtracting(disabledSources)
+        config.sourceOrder = sourceOrder; config.appleMusicCloudEnabled = appleMusicCloudEnabled
+        config.preferBilingual = preferBilingual; config.preferWordTiming = preferWordTiming
+        config.strictMatching = strictLyricsMatching
+        return config.selectionKey
     }
     func moveSource(_ source: String, by delta: Int) {
         guard let index = sourceOrder.firstIndex(of: source) else { return }
@@ -329,6 +369,7 @@ final class SourceConfigurationReader: @unchecked Sendable {
         var config = SourceConfiguration()
         let disabled = defaults.stringArray(forKey: "disabledSources") ?? []
         config.enabled = Set(SourceConfiguration.defaultOrder).subtracting(disabled)
+        config.appleMusicCloudEnabled = defaults.bool(forKey: "appleMusicCloudEnabled")
         config.sourceOrder = SourceConfiguration.normalizedOrder(defaults.stringArray(forKey: "sourceOrder") ?? [])
         config.preferBilingual = defaults.object(forKey: "preferBilingual") as? Bool ?? true
         config.preferWordTiming = defaults.object(forKey: "preferWordTiming") as? Bool ?? true

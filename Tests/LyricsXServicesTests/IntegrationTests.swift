@@ -37,7 +37,13 @@ func diagnoseSearchCandidates() async throws {
                       artist: env["LYRICSX_DIAG_ARTIST"] ?? "", album: env["LYRICSX_DIAG_ALBUM"] ?? "",
                       duration: Double(env["LYRICSX_DIAG_DURATION"] ?? "0") ?? 0)
     let cache = LyricsCache(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
-    let store = LyricsStore(cache: cache)
+    let store = LyricsStore(cache: cache, configuration: {
+        var config = SourceConfiguration()
+        if let sources = env["LYRICSX_DIAG_SOURCES"] {
+            config.enabled = config.enabled.intersection(sources.components(separatedBy: ","))
+        }
+        return config
+    })
     var documents: [LyricsDocument] = []
     for try await value in store.search(track: track, keyword: env["LYRICSX_DIAG_KEYWORD"], complete: env["LYRICSX_DIAG_COMPLETE"] == "1", onSourceUpdate: { status in
         if !status.isSearching { print("SEARCH_SOURCE source=\(status.source) count=\(status.count) issue=\(status.issue ?? "none")") }
@@ -76,16 +82,19 @@ func liveSourceSmoke() async throws {
     #expect(!FileManager.default.fileExists(atPath: directory.path))
 }
 
-@Test func embeddedPlainLyricsAreUsedBeforeNetworkSearch() async throws {
+@Test func embeddedPlainLyricsRemainAnAutomaticFallbackWithoutFakeTiming() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let store = LyricsStore(cache: LyricsCache(directory: directory))
+    let store = LyricsStore(cache: LyricsCache(directory: directory),
+        aliasResolver: .init(fetch: { _ in Data(#"{"results":[]}"#.utf8) }),
+        searchBackend: { _, _, _, _ in .init { $0.finish() } })
     let track = Track(playerID: "com.apple.Music", playerName: "Apple Music", title: "Song", embeddedLyrics: "first line\nsecond line")
     var results: [LyricCandidate] = []
     for try await result in store.lyrics(for: track, forceRefresh: false) { results.append(result) }
     #expect(results.count == 1)
     #expect(results.first?.document.plainText == "first line\nsecond line")
-    #expect(results.first?.score == 999)
+    #expect(results.first?.document.source == "Apple Music")
+    #expect(results.first?.document.isSynced == false)
 }
 
 @Test(.enabled(if: ProcessInfo.processInfo.environment["LYRICSX_LIVE_SEARCH_RECOVERY"] == "1"))

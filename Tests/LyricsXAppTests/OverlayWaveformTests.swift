@@ -262,6 +262,30 @@ private struct WaveformQARepository: LyricsRepository {
     }
 }
 
+@Test func waveformFreshSilenceReportsNoSignalWithoutPretendingTheDeviceStopped() {
+    var signal = WaveformSignalProgress(startedAt: 100)
+    for (time, peak, expected): (Double, Float, Bool) in [
+        (107.9, 0, false), (108, 0, true), (109, .nan, true),
+        (110, 0.1, false), (117.9, 0, false), (118, 0, true)
+    ] {
+        let silent = signal.observe(peak: peak, at: time)
+        #expect(silent == expected)
+    }
+}
+
+@Test func waveformWakeRetainsEvidenceThatThisPlayerWasAlreadyCapturable() {
+    var policy = WaveformRetryPolicy()
+    let source = "com.apple.Music"
+    policy.observe(enabled: true, playing: true, source: source)
+    policy.receivedPCM(source: source)
+    #expect(policy.failed(source: source, reason: .noPCM) == 1)
+    policy.wake()
+    // A tap recreated after visibility/wake may stall before its first frame.
+    #expect(policy.failed(source: source, reason: .noPCM) == 1)
+    policy.observe(enabled: true, playing: true, source: "com.spotify.client")
+    #expect(policy.failed(source: "com.spotify.client", reason: .noPCM) == nil)
+}
+
 @Test func establishedPCMRecoveryHasABoundedBackoffAndDoesNotResetAfterOneLiveFrame() {
     var policy = WaveformRetryPolicy()
     let source = "com.apple.Music"
@@ -342,6 +366,25 @@ private final class WaveformRecoveryHarness {
         captures.last!.state = .unavailable(.noPCM)
         view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
     }
+}
+
+@MainActor @Test func waveformSilentCaptureShowsActionableStatusAndRecoversWithoutNewTap() {
+    let h = WaveformRecoveryHarness()
+    defer { h.view.stop() }
+    var statuses: [String] = []
+    h.view.onStatusChange = { statuses.append($0) }
+    h.configure()
+    h.captures[0].state = .silent
+    h.view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+    #expect(statuses.last?.contains("更新应用后") == true)
+    #expect(!h.view.hasPendingRecoveryForTest)
+    let count = statuses.count
+    h.view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+    #expect(statuses.count == count)
+    h.captures[0].state = .live
+    h.view.tickForTest(at: ProcessInfo.processInfo.systemUptime)
+    #expect(statuses.last == "")
+    #expect(h.captures.count == 1 && h.captures[0].stops == 0)
 }
 
 @MainActor @Test func waveformViewRebuildsAnEstablishedStalledCaptureWithBoundedAttempts() {

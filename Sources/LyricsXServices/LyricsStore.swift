@@ -13,17 +13,34 @@ public final class LyricsStore: LyricsRepository, Sendable {
     private let configuration: @Sendable () -> SourceConfiguration
     private let aliasResolver: TrackAliasResolver
     typealias SearchBackend = @Sendable (Track, String?, SourceConfiguration, SecureLyricsHTTPClient) -> AsyncThrowingStream<LyricsDocument, Error>
+    typealias AppleMusicReader = @Sendable (Track) async throws -> LyricsDocument?
+    private let appleMusicReader: AppleMusicReader
+    private let appleMusicCloudReader: AppleMusicReader
     private let searchBackend: SearchBackend
     private let searchBudget: Duration
     private let firstResultDelay: Duration
     private let fallbackGrace: Duration
     public init(cache: LyricsCache = LyricsCache(), configuration: @escaping @Sendable () -> SourceConfiguration = { .init() }) {
         self.cache = cache; self.configuration = configuration
+        self.appleMusicReader = { try await AppleMusicLyricsSource().document(for: $0) }
+        self.appleMusicCloudReader = { track in
+            let source = AppleMusicCloudLyricsSource(request: { path in
+                let current = configuration()
+                guard current.enabled.contains(AppleMusicLyricsSource.name), current.appleMusicCloudEnabled else { throw CancellationError() }
+                return try await AppleMusicCloudSession.shared.request(path)
+            })
+            return try await source.document(for: track)
+        }
         self.aliasResolver = TrackAliasResolver(); self.searchBackend = Self.providerSearch; self.searchBudget = .seconds(24); self.firstResultDelay = .seconds(1); self.fallbackGrace = .seconds(8)
     }
     init(cache: LyricsCache, configuration: @escaping @Sendable () -> SourceConfiguration = { .init() },
          aliasResolver: TrackAliasResolver, searchBudget: Duration = .seconds(24), firstResultDelay: Duration = .seconds(1),
-         fallbackGrace: Duration = .seconds(8), searchBackend: @escaping SearchBackend) {
+         fallbackGrace: Duration = .seconds(8),
+         appleMusicReader: @escaping AppleMusicReader = { AppleMusicLyricsSource.parse($0.embeddedLyrics, for: $0) },
+         appleMusicCloudReader: @escaping AppleMusicReader = { _ in nil },
+         searchBackend: @escaping SearchBackend) {
+        self.appleMusicReader = appleMusicReader
+        self.appleMusicCloudReader = appleMusicCloudReader
         self.cache = cache; self.configuration = configuration; self.aliasResolver = aliasResolver
         self.searchBackend = searchBackend; self.searchBudget = searchBudget; self.firstResultDelay = firstResultDelay; self.fallbackGrace = fallbackGrace
     }
@@ -39,7 +56,8 @@ public final class LyricsStore: LyricsRepository, Sendable {
                         if !cached.isProvisional { continuation.yield(cached); continuation.finish(); return }
                         checkpoint = cached
                     }
-                    if checkpoint == nil, let embedded = track.embeddedLyrics, let doc = try? LyricsCodec.parse(embedded), doc.isSynced || doc.plainText?.isEmpty == false {
+                    if checkpoint == nil, track.playerID != "com.apple.Music", let embedded = track.embeddedLyrics,
+                       let doc = try? LyricsCodec.parse(embedded), doc.isSynced || doc.plainText?.isEmpty == false {
                         continuation.yield(LyricCandidate(document: doc, score: 999)); continuation.finish(); return
                     }
                     if checkpoint == nil, let local = Self.localLyrics(track: track, directory: configuration().legacyDirectory) {
@@ -77,6 +95,10 @@ public final class LyricsStore: LyricsRepository, Sendable {
         var config = configuration()
         config.candidateLimit = keyword == nil ? Self.automaticCandidateLimit
             : (complete ? Self.completeManualCandidateLimit : Self.compactManualCandidateLimit)
+        if track.playerID != "com.apple.Music" || !Self.usesTrackHints(track: track, keyword: keyword) {
+            config.enabled.remove(AppleMusicLyricsSource.name)
+            config.appleMusicCloudEnabled = false
+        }
         let configuration = config
         return AsyncThrowingStream { continuation in
             let collector = SearchCollector(track: track, keyword: keyword, complete: complete, configuration: configuration, fallbackGrace: fallbackGrace,
@@ -103,6 +125,11 @@ public final class LyricsStore: LyricsRepository, Sendable {
                 // each source's queue immediately, ahead of broad title-only
                 // queries; no slow source can block alias expansion elsewhere.
                 await withTaskGroup(of: Void.self) { group in
+                    if configuration.enabled.contains(AppleMusicLyricsSource.name) {
+                        group.addTask {
+                            await self.searchAppleMusic(track, cloud: configuration.appleMusicCloudEnabled, collector: collector)
+                        }
+                    }
                     group.addTask {
                         if Self.usesTrackHints(track: track, keyword: keyword) {
                             let aliases = await self.aliasResolver.aliases(for: track, client: client)
@@ -110,7 +137,7 @@ public final class LyricsStore: LyricsRepository, Sendable {
                         }
                         await collector.catalogFinished()
                     }
-                    for source in configuration.availableSources {
+                    for source in configuration.availableSources where source != AppleMusicLyricsSource.name {
                         var single = configuration; single.enabled = [source]
                         let sourceConfig = single
                         group.addTask {
@@ -137,6 +164,32 @@ public final class LyricsStore: LyricsRepository, Sendable {
                 else { continuation.finish() }
             }
             continuation.onTermination = { _ in task.cancel(); Task { await collector.cancel() } }
+        }
+    }
+    private struct MusicRead: Sendable {
+        let document: LyricsDocument?
+        let issue: String?
+        let cloud: Bool
+    }
+    private func searchAppleMusic(_ track: Track, cloud: Bool, collector: SearchCollector) async {
+        await withTaskGroup(of: MusicRead.self) { group in
+            func read(_ reader: AppleMusicReader, cloud: Bool) async -> MusicRead {
+                do { return .init(document: try await reader(track), issue: nil, cloud: cloud) }
+                catch { return .init(document: nil, issue: error.localizedDescription, cloud: cloud) }
+            }
+            group.addTask { await read(self.appleMusicReader, cloud: false) }
+            if cloud { group.addTask { await read(self.appleMusicCloudReader, cloud: true) } }
+            var found = false
+            var issues: [Bool: String] = [:]
+            for await result in group {
+                guard !Task.isCancelled else { group.cancelAll(); return }
+                if let document = result.document { found = true; _ = await collector.add(document) }
+                if let issue = result.issue { issues[result.cloud] = issue }
+            }
+            guard !Task.isCancelled else { return }
+            await collector.completed(source: AppleMusicLyricsSource.name,
+                error: found ? nil : (issues[true] ?? issues[false]),
+                emptyIssue: found ? nil : (cloud ? "当前歌曲没有可读取的 Apple Music 歌词" : "无歌曲内嵌歌词；可开启云端歌词或使用其他来源"))
         }
     }
 
@@ -167,7 +220,8 @@ public final class LyricsStore: LyricsRepository, Sendable {
                     providers.append(LyricsProviders.Service.musixmatch.create(.init(usertoken: token), httpClient: client))
                 }
                 let limit = config.candidateLimit
-                let request = LyricsSearchRequest(searchTerm: keyword.map { .keyword($0) } ?? .info(title: track.title, artist: track.artist), duration: track.duration, limit: limit)
+                let request = LyricsSearchRequest(searchTerm: keyword.map { .keyword($0) }
+                    ?? .info(title: track.title, artist: TrackSearchText.searchArtist(track.artist)), duration: track.duration, limit: limit)
                 let failures = await withTaskGroup(of: String?.self, returning: [String].self) { group in
                     for provider in providers {
                         group.addTask {

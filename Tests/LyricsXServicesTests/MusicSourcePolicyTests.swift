@@ -16,6 +16,43 @@ import LyricsXCore
     #expect(!MusicSourcePolicy.accepts(bundleID: "another.browser", category: "public.app-category.productivity"))
 }
 
+@Test(arguments: [
+    "org.Petrichor", "org.Petrichor.debug", "com.swinsian.Swinsian",
+    "co.brushedtype.doppler-macos", "org.cogx.cog", "com.foobar2000.mac",
+    "com.coppertino.Vox", "com.digipine.pineplayer", "com.digipine.pineplayer.pro",
+    "com.digipine.pineplayer.origin", "gaborhargitai.colibri", "org.tordini.flavio.musique",
+    "org.strawberrymusicplayer.strawberry", "com.listen1.listen1",
+    "cn.toside.music.desktop", "fun.upup.musicfree",
+])
+func additionalMusicPlayersDoNotRequireMusicCategory(bundleID: String) {
+    // Some independent players omit or change their category. Their verified
+    // identity must work through both discovery and MediaRemote's ID-only path.
+    #expect(MusicSourcePolicy.accepts(bundleID: bundleID))
+    #expect(MusicSourcePolicy.accepts(bundleID: bundleID.uppercased(), category: "public.app-category.entertainment"))
+    // A recognized app must not grant an arbitrary suffix / prefix the same identity.
+    #expect(!MusicSourcePolicy.accepts(bundleID: bundleID + ".unverified"))
+    #expect(!MusicSourcePolicy.accepts(bundleID: "unverified." + bundleID))
+}
+
+@Test func musicNamesAndUnverifiedAliasesDoNotGrantPlayerIdentity() {
+    for id in ["com.catalystwo.cog", "com.simnetiq.vpnreact", "social.colibri.app",
+               "com.pinkmusic.app", "Apple Music Downloader", "com.electron.unverifiedmusic",
+               "org.petrichor-preview", "com.swinsian.Swinsian-Quick-Controller"] {
+        #expect(!MusicSourcePolicy.accepts(bundleID: id))
+    }
+    for id in ["com.apple.Safari.WebApp.org.Petrichor", "com.google.Chrome.com.listen1.listen1",
+               "company.thebrowser.Browser.fun.upup.musicfree"] {
+        #expect(!MusicSourcePolicy.accepts(bundleID: id, category: "public.app-category.music"))
+    }
+    // Preserve the existing fallback for an uncatalogued music app and the
+    // signed iOS-on-Mac variants already supported by QQ Music / NetEase Music.
+    #expect(MusicSourcePolicy.accepts(bundleID: "unlisted.local.player", category: "public.app-category.music"))
+    #expect(MusicSourcePolicy.accepts(bundleID: "com.netease.163music.D5Q73692VW"))
+    #expect(!MusicSourcePolicy.accepts(bundleID: "com.netease.163musical.D5Q73692VW"))
+    #expect(!MusicSourcePolicy.accepts(bundleID: ""))
+    #expect(!MusicSourcePolicy.accepts(bundleID: nil, category: "public.app-category.music"))
+}
+
 @Test @MainActor func pausedNotifyingPlayersBackOffButManualRefreshWakesImmediately() async throws {
     var reads = 0
     var playing = false

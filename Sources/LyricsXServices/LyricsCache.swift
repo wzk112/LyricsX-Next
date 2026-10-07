@@ -144,6 +144,7 @@ public actor LyricsCache {
         if let checkpoint {
             value = Self.checkpointPrefix + (try JSONEncoder().encode(checkpoint)).base64EncodedString() + "]\n" + value
         }
+        guard value.utf8.count <= 4_000_000 else { throw LyricsCodec.CodecError.tooLarge }
         if let old = try? String(contentsOf: url, encoding: .utf8), old == value { return }
         try value.write(to: url, atomically: true, encoding: .utf8)
         remember(url, for: track)

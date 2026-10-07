@@ -244,17 +244,15 @@ public final class PlayerBridge {
     public func writeLyrics(_ lyrics: String, to track: Track) async throws {
         guard track.playerID == "com.apple.Music" else { throw BridgeError.wrongTrack }
         let source = """
-        function run(argv) {
-          const app = Application('com.apple.Music');
           if (!app.running()) throw new Error('Player unavailable');
           const t = app.currentTrack();
           if (t.name() !== argv[0] || t.artist() !== argv[1] || t.album() !== argv[2]) throw new Error('Track changed');
           if (argv[3] && String(t.persistentID()) !== argv[3]) throw new Error('Track changed');
           t.lyrics = argv[4];
-        }
         """
-        let result = try await ProcessRunner.run("/usr/bin/osascript", arguments: ["-l", "JavaScript", "-e", source, track.title, track.artist, track.album, track.persistentID, lyrics])
-        guard result.status == 0 else { throw BridgeError.lyricsWrite }
+        let result = try await RunningPlayerScript.runJavaScript(bundleID: track.playerID, body: source,
+            arguments: [track.title, track.artist, track.album, track.persistentID, lyrics])
+        guard result?.status == 0 else { throw BridgeError.lyricsWrite }
     }
     private func drainCommandsIfNeeded() {
         guard commandTask == nil, !commandQueue.isEmpty else { return }
@@ -292,8 +290,9 @@ public final class PlayerBridge {
             case .previous: operation = "app.previousTrack()"
             case .seek(let time): operation = "app.playerPosition = \(max(0, time.isFinite ? time : 0))"
             }
-            let result = try await ProcessRunner.run("/usr/bin/osascript", arguments: ["-l", "JavaScript", "-e", "const app = Application('\(target)'); if (app.running()) { \(operation); }"])
-            guard result.status == 0 else { throw BridgeError.automation }
+            let result = try await RunningPlayerScript.runJavaScript(bundleID: target,
+                body: "if (app.running()) { \(operation); }")
+            guard result == nil || result?.status == 0 else { throw BridgeError.automation }
         } else {
             // Do not send a stale music control to a browser that has taken
             // over system playback since the last sample.
@@ -399,8 +398,6 @@ public final class PlayerBridge {
         }
         let spotify = target == "com.spotify.client"
         let source = """
-        function run(argv) {
-          const app = Application('\(target)');
           function safe(f, d) { try { const v = f(); return v == null ? d : v; } catch(e) { return d; } }
           if (!app.running()) return '{}';
           const t = safe(() => app.currentTrack(), null);
@@ -408,7 +405,7 @@ public final class PlayerBridge {
           const same = id.length > 0 && id === argv[0];
           const result = {title:safe(() => t.name(), ''),artist:safe(() => t.artist(), ''),album:safe(() => t.album(), ''),id:id,
             duration:safe(() => t.duration(),0)/\(spotify ? "1000" : "1"),
-            artwork:\(spotify ? "same ? null : safe(() => t.artworkUrl(), '')" : "''"),lyrics:\(spotify ? "''" : "same ? null : safe(() => t.lyrics(), '')"),location:\(spotify ? "''" : "same ? null : safe(() => t.location().toString(), '')")};
+            artwork:\(spotify ? "same ? null : safe(() => t.artworkUrl(), '')" : "''"),lyrics:null,location:\(spotify ? "''" : "same ? null : safe(() => t.location().toString(), '')")};
           // Optional first-track fields can be slow. Sample transport last so
           // an earlier paused state cannot be published after playback starts.
           const state = safe(() => app.playerState(), null);
@@ -426,9 +423,11 @@ public final class PlayerBridge {
             ? id === endID
             : result.title === endTitle && result.artist === endArtist && result.album === endAlbum;
           return JSON.stringify(result);
-        }
         """
-        let output = try await ProcessRunner.run("/usr/bin/osascript", arguments: ["-l", "JavaScript", "-e", source, latestScriptTarget == target ? latestScriptID : ""])
+        guard let output = try await RunningPlayerScript.runJavaScript(bundleID: target, body: source,
+            arguments: [latestScriptTarget == target ? latestScriptID : ""]) else {
+            return PlaybackSnapshot(track: nil, position: 0, isPlaying: false)
+        }
         guard output.status == 0 else {
             throw output.error.contains("-1743") ? BridgeError.automation : BridgeError.unavailable
         }
@@ -436,7 +435,8 @@ public final class PlayerBridge {
         guard item.coherent != false else { throw BridgeError.unavailable }
         // The script reads position immediately before returning. Anchoring
         // it at the whole metadata request's midpoint double-counted time
-        // spent fetching lyrics/location on the first playback item.
+        // spent fetching location on the first playback item. Lyrics use the
+        // separate finite source reader and never delay playback sampling.
         let sampleTime = ProcessInfo.processInfo.systemUptime
         guard let title = item.title, !title.isEmpty else {
             return PlaybackSnapshot(track: nil, position: 0, isPlaying: item.playing == true, sampledAt: sampleTime,
@@ -561,54 +561,8 @@ public final class PlayerBridge {
         return nil
     }
     private func readMusicArtwork(for track: Track) async -> Data? {
-        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("lyricsx-artwork-\(UUID().uuidString).bin")
-        let source = #"""
-        on run argv
-          set outputPath to item 1 of argv
-          set expectedID to item 2 of argv
-          set expectedTitle to item 3 of argv
-          set expectedArtist to item 4 of argv
-          set expectedAlbum to item 5 of argv
-          tell application "Music"
-            if not running then return ""
-            set currentTrack to current track
-            try
-              if expectedID is not "" and (persistent ID of currentTrack as text) is not expectedID then return ""
-              if (name of currentTrack as text) is not expectedTitle then return ""
-              if (artist of currentTrack as text) is not expectedArtist then return ""
-              if (album of currentTrack as text) is not expectedAlbum then return ""
-            on error
-              return ""
-            end try
-            if (count of artworks of currentTrack) is 0 then return ""
-            set rawData to raw data of artwork 1 of currentTrack
-            set endTrack to current track
-            try
-              if expectedID is not "" and (persistent ID of endTrack as text) is not expectedID then return ""
-              if (name of endTrack as text) is not expectedTitle then return ""
-              if (artist of endTrack as text) is not expectedArtist then return ""
-              if (album of endTrack as text) is not expectedAlbum then return ""
-            on error
-              return ""
-            end try
-            set outputFile to open for access (POSIX file outputPath) with write permission
-            try
-              set eof outputFile to 0
-              write rawData to outputFile
-              close access outputFile
-            on error
-              try
-                close access outputFile
-              end try
-            end try
-          end tell
-        end run
-        """#
-        defer { try? FileManager.default.removeItem(at: outputURL) }
-        guard let result = try? await ProcessRunner.run("/usr/bin/osascript", arguments: ["-e", source, outputURL.path,
-                                                                                     track.persistentID, track.title, track.artist, track.album]), result.status == 0,
-              let data = try? Data(contentsOf: outputURL), !data.isEmpty, data.count < 8_000_000 else { return nil }
-        return data
+        guard let pid = RunningPlayerScript.processIdentifier(for: track.playerID) else { return nil }
+        return await MusicArtworkReader.read(track: track, processIdentifier: pid)
     }
     enum BridgeError: LocalizedError, Equatable {
         case unavailable, automation, bundle, wrongTrack, lyricsWrite, excludedSource

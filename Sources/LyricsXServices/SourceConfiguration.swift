@@ -2,10 +2,11 @@ import Foundation
 import LyricsXCore
 
 public struct SourceConfiguration: Sendable {
-    public static let defaultOrder = ["LRCLIB", "NetEase", "QQMusic", "Kugou", "Musixmatch"]
+    public static let defaultOrder = ["LRCLIB", "NetEase", "QQMusic", "Kugou", "Musixmatch", "Apple Music"]
     var candidateLimit = 40
-    public var enabled: Set<String> = ["LRCLIB", "NetEase", "QQMusic", "Kugou"]
+    public var enabled: Set<String> = ["LRCLIB", "NetEase", "QQMusic", "Kugou", "Apple Music"]
     public var sourceOrder: [String] = defaultOrder
+    public var appleMusicCloudEnabled = false
     public var preferBilingual = true
     public var preferWordTiming = true
     /// Keep the automatic result conservative by default. When disabled, a
@@ -17,7 +18,7 @@ public struct SourceConfiguration: Sendable {
     public init() {}
 
     public var selectionKey: String {
-        (["ranking-v2"] + Self.normalizedOrder(sourceOrder) + enabled.sorted() + [String(preferBilingual), String(preferWordTiming), String(strictMatching)]).joined(separator: "|")
+        (["ranking-v4"] + Self.normalizedOrder(sourceOrder) + enabled.sorted() + [String(appleMusicCloudEnabled), String(preferBilingual), String(preferWordTiming), String(strictMatching)]).joined(separator: "|")
     }
 
     func satisfiesAutomaticPreferences(_ document: LyricsDocument, for track: Track, aliases: [Track]) -> Bool {
@@ -31,7 +32,13 @@ public struct SourceConfiguration: Sendable {
 
     public static func normalizedOrder(_ values: [String]) -> [String] {
         var seen: Set<String> = []
-        return (values + defaultOrder).filter { defaultOrder.contains($0) && seen.insert($0).inserted }
+        return (values + defaultOrder).map(sourceKey).filter { defaultOrder.contains($0) && seen.insert($0).inserted }
+    }
+
+    /// Existing cloud documents retain their provenance; both readers share
+    /// one source control, ranking position, result budget and status.
+    public static func sourceKey(_ value: String) -> String {
+        AppleMusicCloudLyricsSource.isCloudSource(value) ? AppleMusicLyricsSource.name : value
     }
 
     public func selectionScore(_ document: LyricsDocument, for track: Track) -> Double {
@@ -42,7 +49,7 @@ public struct SourceConfiguration: Sendable {
         guard match >= 60 || trustedVariant else { return match }
         let exactTitle = CandidateRanker.equivalentTitle(document.title, track.title)
         let order = Self.normalizedOrder(sourceOrder)
-        let sourceBonus = order.firstIndex(of: document.source).map { Double(order.count - $0) * 10 } ?? 0
+        let sourceBonus = order.firstIndex(of: Self.sourceKey(document.source)).map { Double(order.count - $0) * 10 } ?? 0
         // Identity is a gate, not an unconditional 400-point preference. Only
         // strict mode gives exact titles their own tier. In relaxed mode valid
         // title variants compete on features/source before tiny match differences.
@@ -64,7 +71,7 @@ public struct SourceConfiguration: Sendable {
               artist.isEmpty || (!candidateArtist.isEmpty && (artist == candidateArtist || artist.contains(candidateArtist) || candidateArtist.contains(artist)))
         else { return nil }
         let order = Self.normalizedOrder(sourceOrder)
-        let sourceBonus = order.firstIndex(of: document.source).map { Double(order.count - $0) } ?? 0
+        let sourceBonus = order.firstIndex(of: Self.sourceKey(document.source)).map { Double(order.count - $0) } ?? 0
         return 50 + preferenceBonus(document) / 2 + sourceBonus / 100
     }
 
@@ -85,7 +92,7 @@ public struct SourceConfiguration: Sendable {
         // even when a provider has omitted the artist or reports a variant.
         guard exactTitle || compatibleArtist else { return nil }
         let order = Self.normalizedOrder(sourceOrder)
-        let sourceBonus = order.firstIndex(of: document.source).map { Double(order.count - $0) } ?? 0
+        let sourceBonus = order.firstIndex(of: Self.sourceKey(document.source)).map { Double(order.count - $0) } ?? 0
         return (exactTitle ? 40 : 30) + preferenceBonus(document) + (compatibleArtist ? 0.1 : 0) + sourceBonus / 100
     }
 
@@ -113,8 +120,8 @@ public struct SourceConfiguration: Sendable {
         let left = preferenceBonus(lhs.document), right = preferenceBonus(rhs.document)
         if left != right { return left > right }
         let order = Self.normalizedOrder(sourceOrder)
-        let leftSource = order.firstIndex(of: lhs.document.source) ?? order.count
-        let rightSource = order.firstIndex(of: rhs.document.source) ?? order.count
+        let leftSource = order.firstIndex(of: Self.sourceKey(lhs.document.source)) ?? order.count
+        let rightSource = order.firstIndex(of: Self.sourceKey(rhs.document.source)) ?? order.count
         if leftSource != rightSource { return leftSource < rightSource }
         func key(_ doc: LyricsDocument) -> String { doc.title + "|" + doc.artist + "|" + doc.album + "|" + (doc.providerID ?? "") }
         return key(lhs.document) < key(rhs.document)
@@ -127,8 +134,9 @@ public struct SourceConfiguration: Sendable {
         guard !complete else { return sorted }
         var counts: [String: Int] = [:]
         return sorted.filter {
-            counts[$0.document.source, default: 0] += 1
-            return counts[$0.document.source, default: 0] <= LyricsStore.compactManualResultsPerSource
+            let source = Self.sourceKey($0.document.source)
+            counts[source, default: 0] += 1
+            return counts[source, default: 0] <= LyricsStore.compactManualResultsPerSource
         }
     }
 }

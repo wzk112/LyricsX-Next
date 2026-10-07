@@ -1,5 +1,9 @@
 # LyricsX Next project guidance
 
+## Local installation rule
+
+Use `scripts/build-local.sh release` for local repair installations and keep the same code-signing identity across updates. Do not silently fall back to ad-hoc signing: its changing designated requirement can invalidate the system-audio recording permission used by the waveform. Back up the installed app and verify the final bundle's signature and hash. Public release packaging still follows `docs/RELEASING.md`.
+
 ## Release rule
 
 Every requested release must include a release quality pass before publication. Check the changed features in the real macOS app where possible, run the full Swift test suite and relevant Flexbar tests, and fix release blocking regressions before packaging.

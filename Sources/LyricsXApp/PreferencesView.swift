@@ -235,7 +235,7 @@ struct PreferencesView: View {
     private var playerSettings: some View {
         @Bindable var p = model.preferences
         return SettingsCard(title: "连接播放器") {
-            SettingRow(title: "读取来源", detail: "自动识别 Apple Music、Spotify、网易云、QQ 音乐及系统标记为音乐类的应用，排除浏览器。其他播放器需向系统提供播放状态；指定模式只跟随所选应用。", impact: "首次连接可能需要在 macOS 中允许自动化访问。") {
+            SettingRow(title: "读取来源", detail: "自动识别常见在线与本地音乐播放器（包括 Apple Music、Spotify、网易云、QQ 音乐、Petrichor 等）及系统标记为音乐类的应用，排除浏览器。其他播放器需向系统提供播放状态；指定模式只跟随所选应用。", impact: "首次连接可能需要在 macOS 中允许自动化访问。") {
                 Picker("读取来源", selection: $p.playerMode) {
                     ForEach(PlayerMode.allCases) { Text($0.title).tag($0) }
                 }.labelsHidden().frame(width: 160)
@@ -260,6 +260,7 @@ struct PreferencesView: View {
                 SettingToggle(title: "暂停时隐藏", detail: "暂停音乐时隐藏悬浮窗，继续播放后恢复。", value: $p.hideWhenPaused)
             }
             SettingsCard(title: "外观") {
+                SettingToggle(title: "显示顶部歌曲信息", detail: "显示歌词上方的歌名和艺人；关闭后保留歌词位置，无歌词时的歌曲卡片仍显示。", value: $p.overlayShowSongInfo)
                 if p.overlayAppearance == .frosted {
                     InterfaceThemePicker(title: "悬浮窗颜色", detail: "独立设置磨砂悬浮窗与控制条的深浅。", selection: $p.overlayTheme)
                     Divider().padding(.horizontal, 14)
@@ -395,10 +396,13 @@ struct PreferencesView: View {
                 Text("越靠上越优先。拖动手柄或使用箭头排序，关闭的来源不参与搜索。联网时会向启用的来源发送歌名、歌手和时长。")
                     .font(.callout).foregroundStyle(.secondary).padding(14)
                 ForEach(p.sourceOrder, id: \.self) { source in sourceRow(source, prefs: p) }
+                Text("Apple Music 读取当前歌曲的内嵌歌词；开启下方云端歌词后，也会查询在线歌词。两种来源可在搜索中预览，纯文本不参与同步。读取过程不会修改音乐资料库。")
+                    .font(.caption).foregroundStyle(.secondary).padding(14)
                 SettingRow(title: "恢复默认顺序", detail: "只恢复来源排序，保留各来源开关和版本偏好。") {
                     Button("恢复顺序") { p.sourceOrder = SourceConfiguration.defaultOrder }
                 }
             }
+            AppleMusicCloudSettingsView(model: model)
             SettingsCard(title: "当前歌曲") {
                 SettingRow(title: "按当前偏好重新搜索", detail: "优先级从下一次搜索生效；现有缓存仍会优先复用。", impact: "重新搜索并应用版本后，会更新当前歌曲的缓存文件。") {
                     Button("重新搜索") { model.refreshLyrics() }.disabled(model.session.track == nil || model.lyricsBlocked)
