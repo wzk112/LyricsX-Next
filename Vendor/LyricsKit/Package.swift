@@ -25,7 +25,6 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
         .package(url: "https://github.com/attaswift/BigInt", from: "5.6.0"),
         .package(url: "https://github.com/krzyzanowskim/CryptoSwift", from: "1.9.0"),
-        .package(url: "https://github.com/Mx-Iris/FrameworkToolbox", from: "0.5.4"),
     ],
     targets: [
         .target(
@@ -51,7 +50,6 @@ let package = Package(
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "BigInt", package: "BigInt"),
                 .product(name: "CryptoSwift", package: "CryptoSwift"),
-                .product(name: "FoundationToolbox", package: "FrameworkToolbox"),
             ]
         ),
         .target(

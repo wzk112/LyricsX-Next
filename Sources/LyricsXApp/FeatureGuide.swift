@@ -47,8 +47,9 @@ struct GuidePage: Identifiable {
 
 enum GuideContent {
     // Changed only when the introduction itself is revised, never for a routine rebuild.
-    static let revision = "music-search-41"
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.41"
+    static let revision = "startup-42-preview1"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.42"
+    static let displayVersion = Bundle.main.object(forInfoDictionaryKey: "LyricsXReleaseVersion") as? String ?? version
     static let tutorial: [GuidePage] = [
         .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
             "打开 Apple Music、Spotify、网易云或 QQ 音乐播放歌曲，即可自动同步歌词。自动识别不包含浏览器。",
@@ -117,7 +118,7 @@ enum GuideContent {
     ]
     // Add new release entries here; a version jump includes every intervening
     // entry, while a first upgrade from versions without receipts gets a recap.
-    static let releases: [(version: String, page: GuidePage)] = release41Pages.map { ("2.0.41", $0) } + release40Pages.map { ("2.0.40", $0) } + release39Pages.map { ("2.0.39", $0) } + [
+    static let releases: [(version: String, page: GuidePage)] = release42Pages.map { ("2.0.42", $0) } + release41Pages.map { ("2.0.41", $0) } + release40Pages.map { ("2.0.40", $0) } + release39Pages.map { ("2.0.39", $0) } + [
         ("2.0.38", .init(id: "waveform38", title: "悬浮窗音频波形", subtitle: "新增 · 设置 → 悬浮窗", symbol: "waveform", points: [
             "在“设置 → 悬浮窗”可开启实时音频波形，选择白色或封面彩色；默认关闭，不会因升级自动开始采集。",
             "首次开启时 macOS 可能请求系统音频录制权限。波形仅尝试读取当前识别播放器的音频，暂停、隐藏或减少动态效果时停止。",
@@ -195,6 +196,12 @@ enum GuideContent {
             "简繁体转换后仍能显示逐字进度。自定义颜色保留 EDR 辉光，改善窗口首次显示时的屏幕能力识别。",
             "改善部分 QQ 音乐歌词的读取、搜索与封面显示；修复缓存文件变化及异常设置值引起的显示问题。"], illustration: "conversion"))
     ]
+    static let release42Pages: [GuidePage] = [
+        .init(id: "startup42", title: "启动兼容性修复（预览版）", subtitle: "macOS 26.0 启动复测 · 自动生效，无需设置", symbol: "checkmark.circle", points: [
+            "针对 macOS 26.0 上双击应用没有反应、启动即退出的问题进行修复。",
+            "这是基于 2.0.41 的专用预览版。已有歌词、来源设置和歌曲偏移继续保留，首次打开只显示本页一次。",
+            "本机启动与自动化测试已通过，macOS 26.0 实机效果仍待复测。如果仍无法打开，请在 #10 补充系统版本和崩溃报告。"], illustration: "")
+    ]
     static let release41Pages: [GuidePage] = [
         .init(id: "cloud41", title: "Apple Music 在线歌词", subtitle: "新增 · 设置 → 搜索 → Apple Music 云端歌词", symbol: "music.note", points: [
             "开启后登录 Apple Music，可读取当前歌曲的在线歌词。需要有效订阅；逐字、逐行或纯文本取决于歌曲版本和账号地区。默认关闭。",
@@ -254,7 +261,7 @@ enum GuideContent {
         updates(after: previous)
     }
     // The previous public version defines the manual current-release introduction.
-    static let latestBaseline: String? = "2.0.40"
+    static let latestBaseline: String? = "2.0.41"
     static func updates(after previous: String?) -> [GuidePage] {
         let pages = releases.filter { entry in
             guard let previous else { return true }
@@ -393,7 +400,7 @@ struct FeatureGuideView: View {
           HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 Label("LyricsX Next", systemImage: "quote.bubble.fill").font(.headline)
-                Text(mode == .tutorial ? "使用指南" : "\(GuideContent.version) · 本次更新")
+                Text(mode == .tutorial ? "使用指南" : "\(GuideContent.displayVersion) · 本次更新")
                     .font(.title3.weight(.semibold))
                 ScrollViewReader { navigation in
                     ScrollView {
@@ -422,7 +429,9 @@ struct FeatureGuideView: View {
                         Text(page.subtitle).font(.subheadline).foregroundStyle(.secondary)
                         Text(page.title).font(.system(size: guideSize.size.width < 900 ? 24 : 27, weight: .bold)).fixedSize(horizontal: false, vertical: true)
                         Group {
-                            if page.illustration == "cloudSettings41", let model {
+                            if page.illustration.isEmpty {
+                                EmptyView()
+                            } else if page.illustration == "cloudSettings41", let model {
                                 AppleMusicCloudSettingsView(model: model)
                             } else if page.illustration == "waveSettings41", let preferences {
                                 GuideQuickSettings(page: page.id, preferences: preferences, model: model)
@@ -454,6 +463,9 @@ struct FeatureGuideView: View {
                                     .frame(width: 24, height: 24).background(Color.accentColor.opacity(0.12), in: .circle)
                                 Text(item.element).font(.body).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
                             }
+                        }
+                        if page.id == "startup42" {
+                            Link("反馈启动情况 · GitHub #10", destination: URL(string: "https://github.com/wzk112/LyricsX-Next/issues/10")!)
                         }
                         if let preferences, page.illustration != "waveSettings41" {
                             GuideQuickSettings(page: page.id, preferences: preferences, model: model)

@@ -330,7 +330,7 @@ final class AppModel {
                 let release = try JSONDecoder().decode(Release.self, from: data)
                 let alert = NSAlert()
                 alert.messageText = "LyricsX Next 最新版本：\(release.tag_name)"
-                alert.informativeText = "当前版本：\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知")。打开项目发布页查看更新说明与下载。"
+                alert.informativeText = "当前版本：\(GuideContent.displayVersion)。打开项目发布页查看更新说明与下载。"
                 alert.addButton(withTitle: "打开发布页"); alert.addButton(withTitle: "关闭")
                 NSApp.activate()
                 if alert.runModal() == .alertFirstButtonReturn, release.html_url.host == "github.com" { NSWorkspace.shared.open(release.html_url) }

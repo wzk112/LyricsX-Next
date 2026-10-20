@@ -1,10 +1,8 @@
 import Foundation
 import LyricsCore
 import Regex
-import FoundationToolbox
 
 extension LyricsProviders {
-    @Loggable
     final class NetEase {
         let httpClient: HTTPClient
         private let eapiClient: NetEaseEapiClient

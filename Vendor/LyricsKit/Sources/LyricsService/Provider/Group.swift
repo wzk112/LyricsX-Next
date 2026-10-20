@@ -1,10 +1,10 @@
 import Foundation
 import LyricsCore
-import FoundationToolbox
+import os.log
 
 extension LyricsProviders {
-    @Loggable
     public final class Group: LyricsProvider {
+        private static let log = OSLog(subsystem: "LyricsKit", category: "LyricsProviders.Group")
         public let providers: [LyricsProvider]
 
         /// Plugins run upstream of `providers`: they widen a search by
@@ -62,7 +62,7 @@ extension LyricsProviders {
                                 continuation.yield(lyric)
                             }
                         } catch {
-                            #log(.error, "A provider in the group failed: \(error)")
+                            os_log(.error, log: Self.log, "A provider in the group failed: %{private}@", String(describing: error))
                         }
                     }
                 }

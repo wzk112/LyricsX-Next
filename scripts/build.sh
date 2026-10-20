@@ -30,6 +30,7 @@ done
 if ! otool -l "$APP/Contents/MacOS/LyricsX" | /usr/bin/grep -q '@executable_path/../Frameworks'; then
   install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP/Contents/MacOS/LyricsX"
 fi
+bash "$PROJECT_ROOT/scripts/check-runtime-compatibility.sh" "$APP"
 SIGN_IDENTITY="${LYRICSX_SIGN_IDENTITY:--}"
 for dylib in "$APP/Contents/Frameworks"/*.dylib; do
   codesign --force --sign "$SIGN_IDENTITY" "$dylib"

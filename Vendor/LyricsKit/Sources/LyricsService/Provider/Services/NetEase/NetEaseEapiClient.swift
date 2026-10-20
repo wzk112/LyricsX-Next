@@ -1,8 +1,6 @@
 import Foundation
 import CryptoSwift
-import FoundationToolbox
 
-@Loggable
 struct NetEaseEapiClient: Sendable {
     let httpClient: HTTPClient
 

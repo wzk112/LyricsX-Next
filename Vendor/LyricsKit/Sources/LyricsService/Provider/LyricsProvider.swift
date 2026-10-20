@@ -1,6 +1,6 @@
 import Foundation
 import LyricsCore
-import FoundationToolbox
+import os.log
 
 public enum LyricsProviders {}
 
@@ -18,10 +18,12 @@ protocol _LyricsProvider: LyricsProvider {
     func fetch(with token: LyricsToken) async throws -> Lyrics
 }
 
-@Loggable
 private enum LyricsProviderLog {
+    // Use the OSLog API directly: the former @Loggable expansion imported
+    // Logger.disabled, whose runtime symbol is absent on macOS 26.0 (#10).
+    private static let log = OSLog(subsystem: "LyricsKit", category: "LyricsProvider")
     static func fetchTaskFailed(_ error: any Error) {
-        #log(.error, "A fetch task failed, skipping. Error: \(error)")
+        os_log(.error, log: log, "A fetch task failed, skipping. Error: %{private}@", String(describing: error))
     }
 }
 

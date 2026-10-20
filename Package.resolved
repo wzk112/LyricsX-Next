@@ -1,5 +1,5 @@
 {
-  "originHash" : "83929f22e32b925acf4b3c7067bd61a5215b061de7a45faee12e2b0b94093c85",
+  "originHash" : "790bc8d9aa563ff9fd3882c5c61cdfc7ab93a1003c3c4b99c358c3213d07a04b",
   "pins" : [
     {
       "identity" : "bigint",
@@ -17,15 +17,6 @@
       "state" : {
         "revision" : "f2a627b84c1ff96f21ac2fcb623ab36142dd5512",
         "version" : "1.10.0"
-      }
-    },
-    {
-      "identity" : "frameworktoolbox",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Mx-Iris/FrameworkToolbox",
-      "state" : {
-        "revision" : "9fa37fa0f6eb6c3eb22fa92aca55045b6508c6dc",
-        "version" : "0.12.0"
       }
     },
     {
@@ -70,15 +61,6 @@
       "state" : {
         "revision" : "a0cb0954ecb21e4e31b0070e6ed5674e8556685a",
         "version" : "1.6.0"
-      }
-    },
-    {
-      "identity" : "swift-syntax",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-syntax.git",
-      "state" : {
-        "revision" : "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1",
-        "version" : "603.0.2"
       }
     },
     {

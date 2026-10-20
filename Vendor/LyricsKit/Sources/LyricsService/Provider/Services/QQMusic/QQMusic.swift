@@ -1,9 +1,7 @@
 import Foundation
 import LyricsCore
-import FoundationToolbox
 
 extension LyricsProviders {
-    @Loggable
     final class QQMusic {
         let httpClient: HTTPClient
         private var performer: NetworkPerformer { NetworkPerformer(httpClient: httpClient) }

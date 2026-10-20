@@ -486,7 +486,7 @@ struct PreferencesView: View {
 
     private var aboutSettings: some View {
         SettingsCard(title: "LyricsX Next") {
-            SettingRow(title: "Swift 重构版", detail: "版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版本")（\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "本地")） · Zikai Wang") {
+            SettingRow(title: "Swift 重构版", detail: "版本 \(GuideContent.displayVersion)（\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "本地")） · Zikai Wang") {
                 Image(systemName: "quote.bubble.fill").font(.largeTitle).foregroundStyle(.pink)
             }
             SettingRow(title: "使用指南", detail: "从连接播放器到搜索、悬浮窗、自定义、同步与文件管理，完整图文教程。") {
