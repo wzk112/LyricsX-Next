@@ -83,10 +83,11 @@ private struct MenuBarContent: View {
         Button("上一首") { model.skip(next: false) }.disabled(model.session.track == nil)
         Button("下一首") { model.skip(next: true) }.disabled(model.session.track == nil)
         Menu("歌词偏移") {
-            Text(String(format: "当前 %+.1f 秒", Double(model.session.document?.offsetMilliseconds ?? 0) / 1000))
+            Text(String(format: "单曲 %+.1f 秒", Double(model.session.document?.offsetMilliseconds ?? 0) / 1000))
+            Text(String(format: "通用 %+.3f 秒 · 合计 %+.3f 秒", Double(model.session.globalOffsetMilliseconds) / 1000, Double(model.session.effectiveOffsetMilliseconds) / 1000))
             Button("提前 0.1 秒") { model.session.adjustOffset(by: 100) }
             Button("延后 0.1 秒") { model.session.adjustOffset(by: -100) }
-            Button("重置偏移") { model.session.resetOffset() }
+            Button("重置单曲偏移") { model.session.resetOffset() }
         }.disabled(model.session.document?.isSynced != true)
         Button("搜索歌词…") { model.showMainWindow?(); NSApp.activate(); model.showSearch = true }
         Button("重新搜索歌词") { model.refreshLyrics() }.disabled(model.session.track == nil || model.lyricsBlocked)

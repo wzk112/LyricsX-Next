@@ -9,6 +9,7 @@ struct MainLyricSnapshot {
     let placeholder: Bool
     let index: Int?
     let position: Double
+    let globalOffsetMilliseconds: Int
     let searching: Bool
     var arrivalIdentity: MainLyricArrivalIdentity {
         .init(track: trackRevision, ready: document != nil)
@@ -23,6 +24,7 @@ struct MainLyricSnapshot {
         // Sample the ignored presentation clock; do not subscribe the whole
         // lyric viewport to the session's per-tick position updates.
         position = model.session.presentationPosition()
+        globalOffsetMilliseconds = model.session.globalOffsetMilliseconds
         searching = model.session.isSearching
     }
 }

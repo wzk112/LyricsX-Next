@@ -3,6 +3,7 @@ import Observation
 import ServiceManagement
 import Security
 import LyricsXServices
+import LyricsXCore
 
 @Observable @MainActor
 final class Preferences {
@@ -10,6 +11,16 @@ final class Preferences {
     let globalHotkeys: HotkeyPreferences
     @ObservationIgnored nonisolated let sourceConfigurationReader: SourceConfigurationReader
     var appTheme: InterfaceTheme { didSet { save("appTheme", appTheme.rawValue) } }
+    private var savedGlobalOffsetMilliseconds: Int
+    var globalOffsetMilliseconds: Int {
+        get { savedGlobalOffsetMilliseconds }
+        set {
+            let value = LyricsOffset.normalized(newValue)
+            guard value != savedGlobalOffsetMilliseconds else { return }
+            savedGlobalOffsetMilliseconds = value
+            save("globalOffsetMilliseconds", value)
+        }
+    }
     var overlayTheme: InterfaceTheme { didSet { save("overlayTheme", overlayTheme.rawValue) } }
     var overlayVisible: Bool { didSet { save("overlayVisible", overlayVisible) } }
     var overlayLocked: Bool { didSet { save("overlayLocked", overlayLocked) } }
@@ -181,6 +192,7 @@ final class Preferences {
     var overlaySecondarySpacing: Double { overlayTextSpacing.automaticGaps ? max(8, max(translationFontSize, nextLineFontSize) * 0.6) : overlayTextSpacing.secondaryGap }
     init(defaults d: UserDefaults = .standard) {
         defaults = d
+        savedGlobalOffsetMilliseconds = LyricsOffset.normalized(d.object(forKey: "globalOffsetMilliseconds") as? Int ?? 0)
         globalHotkeys = HotkeyPreferences(defaults: d)
         sourceConfigurationReader = SourceConfigurationReader(defaults: d)
         appTheme = InterfaceTheme(rawValue: d.string(forKey: "appTheme") ?? "system") ?? .system

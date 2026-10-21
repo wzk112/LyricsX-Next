@@ -57,8 +57,8 @@ struct SearchLyricPreview: View {
             .onChange(of: document?.id) { _, _ in browsing = false }
     }
     private func synced(_ document: LyricsDocument) -> some View {
-        let currentIndex = document.index(at: model.session.position)
-        let currentID = document.lineID(at: model.session.position)
+        let currentIndex = document.index(at: model.session.position, globalOffsetMilliseconds: model.session.globalOffsetMilliseconds)
+        let currentID = document.lineID(at: model.session.position, globalOffsetMilliseconds: model.session.globalOffsetMilliseconds)
         return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {

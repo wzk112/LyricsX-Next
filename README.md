@@ -78,13 +78,16 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
 
 主窗口的歌词滚动位置按歌曲和歌词版本独立管理。切歌或重新载入歌词后，前奏尚未进入第一句时，第一行按居中、上方或自定义百分比设置对齐并保持未唱状态；进入歌词后平滑跟随当前句，清除上一首的手动浏览状态与延迟返回任务。
 
-### 2.0.42-preview.1 启动修复预览版
+### 2.0.42 更新
 
-针对 [#10](https://github.com/wzk112/LyricsX-Next/issues/10) 中 macOS 26.0 双击无反应、启动即退出的问题提供复测包。基于 2.0.41，仅加入启动兼容性修复；macOS 26.0 实机效果仍待用户验证。
+- 「设置 → 歌词 → 同步 → 通用歌词偏移」可统一调整所有歌曲，再叠加各歌曲原有偏移。正值提前，负值延后；分别重置，互不清除。
+- 通用值仅保存到本机设置，不改歌词文件或播放进度。主窗口、悬浮窗、菜单栏、搜索预览与 Flexbar 共用相同时间换算。
+- 修复 macOS 26.0 上的启动崩溃；#10 报告者已确认预览版能打开，正式版保留该修复和打包检查。
+- 「设置 → 关于 → 本次更新」可重看两页介绍，通用偏移可在介绍中直接调整。从 2.0.41 或预览版升级均只自动显示一次，已有设置继续保留。
 
-下载 [LyricsX-Next-2.0.42-preview.1.zip](https://github.com/wzk112/LyricsX-Next/releases/download/v2.0.42-preview.1/LyricsX-Next-2.0.42-preview.1.zip)，查看 [预览版说明](docs/releases/v2.0.42-preview.1.md)。GitHub 标记为预发布，应用内检查更新仍指向稳定版。
+下载 [LyricsX-Next-2.0.42.zip](https://github.com/wzk112/LyricsX-Next/releases/download/v2.0.42/LyricsX-Next-2.0.42.zip)，查看 [版本说明](docs/releases/v2.0.42.md)和 [完整更新记录](CHANGELOG.md)。
 
-### 2.0.41 稳定版更新
+### 2.0.41 更新
 
 - 「设置 → 搜索 → Apple Music 云端歌词」可主动开启在线歌词并登录，支持歌曲实际提供的逐字、逐行或纯文本。需要有效订阅，格式和可用性取决于歌曲与地区；默认关闭。
 - 搜索预览与正式应用分开，切歌清除旧结果；改善长歌手信息匹配、QQMusic 临时错误恢复和纯文本显示。
@@ -100,7 +103,7 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
 
 ## 安装
 
-从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载 `LyricsX-Next-2.0.41.zip`，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
+从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载 [LyricsX-Next-2.0.42.zip](https://github.com/wzk112/LyricsX-Next/releases/download/v2.0.42/LyricsX-Next-2.0.42.zip)，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
 
 本次包使用本机 ad-hoc 签名，没有 Developer ID 公证票据。首次打开时如果 macOS 提示无法验证开发者：
 
@@ -112,7 +115,7 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
    xattr -dr com.apple.quarantine "/Applications/LyricsX Next.app"
    ```
 
-完整的安装、签名和版本说明见 [`docs/releases/v2.0.41.md`](docs/releases/v2.0.41.md)。
+完整的安装、签名和版本说明见 [`docs/releases/v2.0.42.md`](docs/releases/v2.0.42.md)。
 
 ## 播放器权限
 

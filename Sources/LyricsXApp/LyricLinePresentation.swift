@@ -56,15 +56,15 @@ struct LyricLinePresentation: Equatable, Sendable {
 }
 
 enum LyricTickCadence {
-    static func milliseconds(playing: Bool, visible: Bool, document: LyricsDocument?, position: Double) -> Double {
+    static func milliseconds(playing: Bool, visible: Bool, document: LyricsDocument?, position: Double, globalOffsetMilliseconds: Int = 0) -> Double {
         guard playing else { return 500 }
         guard visible else { return 250 }
         // Continuous word rendering has its own display schedule.
         let normal = 100.0
         guard let document, document.isSynced else { return normal }
-        let index = document.index(at: position)
+        let index = document.index(at: position, globalOffsetMilliseconds: globalOffsetMilliseconds)
         let nextIndex = (index ?? -1) + 1
-        let now = document.lyricTime(for: position)
+        let now = document.lyricTime(for: position, globalOffsetMilliseconds: globalOffsetMilliseconds)
         let current = index.map { document.lines[$0].time } ?? now
         let elapsed = max(0, now - current)
         guard document.lines.indices.contains(nextIndex) else { return elapsed < 0.85 ? 33 : normal }
@@ -77,10 +77,10 @@ enum LyricTickCadence {
 
 /// Flexbar receives cue changes; its plugin owns local animation frames.
 enum FlexbarCueCadence {
-    static func milliseconds(document: LyricsDocument?, position: Double) -> Double {
+    static func milliseconds(document: LyricsDocument?, position: Double, globalOffsetMilliseconds: Int = 0) -> Double {
         guard let document, document.isSynced else { return 250 }
-        let next = (document.index(at: position) ?? -1) + 1
+        let next = (document.index(at: position, globalOffsetMilliseconds: globalOffsetMilliseconds) ?? -1) + 1
         guard document.lines.indices.contains(next) else { return 250 }
-        return max(8, min(250, (document.lines[next].time - document.lyricTime(for: position)) * 1000 + 0.5))
+        return max(8, min(250, (document.lines[next].time - document.lyricTime(for: position, globalOffsetMilliseconds: globalOffsetMilliseconds)) * 1000 + 0.5))
     }
 }

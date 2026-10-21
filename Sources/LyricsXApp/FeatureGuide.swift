@@ -47,7 +47,7 @@ struct GuidePage: Identifiable {
 
 enum GuideContent {
     // Changed only when the introduction itself is revised, never for a routine rebuild.
-    static let revision = "startup-42-preview1"
+    static let revision = "global-offset-42"
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.42"
     static let displayVersion = Bundle.main.object(forInfoDictionaryKey: "LyricsXReleaseVersion") as? String ?? version
     static let tutorial: [GuidePage] = [
@@ -101,7 +101,7 @@ enum GuideContent {
             "喜欢安静的画面，可开启应用的“减少动态效果”；系统的同名设置也会生效，位移与辉光会停稳。在开发者选项中可选跟随屏幕（120 Hz 屏幕可请求 120 帧）、固定 60 帧或智能节能；实际帧率由系统决定。"], illustration: "effects"),
         .init(id: "timing", title: "让歌词与音乐对齐", subtitle: "每首歌都会记住调整", symbol: "slider.horizontal.3", points: [
             "歌词慢了，用正偏移提前；歌词快了，用负偏移延后。底部每次调整 0.1 秒，点击数值即可重置。",
-            "也可用 ⌥⌘↑／↓ 每次调整 0.2 秒。调整会保存，下次播放无需重设。",
+            "所有歌曲都有同样偏差时，在“设置 → 歌词 → 同步”调整通用偏移，再按歌曲微调。两者相加，分别重置；⌥⌘↑／↓ 仍每次调整单曲 0.2 秒。",
             "歌词版本不对时可重新搜索。菜单栏 → 歌词还可以停用某首歌或整张专辑的搜索，需要时再恢复。"], illustration: "timing"),
         .init(id: "library", title: "使用自己的歌词文件", subtitle: "点击书本图标打开资料库", symbol: "books.vertical", points: [
             "下载过的歌词会保存在本地，下次播放优先使用。资料库可以查看已有歌词。",
@@ -197,10 +197,14 @@ enum GuideContent {
             "改善部分 QQ 音乐歌词的读取、搜索与封面显示；修复缓存文件变化及异常设置值引起的显示问题。"], illustration: "conversion"))
     ]
     static let release42Pages: [GuidePage] = [
-        .init(id: "startup42", title: "启动兼容性修复（预览版）", subtitle: "macOS 26.0 启动复测 · 自动生效，无需设置", symbol: "checkmark.circle", points: [
-            "针对 macOS 26.0 上双击应用没有反应、启动即退出的问题进行修复。",
-            "这是基于 2.0.41 的专用预览版。已有歌词、来源设置和歌曲偏移继续保留，首次打开只显示本页一次。",
-            "本机启动与自动化测试已通过，macOS 26.0 实机效果仍待复测。如果仍无法打开，请在 #10 补充系统版本和崩溃报告。"], illustration: "")
+        .init(id: "globalOffset42", title: "通用歌词偏移", subtitle: "新增 · 设置 → 歌词 → 同步", symbol: "slider.horizontal.3", points: [
+            "为所有歌曲设置统一的歌词偏移，再用主窗口、悬浮窗“歌词同步”或菜单栏微调单曲；两者相加后生效。正值提前，负值延后。",
+            "通用偏移只保存到本机设置，切歌、换歌词版本和重启后保留，不改写歌词文件或播放器进度。重置通用值仍保留单曲偏移，重置单曲也不清除通用值。",
+            "主窗口、悬浮窗、菜单栏、搜索预览和 Flexbar 使用相同换算；普通逐行与逐字歌词均适用，纯文本歌词不会生成同步时间。下方可直接调整实际设置。"], illustration: ""),
+        .init(id: "startup42", title: "macOS 26.0 启动兼容性", subtitle: "修复 · 自动生效，无需设置", symbol: "checkmark.circle", points: [
+            "修复 macOS 26.0 上因日志依赖引用缺失的系统符号而导致双击没有反应、启动即退出的问题。",
+            "替换相关日志调用，并在打包时检查主程序和动态库，避免已知的不兼容符号再次进入安装包。最低系统继续为 macOS 26.0。",
+            "本机启动与回归通过；#10 报告者已确认预览版可以打开。已有歌词、来源配置和单曲偏移继续保留。"], illustration: "")
     ]
     static let release41Pages: [GuidePage] = [
         .init(id: "cloud41", title: "Apple Music 在线歌词", subtitle: "新增 · 设置 → 搜索 → Apple Music 云端歌词", symbol: "music.note", points: [
@@ -497,7 +501,7 @@ private struct GuideQuickSettings: View {
     let page: String
     @Bindable var preferences: Preferences
     let model: AppModel?
-    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects", "waveform", "waveform38", "performanceFlexbar38", "flexbar", "position39", "position40", "spacing40", "colors39", "transitions39", "search41", "players41", "overlay41", "waveform41"].contains(page) }
+    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects", "waveform", "waveform38", "performanceFlexbar38", "flexbar", "position39", "position40", "spacing40", "globalOffset42", "colors39", "transitions39", "search41", "players41", "overlay41", "waveform41"].contains(page) }
     var body: some View {
         if available {
             VStack(alignment: .leading, spacing: 10) {
@@ -536,6 +540,8 @@ private struct GuideQuickSettings: View {
             SettingToggle(title: "在 Flexbar 上显示歌词", detail: "需要另行安装和配置 FlexDesigner 歌词插件。入口在设置 → 开发者选项 → Flexbar。", value: $preferences.flexbarEnabled)
         case "position39", "position40":
             MainLyricPositionSettings(preferences: preferences)
+        case "globalOffset42":
+            GlobalLyricOffsetSettings(preferences: preferences)
         case "spacing40":
             OverlayTextSpacingSettings(preferences: preferences)
         case "transitions39":

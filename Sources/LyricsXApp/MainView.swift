@@ -68,7 +68,8 @@ struct MainView: View {
                 Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 1, height: 14).padding(.horizontal, 12)
                 Button { model.session.adjustOffset(by: -100) } label: { Image(systemName: "minus").frame(width: 32, height: 32).contentShape(.rect) }
                     .help("歌词延后 0.1 秒").accessibilityLabel("歌词延后 0.1 秒")
-                Button { model.session.resetOffset() } label: { Text(String(format: "%+.1f s", Double(doc.offsetMilliseconds) / 1000)).monospacedDigit().frame(width: 50, height: 32).contentShape(.rect) }.help("重置偏移；正值让歌词提前")
+                Button { model.session.resetOffset() } label: { Text(String(format: "%+.1f s", Double(doc.offsetMilliseconds) / 1000)).monospacedDigit().frame(width: 50, height: 32).contentShape(.rect) }
+                    .help(String(format: "重置单曲偏移；通用 %+.3f 秒，合计 %+.3f 秒。正值提前。", Double(model.session.globalOffsetMilliseconds) / 1000, Double(model.session.effectiveOffsetMilliseconds) / 1000))
                 Button { model.session.adjustOffset(by: 100) } label: { Image(systemName: "plus").frame(width: 32, height: 32).contentShape(.rect) }
                     .help("歌词提前 0.1 秒").accessibilityLabel("歌词提前 0.1 秒")
             }

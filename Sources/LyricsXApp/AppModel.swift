@@ -75,6 +75,7 @@ final class AppModel {
             self?.session.rejectPendingSeek()
             self?.bridge.refresh()
         }
+        observeGlobalOffset()
         observeMainLyricPresentation()
     }
     private static let gapCharacters = CharacterSet(charactersIn: ".·•…⋯・。 \t\n")
@@ -108,7 +109,7 @@ final class AppModel {
         guard ticker == nil else { return }
         let wasStopped = presentationStopped
         presentationStopped = false
-        if wasStopped { observeMainLyricPresentation() }
+        if wasStopped { observeGlobalOffset(); observeMainLyricPresentation() }
         displays.start()
         dockVisibility.start()
         observeDockVisibility()
@@ -135,11 +136,11 @@ final class AppModel {
         // The menu bar only changes at cue boundaries. Its label has no
         // frame-by-frame animation, so wake near the next line instead.
         let ui = preferences.showMenubarLyrics && !preciseSurface
-            ? FlexbarCueCadence.milliseconds(document: session.document, position: session.position)
+            ? FlexbarCueCadence.milliseconds(document: session.document, position: session.position, globalOffsetMilliseconds: session.globalOffsetMilliseconds)
             : LyricTickCadence.milliseconds(playing: session.isPlaying, visible: preciseSurface,
-                                            document: session.document, position: session.position)
+                                            document: session.document, position: session.position, globalOffsetMilliseconds: session.globalOffsetMilliseconds)
         return flexbar.hasConsumers
-            ? min(ui, FlexbarCueCadence.milliseconds(document: session.document, position: session.position))
+            ? min(ui, FlexbarCueCadence.milliseconds(document: session.document, position: session.position, globalOffsetMilliseconds: session.globalOffsetMilliseconds))
             : ui
     }
     func startLyricClock() {
@@ -159,6 +160,7 @@ final class AppModel {
         withObservationTracking {
             playing = session.isPlaying
             _ = session.documentRevision
+            _ = session.globalOffsetMilliseconds
             _ = mainWindowVisible
             _ = preferences.overlayVisible
             _ = preferences.showMenubarLyrics
@@ -177,6 +179,7 @@ final class AppModel {
         withObservationTracking {
             _ = session.trackRevision
             _ = session.documentRevision
+            _ = session.globalOffsetMilliseconds
             _ = session.isSearching
             _ = mainLyricIndex
             _ = mainWindowVisible
@@ -185,6 +188,17 @@ final class AppModel {
             Task { @MainActor in self?.observeMainLyricPresentation() }
         }
         mainLyricPresentation.update(model: self)
+    }
+    private func observeGlobalOffset() {
+        guard !presentationStopped else { return }
+        let value = withObservationTracking {
+            preferences.globalOffsetMilliseconds
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeGlobalOffset() }
+        }
+        session.setGlobalOffset(value)
+        updateMainLyricSelection()
+        ticker?.scheduleEarlier(lyricClockInterval())
     }
     func stop() {
         ticker?.stop(); ticker = nil; artworkTask?.cancel(); artworkTask = nil; presentationStopped = true

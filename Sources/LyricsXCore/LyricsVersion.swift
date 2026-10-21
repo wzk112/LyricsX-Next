@@ -1,8 +1,8 @@
 import Foundation
 
 extension LyricsDocument {
-    public func lineID(at position: Double) -> Int? {
-        index(at: position).map { lines[$0].id }
+    public func lineID(at position: Double, globalOffsetMilliseconds: Int = 0) -> Int? {
+        index(at: position, globalOffsetMilliseconds: globalOffsetMilliseconds).map { lines[$0].id }
     }
     /// Provider IDs identify songs, not an immutable lyric revision. Compare
     /// the actual text, translations and timed words before marking Applied.

@@ -113,6 +113,7 @@ struct FlexbarPlaybackGate {
             _ = model.session.trackRevision
             _ = model.session.track?.title; _ = model.session.track?.artist
             _ = model.session.documentRevision
+            _ = model.session.globalOffsetMilliseconds
             _ = model.session.currentLineIndex
             _ = model.session.isPlaying; _ = model.session.phase; _ = model.session.isSearching
             _ = model.preferences.conversion
@@ -136,7 +137,7 @@ struct FlexbarPlaybackGate {
                      artist: session.track?.artist, duration: session.track?.duration,
                      phase: session.phase, isSearching: session.isSearching,
                      isPlaying: session.isPlaying, placeholder: session.documentIsPlaceholder,
-                     offsetMilliseconds: session.document?.offsetMilliseconds,
+                     offsetMilliseconds: session.effectiveOffsetMilliseconds,
                      conversion: model.preferences.conversion)
     }
 
@@ -169,8 +170,8 @@ struct FlexbarPlaybackGate {
                 return .init(location: location, length: fragment.text.count, start: cue.start, end: cue.end)
             }
             let end = nextCue?.time ?? max(line.time, words.map(\.end).max() ?? line.time,
-                                        (session.track?.duration ?? 0) + Double(doc?.offsetMilliseconds ?? 0) / 1000)
-            value.timing = .init(start: line.time, end: end, offsetMilliseconds: doc?.offsetMilliseconds ?? 0, words: words)
+                                        (session.track?.duration ?? 0) + Double(session.effectiveOffsetMilliseconds) / 1000)
+            value.timing = .init(start: line.time, end: end, offsetMilliseconds: session.effectiveOffsetMilliseconds, words: words)
         }
         value.revision = revision
         // The caller controls broadcast; connection snapshots are immediate even while paused.

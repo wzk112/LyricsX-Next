@@ -160,11 +160,11 @@ struct LiveLyricText: View {
             // Keep this view identity when a row becomes current. Only active
             // rows observe the session clock; others use the native draw path.
             let visible = active && viewportVisible && rendering()
-            let time = active ? document.lyricTime(for: visible ? session.position : session.presentationPosition()) : 0
+            let time = active ? document.lyricTime(for: visible ? session.position : session.presentationPosition(), globalOffsetMilliseconds: session.globalOffsetMilliseconds) : 0
             LyricRenderTimeline(running: visible && session.isPlaying && LyricRenderTimelineActivity.needsFrames(line: line, time: time, arrival: arrival),
-                                sampledTime: time, preciseTime: { document.lyricTime(for: session.presentationPosition()) },
+                                sampledTime: time, preciseTime: { document.lyricTime(for: session.presentationPosition(), globalOffsetMilliseconds: session.globalOffsetMilliseconds) },
                                 continueFrames: { LyricRenderTimelineActivity.needsFrames(line: line,
-                                    time: document.lyricTime(for: session.presentationPosition()), arrival: arrival) }) { frameTime in
+                                    time: document.lyricTime(for: session.presentationPosition(), globalOffsetMilliseconds: session.globalOffsetMilliseconds), arrival: arrival) }) { frameTime in
                 WordHighlight(line: line, time: frameTime, active: active, text: text, effects: effects, arrival: arrival)
                     .transaction { $0.animation = nil; $0.disablesAnimations = true }
             }

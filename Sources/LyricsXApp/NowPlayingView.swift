@@ -277,7 +277,7 @@ private struct LyricsScrollContent: View {
         guard model.mainWindowVisible, live else { return }
         // A newly loaded document can arrive before the cached UI selection.
         // Resolve once against its own timeline, including the prelude (nil).
-        let index = doc.index(at: model.session.position)
+        let index = doc.index(at: model.session.position, globalOffsetMilliseconds: model.session.globalOffsetMilliseconds)
         guard let request = followState.request(index: index, lines: doc.lines, animated: animated && !reduced,
                                                force: force, returning: returning) else { return }
         let animation = request.duration.map { Animation.timingCurve(0.22, 0, 0.18, 1, duration: $0) }
@@ -295,7 +295,7 @@ private struct LyricsScrollContent: View {
                                               browsing: browsing, reduced: reduced)
         return Button {
             guard live else { return }
-            model.seek(doc.seekPosition(for: line)); browsing = false
+            model.seek(doc.seekPosition(for: line, globalOffsetMilliseconds: model.session.globalOffsetMilliseconds)); browsing = false
         } label: {
             VStack(alignment: .leading, spacing: 9) {
                 Group {
@@ -303,7 +303,7 @@ private struct LyricsScrollContent: View {
                         LiveLyricText(session: model.session, line: line, document: doc, active: appearance.active, rendering: { model.mainWindowVisible && !model.showSearch && !model.showLibrary },
                               text: line.text.isEmpty ? "•••" : model.preferences.text(line.text), effects: model.preferences.lyricEmphasis)
                     } else {
-                        WordHighlight(line: line, time: doc.lyricTime(for: display.position), active: appearance.active,
+                        WordHighlight(line: line, time: doc.lyricTime(for: display.position, globalOffsetMilliseconds: display.globalOffsetMilliseconds), active: appearance.active,
                             text: line.text.isEmpty ? "•••" : model.preferences.text(line.text), effects: model.preferences.lyricEmphasis)
                     }
                 }
@@ -318,7 +318,7 @@ private struct LyricsScrollContent: View {
                     duration: LyricMotion.followResponse(lines: doc.lines, index: model.mainLyricIndex), reduced: reduced))
                 .contentShape(.rect)
         }.buttonStyle(.plain).disabled(!live).accessibilityLabel(line.text.isEmpty ? "间奏" : line.text)
-            .accessibilityHint("跳转到 " + timeString(doc.seekPosition(for: line)))
+            .accessibilityHint("跳转到 " + timeString(doc.seekPosition(for: line, globalOffsetMilliseconds: model.session.globalOffsetMilliseconds)))
     }
 }
 

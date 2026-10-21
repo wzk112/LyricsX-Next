@@ -137,6 +137,12 @@ private func sampleSnapshot(_ revision: UInt64 = 1, text: String = "Hello") -> F
     try await Task.sleep(for: .milliseconds(15))
     let offset = try JSONDecoder().decode(FlexbarSnapshot.self, from: try #require(peer.frames().first))
     #expect(offset.timing?.offsetMilliseconds == 1000)
+    model.preferences.globalOffsetMilliseconds = 250
+    try await eventually { model.session.globalOffsetMilliseconds == 250 }
+    try await Task.sleep(for: .milliseconds(15))
+    let combined = try JSONDecoder().decode(FlexbarSnapshot.self, from: try #require(peer.frames().last))
+    #expect(combined.timing?.offsetMilliseconds == 1250 && combined.clock?.position == 2)
+    #expect(combined.documentRevision == offset.documentRevision && combined.revision > offset.revision)
     model.session.accept(.init(track: track, position: 3, isPlaying: false))
     model.flexbar.synchronizePlayback()
     let externalSeek = try JSONDecoder().decode(FlexbarSnapshot.self, from: try #require(peer.frames().first))

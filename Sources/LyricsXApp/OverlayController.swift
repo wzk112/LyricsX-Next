@@ -774,7 +774,7 @@ final class OverlayController: NSObject, NSWindowDelegate {
         if offsetEditorPanel != nil { closeOffsetEditor(); refreshAppearance(); return }
         guard let target = OverlayOffsetTarget(session: model.session) else { return }
         offsetTarget = target
-        let editorSize = NSSize(width: min(panel.frame.width, 350), height: 168)
+        let editorSize = NSSize(width: min(panel.frame.width, 350), height: 198)
         let editor = NSPanel(contentRect: NSRect(origin: .zero, size: editorSize),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         editor.isReleasedWhenClosed = false
@@ -1023,8 +1023,10 @@ struct OverlayView: View {
         ZStack {
             if let doc = display.document, let index = display.index {
                 OverlayLyricsContent(preferences: model.preferences, document: doc, index: index,
-                    lyricTime: { doc.lyricTime(for: presentation?.held?.position ?? model.session.position) },
-                    renderTime: { doc.lyricTime(for: presentation?.held?.position ?? model.session.presentationPosition()) },
+                    lyricTime: { doc.lyricTime(for: presentation?.held?.position ?? model.session.position,
+                        globalOffsetMilliseconds: presentation?.held?.globalOffsetMilliseconds ?? model.session.globalOffsetMilliseconds) },
+                    renderTime: { doc.lyricTime(for: presentation?.held?.position ?? model.session.presentationPosition(),
+                        globalOffsetMilliseconds: presentation?.held?.globalOffsetMilliseconds ?? model.session.globalOffsetMilliseconds) },
                     playing: display.playing && windowVisible && viewport.rendering,
                     visible: windowVisible && viewport.rendering,
                     adaptiveCanvasWidth: model.preferences.overlayAdaptiveSize ? maximum - 60 : nil,

@@ -23,6 +23,10 @@ public final class LyricsSession {
     public private(set) var isPlaying = false
     public private(set) var isSearching = false
     public private(set) var currentLineIndex: Int?
+    public private(set) var globalOffsetMilliseconds = 0
+    public var effectiveOffsetMilliseconds: Int {
+        document?.effectiveOffsetMilliseconds(globalOffsetMilliseconds: globalOffsetMilliseconds) ?? globalOffsetMilliseconds
+    }
     public private(set) var candidates: [LyricCandidate] = []
     public private(set) var persistenceError: String?
     public private(set) var searchGeneration: UInt64 = 0
@@ -91,8 +95,19 @@ public final class LyricsSession {
     public func tick(now: Double = ProcessInfo.processInfo.systemUptime) {
         let newPosition = timeline.position(at: now)
         if position != newPosition { position = newPosition }
-        let newIndex = document?.index(at: position)
+        updateLineIndex()
+    }
+    private func updateLineIndex() {
+        let newIndex = document?.index(at: position, globalOffsetMilliseconds: globalOffsetMilliseconds)
         if currentLineIndex != newIndex { currentLineIndex = newIndex }
+    }
+    public func setGlobalOffset(_ milliseconds: Int) {
+        let value = LyricsOffset.normalized(milliseconds)
+        guard globalOffsetMilliseconds != value else { return }
+        globalOffsetMilliseconds = value
+        // Re-evaluate even while paused, without moving the player clock,
+        // cancelling an in-flight search, or writing a lyric file.
+        updateLineIndex()
     }
     /// Display frames sample the same bounded monotonic clock directly. They
     /// never mutate playback or wait for the lower-frequency UI/session tick.
@@ -179,7 +194,7 @@ public final class LyricsSession {
     private func setOffset(_ value: Int) {
         guard var updated = document else { return }
         invalidateSearch(); automaticSearchEligible = false; activeSearchForceRefresh = false; phase = .ready
-        updated.offsetMilliseconds = min(300_000, max(-300_000, value))
+        updated.offsetMilliseconds = LyricsOffset.normalized(value)
         document = updated
         tick(); persist()
     }

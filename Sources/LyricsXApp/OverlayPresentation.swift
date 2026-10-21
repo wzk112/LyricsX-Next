@@ -21,6 +21,7 @@ struct OverlayDisplaySnapshot {
     var compact: Bool { mode != .lyrics }
     let searching: Bool
     var position: Double
+    let globalOffsetMilliseconds: Int
     var playing: Bool
     let sampledAt: Double
 
@@ -32,6 +33,7 @@ struct OverlayDisplaySnapshot {
         artworkLoading = model.artworkLoading
         mode = model.overlayPresentationMode; searching = model.session.isSearching
         position = model.session.presentationPosition(at: now)
+        globalOffsetMilliseconds = model.session.globalOffsetMilliseconds
         playing = model.session.isPlaying; sampledAt = now
     }
     func frozen(at now: Double) -> Self {

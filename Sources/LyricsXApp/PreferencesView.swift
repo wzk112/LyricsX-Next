@@ -340,7 +340,8 @@ struct PreferencesView: View {
                 OverlayTextSpacingSettings(preferences: p)
             }
             SettingsCard(title: "同步") {
-                SettingRow(title: "歌词时间偏移", detail: "在主窗口底部或菜单栏调整。正值提前显示，负值延后显示。", impact: "偏移会保存回当前歌词文件，下次播放继续沿用。") { EmptyView() }
+                GlobalLyricOffsetSettings(preferences: p)
+                SettingRow(title: "单曲歌词偏移", detail: "在主窗口底部、悬浮窗的“歌词同步”或菜单栏调整；在通用偏移的基础上微调当前歌曲。", impact: "单曲偏移保存到当前歌词文件，重置单曲不会清除通用偏移。") { EmptyView() }
             }
         }
     }

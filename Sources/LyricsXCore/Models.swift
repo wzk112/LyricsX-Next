@@ -195,9 +195,14 @@ public struct LyricsDocument: Codable, Hashable, Sendable, Identifiable {
         let allowed = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).union(.symbols)
         return !text.unicodeScalars.isEmpty && text.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
-    public func lyricTime(for position: Double) -> Double { position + Double(offsetMilliseconds) / 1000 }
-    public func index(at position: Double) -> Int? {
-        let time = lyricTime(for: position)
+    public func effectiveOffsetMilliseconds(globalOffsetMilliseconds: Int = 0) -> Int {
+        LyricsOffset.combined(song: offsetMilliseconds, global: globalOffsetMilliseconds)
+    }
+    public func lyricTime(for position: Double, globalOffsetMilliseconds: Int = 0) -> Double {
+        position + Double(effectiveOffsetMilliseconds(globalOffsetMilliseconds: globalOffsetMilliseconds)) / 1000
+    }
+    public func index(at position: Double, globalOffsetMilliseconds: Int = 0) -> Int? {
+        let time = lyricTime(for: position, globalOffsetMilliseconds: globalOffsetMilliseconds)
         guard time.isFinite, let first = lines.first, time >= first.time else { return nil }
         var low = 0; var high = lines.count
         while low < high {
@@ -206,7 +211,9 @@ public struct LyricsDocument: Codable, Hashable, Sendable, Identifiable {
         }
         return low - 1
     }
-    public func seekPosition(for line: LyricLine) -> Double { max(0, line.time - Double(offsetMilliseconds) / 1000) }
+    public func seekPosition(for line: LyricLine, globalOffsetMilliseconds: Int = 0) -> Double {
+        max(0, line.time - Double(effectiveOffsetMilliseconds(globalOffsetMilliseconds: globalOffsetMilliseconds)) / 1000)
+    }
 }
 
 public struct LyricCandidate: Sendable, Identifiable {

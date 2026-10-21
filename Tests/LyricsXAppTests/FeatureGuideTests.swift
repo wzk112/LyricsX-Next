@@ -70,7 +70,7 @@ private struct GuideMotionTestHost: View {
             defaults.set(["2.0.34"], forKey: "guidePresentedVersions")
             let corrected = GuideHistory(defaults: defaults, version: "2.0.34", revision: "complete-2")
             #expect(corrected.pending == .update(previous: "2.0.34"))
-            #expect(GuideContent.updates(after: "2.0.34").count == 23)
+            #expect(GuideContent.updates(after: "2.0.34").count == 24)
             corrected.didPresent()
             #expect(GuideHistory(defaults: defaults, version: "2.0.34", revision: "complete-2").pending == nil)
             let nextRevision = GuideHistory(defaults: defaults, version: "2.0.34", revision: "future-content")
@@ -89,8 +89,8 @@ private struct GuideMotionTestHost: View {
         #expect(GuideContent.updates(after: "2.0.37").map(\.id) == GuideContent.release42Pages.map(\.id) + GuideContent.release41Pages.map(\.id) + GuideContent.release40Pages.map(\.id) + release39 + newest)
         #expect(GuideContent.updates(after: "2.0.35").map(\.id) == GuideContent.release42Pages.map(\.id) + GuideContent.release41Pages.map(\.id) + GuideContent.release40Pages.map(\.id) + release39 + latest)
         #expect(GuideContent.updates(after: "2.0.34").map(\.id) == GuideContent.release42Pages.map(\.id) + GuideContent.release41Pages.map(\.id) + GuideContent.release40Pages.map(\.id) + release39 + latest + current)
-        #expect(GuideContent.updates(after: "2.0.28").count == 33)
-        #expect(GuideContent.updates(after: nil).count == 33)
+        #expect(GuideContent.updates(after: "2.0.28").count == 34)
+        #expect(GuideContent.updates(after: nil).count == 34)
         #expect(GuideContent.tutorial.count == 16)
         #expect(Set(GuideContent.tutorial.map(\.id)).count == GuideContent.tutorial.count)
         #expect(GuideContent.tutorial.contains { $0.id == "waveform" && $0.illustration == "releaseWaveform38" })
@@ -118,7 +118,7 @@ private struct GuideMotionTestHost: View {
     @Test func build274ShowsOnlyNewChangesAndAppearsOnce() throws {
         #expect(GuideContent.release39Pages.map(\.id) == ["position39", "hotkeys39", "colors39", "transitions39"])
         #expect(GuideContent.displayUpdates(after: "2.0.38").map(\.id) == GuideContent.release42Pages.map(\.id) + GuideContent.release41Pages.map(\.id) + GuideContent.release40Pages.map(\.id) + GuideContent.release39Pages.map(\.id))
-        #expect(GuideContent.displayUpdates(after: nil).count == 33)
+        #expect(GuideContent.displayUpdates(after: nil).count == 34)
         #expect(!GuideContent.displayUpdates(after: "2.0.38").contains { $0.id == "waveform38" || $0.id == "performanceFlexbar38" })
         #expect(GuideContent.release39Pages.allSatisfy { $0.points.joined().contains("设置") || $0.subtitle.contains("设置") })
         try fixture { defaults in
@@ -149,8 +149,8 @@ private struct GuideMotionTestHost: View {
             #expect(restored.overlayTextSpacing.primaryLineSpacing == 10)
         }
     }
-    @Test func preview277PreservesSettingsAndIntroducesTheFixOnceBeforeStable() throws {
-        #expect(GuideContent.displayUpdates(after: "2.0.41").map(\.id) == ["startup42"])
+    @Test func build278PreservesSettingsAndIntroducesBothChangesOnce() throws {
+        #expect(GuideContent.displayUpdates(after: "2.0.41").map(\.id) == ["globalOffset42", "startup42"])
         try fixture { defaults in
             defaults.set("2.0.41", forKey: "guideLastVersion")
             defaults.set(["2.0.41:music-search-41"], forKey: "guidePresentedEditions")
@@ -164,19 +164,23 @@ private struct GuideMotionTestHost: View {
             #expect(GuideHistory(defaults: defaults).pending == nil)
             let restored = Preferences(defaults: defaults)
             #expect(restored.mainLyricCustomPercent == 17 && !restored.overlayVisible && restored.appleMusicCloudEnabled)
-            let stable = GuideHistory(defaults: defaults, version: "2.0.42", revision: "future-stable")
-            #expect(stable.pending == .update(previous: "2.0.42"))
+            defaults.set(["2.0.42:startup-42-preview1"], forKey: "guidePresentedEditions")
+            let fromPreview = GuideHistory(defaults: defaults)
+            #expect(fromPreview.pending == .update(previous: "2.0.42"))
+            fromPreview.didPresent()
+            #expect(GuideHistory(defaults: defaults).pending == nil)
+            #expect(GuideContent.displayUpdates(after: "2.0.42").map(\.id) == ["globalOffset42", "startup42"])
         }
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let plist = try #require(PropertyListSerialization.propertyList(from: Data(contentsOf: root.appendingPathComponent("Resources/Info.plist")), format: nil) as? [String: Any])
         #expect(plist["CFBundleShortVersionString"] as? String == GuideContent.version)
-        #expect(plist["CFBundleVersion"] as? String == "277")
-        #expect(plist["LyricsXReleaseVersion"] as? String == "2.0.42-preview.1")
+        #expect(plist["CFBundleVersion"] as? String == "278")
+        #expect(plist["LyricsXReleaseVersion"] == nil)
         #expect(plist["LSMinimumSystemVersion"] as? String == "26.0")
     }
 
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["LYRICSX_PREVIEW_QA"] == "1"))
-    func previewIntroductionRendersAndAutomaticReplayStaysQuiet() async throws {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LYRICSX_RELEASE_QA"] == "1"))
+    func releaseIntroductionRendersAndAutomaticReplayStaysQuiet() async throws {
         _ = NSApplication.shared
         let suite = "LyricsXPreviewQA-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -184,13 +188,28 @@ private struct GuideMotionTestHost: View {
         defaults.set("2.0.41", forKey: "guideLastVersion")
         defaults.set(["2.0.41:music-search-41"], forKey: "guidePresentedEditions")
         let controller = FeatureGuideController(history: GuideHistory(defaults: defaults))
-        controller.preferences = Preferences(defaults: defaults)
-        defer { controller.close() }
+        let preferences = Preferences(defaults: defaults)
+        controller.preferences = preferences
+        defer { controller.close(); withExtendedLifetime(preferences) {} }
         controller.showAutomaticIfNeeded()
         let window = try #require(controller.window)
         #expect(window.isVisible)
         window.setContentSize(.init(width: 800, height: 600))
-        let out = URL(fileURLWithPath: "/tmp/lyricsx-preview42-qa", isDirectory: true)
+        try await Task.sleep(for: .milliseconds(150))
+        func textField(_ view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.isEditable { return field }
+            return view.subviews.lazy.compactMap { textField($0) }.first
+        }
+        let contentView = try #require(window.contentView)
+        let field = try #require(textField(contentView))
+        field.selectText(nil)
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.selectAll(nil); editor.insertText("0.3", replacementRange: editor.selectedRange())
+        window.makeFirstResponder(nil)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(preferences.globalOffsetMilliseconds == 300)
+        preferences.globalOffsetMilliseconds = 0
+        let out = URL(fileURLWithPath: "/tmp/lyricsx-stable42-guide-qa", isDirectory: true)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             window.appearance = NSAppearance(named: appearance)

@@ -41,11 +41,14 @@ struct OverlayOffsetEditor: View {
                 Button(action: close) { Image(systemName: "xmark") }
                     .buttonStyle(.plain).help("关闭歌词同步调节").keyboardShortcut(.cancelAction)
             }
-            Text(String(format: "当前偏移 %+.1f 秒", Double(model.session.document?.offsetMilliseconds ?? 0) / 1000))
+            Text(String(format: "单曲偏移 %+.1f 秒", Double(model.session.document?.offsetMilliseconds ?? 0) / 1000))
                 .monospacedDigit().font(.callout)
                 .contentTransition(.numericText())
                 .animation(systemReduceMotion || model.preferences.reduceMotion ? nil : .easeInOut(duration: 0.18),
                     value: model.session.document?.offsetMilliseconds)
+            Text(String(format: "通用 %+.3f 秒 · 合计 %+.3f 秒", Double(model.session.globalOffsetMilliseconds) / 1000,
+                Double(model.session.effectiveOffsetMilliseconds) / 1000))
+                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
             HStack {
                 Button("延后 0.1 秒") { adjust(-100) }
                 Button("提前 0.1 秒") { adjust(100) }
@@ -55,9 +58,9 @@ struct OverlayOffsetEditor: View {
                     model.session.resetOffset()
                 }
             }.controlSize(.small).disabled(!target.matches(model.session))
-            Text("正值让歌词提前；只调整当前歌曲的歌词，不改变播放进度。")
+            Text("此处只调整或重置单曲偏移；通用偏移在设置 → 歌词 → 同步中调整。")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }.padding(24).frame(width: width, height: 156)
+        }.padding(24).frame(width: width, height: 186)
     }
     private func adjust(_ milliseconds: Int) {
         guard target.matches(model.session) else { return }
