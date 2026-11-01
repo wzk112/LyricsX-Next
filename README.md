@@ -23,6 +23,7 @@
 - 暂停、跳转和切歌时会保留有效播放状态；单次播放器读取失败不会闪出“未识别到播放源”提示。
 - 菜单栏播放控制、歌词偏移、搜索、重新搜索、Finder 定位、错误歌词停用、资料库和 Apple Music 写入。
 - “设置 → 通用”可分别隐藏 Dock 图标、菜单栏图标和菜单栏歌词；重新打开应用时继续遵循 Dock 设置，隐藏后仍能使用 ⌥⌘O 打开主窗口。
+- “开发者选项 → MacBook Pro Touch Bar”可直接显示内置触控条歌词、封面和播放控制，并提供屏幕预览及可选后台入口。
 - “开发者选项”可开启 Flexbar 歌词连接，需另行安装并配置 FlexDesigner 插件；设备上的实际效果以插件和硬件为准。
 - 联网搜索结果默认保存为 `.lrcx`，保留逐字时间和来源附加信息；仍可导入、读取 `.lrc` 和纯文本歌词。
 
@@ -78,6 +79,15 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
 
 主窗口的歌词滚动位置按歌曲和歌词版本独立管理。切歌或重新载入歌词后，前奏尚未进入第一句时，第一行按居中、上方或自定义百分比设置对齐并保持未唱状态；进入歌词后平滑跟随当前句，清除上一首的手动浏览状态与延迟返回任务。
 
+### 2.0.43 更新
+
+- 「设置 → 开发者选项 → MacBook Pro Touch Bar」可开启内置 Touch Bar 歌词、逐字高亮、封面和播放控制，不需要 FlexDesigner 插件。
+- 同一卡片可打开当前歌曲的屏幕预览，或单独开启实验性后台入口。两个开关默认关闭；实体触控条的显示、触控和后台恢复仍需对应机器验证。
+- 下载包同时包含 Intel 与 Apple 芯片代码，要求 macOS 26 或以上。保留通用歌词偏移和上一版启动修复。
+- 「设置 → 关于 → 本次更新」可重看两页介绍，直接调整开关、打开预览；升级时只自动显示一次。
+
+下载 [LyricsX-Next-2.0.43.zip](https://github.com/wzk112/LyricsX-Next/releases/download/v2.0.43/LyricsX-Next-2.0.43.zip)，查看 [版本说明](docs/releases/v2.0.43.md) 和 [完整更新记录](CHANGELOG.md)。
+
 ### 2.0.42 更新
 
 - 「设置 → 歌词 → 同步 → 通用歌词偏移」可统一调整所有歌曲，再叠加各歌曲原有偏移。正值提前，负值延后；分别重置，互不清除。
@@ -103,7 +113,7 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
 
 ## 安装
 
-从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载 [LyricsX-Next-2.0.42.zip](https://github.com/wzk112/LyricsX-Next/releases/download/v2.0.42/LyricsX-Next-2.0.42.zip)，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
+从 [Releases](https://github.com/wzk112/LyricsX-Next/releases) 下载 [LyricsX-Next-2.0.43.zip](https://github.com/wzk112/LyricsX-Next/releases/download/v2.0.43/LyricsX-Next-2.0.43.zip)，解压后将 `LyricsX Next.app` 拖到 `/Applications`。从旧版升级时先退出旧应用，并移除旧的 `LyricsX.app`，避免同时启动两份。应用标识与缓存目录保持兼容，已有设置及歌词无需迁移。
 
 本次包使用本机 ad-hoc 签名，没有 Developer ID 公证票据。首次打开时如果 macOS 提示无法验证开发者：
 
@@ -115,7 +125,7 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
    xattr -dr com.apple.quarantine "/Applications/LyricsX Next.app"
    ```
 
-完整的安装、签名和版本说明见 [`docs/releases/v2.0.42.md`](docs/releases/v2.0.42.md)。
+完整的安装、签名和版本说明见 [`docs/releases/v2.0.43.md`](docs/releases/v2.0.43.md)。
 
 ## 播放器权限
 
@@ -140,7 +150,7 @@ Liquid Glass 的透明度范围为 0–100%，只改变内部从顶部向下逐�
 ```sh
 swift test --no-parallel
 LYRICSX_WINDOW_QA=1 swift test --filter WindowFrameTests
-./scripts/build.sh release
+LYRICSX_ARCHS=universal ./scripts/build.sh release
 open "build/LyricsX Next.app"
 ```
 

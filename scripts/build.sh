@@ -7,8 +7,27 @@ if [[ "$CONFIGURATION" != "release" && "$CONFIGURATION" != "debug" ]]; then
   echo "Usage: scripts/build.sh [release|debug]" >&2
   exit 2
 fi
-swift build --configuration "$CONFIGURATION"
-BIN_DIR="$(swift build --configuration "$CONFIGURATION" --show-bin-path)"
+# Leave the existing host-only build unchanged unless explicitly requested.
+# A universal app must include matching slices in its dynamic libraries too.
+BUILD_ARGS=(--configuration "$CONFIGURATION")
+if [[ -n "${LYRICSX_BUILD_PATH:-}" ]]; then
+  BUILD_ARGS+=(--scratch-path "$LYRICSX_BUILD_PATH")
+fi
+REQUESTED_ARCHS=""
+case "${LYRICSX_ARCHS:-}" in
+  '') ;;
+  arm64|x86_64) REQUESTED_ARCHS="$LYRICSX_ARCHS" ;;
+  universal|arm64,x86_64|x86_64,arm64) REQUESTED_ARCHS="arm64 x86_64" ;;
+  *)
+    echo 'LYRICSX_ARCHS must be arm64, x86_64, or universal (arm64,x86_64).' >&2
+    exit 2
+    ;;
+esac
+for architecture in $REQUESTED_ARCHS; do
+  BUILD_ARGS+=(--arch "$architecture")
+done
+swift build "${BUILD_ARGS[@]}"
+BIN_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 mkdir -p "$PROJECT_ROOT/build"
 STAGE_ROOT="$(mktemp -d "$PROJECT_ROOT/build/.lyricsx-stage.XXXXXX")"
 trap 'rm -rf "$STAGE_ROOT"' EXIT
@@ -26,6 +45,14 @@ for bundle in "$BIN_DIR"/*.bundle; do
   [[ -d "$bundle" ]] || continue
   ditto "$bundle" "$APP/Contents/Resources/$(basename "$bundle")"
 done
+if [[ -n "$REQUESTED_ARCHS" ]]; then
+  for binary in "$APP/Contents/MacOS/LyricsX" "$APP/Contents/Frameworks/"*.dylib; do
+    [[ -e "$binary" ]] || continue
+    for architecture in $REQUESTED_ARCHS; do
+      /usr/bin/lipo -verify_arch "$architecture" "$binary"
+    done
+  done
+fi
 # SPM uses @rpath; packaged applications must resolve dependencies beside the executable.
 if ! otool -l "$APP/Contents/MacOS/LyricsX" | /usr/bin/grep -q '@executable_path/../Frameworks'; then
   install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP/Contents/MacOS/LyricsX"

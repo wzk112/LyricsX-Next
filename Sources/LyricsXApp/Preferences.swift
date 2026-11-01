@@ -162,6 +162,8 @@ final class Preferences {
     var mainLyricPlacement: MainLyricPlacement { mainLyricPosition.placement(customPercent: mainLyricCustomPercent) }
     var showTranslation: Bool { didSet { save("showTranslation", showTranslation) } }
     var flexbarEnabled: Bool { didSet { save("flexbarEnabled", flexbarEnabled) } }
+    var touchBarEnabled: Bool { didSet { save("touchBarEnabled", touchBarEnabled) } }
+    var touchBarBackgroundEnabled: Bool { didSet { save("touchBarBackgroundEnabled", touchBarBackgroundEnabled) } }
     var showMenubarLyrics: Bool { didSet { save("showMenubarLyrics", showMenubarLyrics) } }
     var showMenuBarIcon: Bool { didSet { save("showMenuBarIcon", showMenuBarIcon) } }
     var showDockIcon: Bool { didSet { save("showDockIcon", showDockIcon) } }
@@ -255,6 +257,8 @@ final class Preferences {
             number("mainLyricCustomPercent", MainLyricPosition.defaultCustomPercent, MainLyricPosition.customRange))
         showTranslation = d.object(forKey: "showTranslation") as? Bool ?? true
         flexbarEnabled = d.bool(forKey: "flexbarEnabled")
+        touchBarEnabled = d.bool(forKey: "touchBarEnabled")
+        touchBarBackgroundEnabled = d.bool(forKey: "touchBarBackgroundEnabled")
         showMenubarLyrics = d.bool(forKey: "showMenubarLyrics")
         showMenuBarIcon = d.object(forKey: "showMenuBarIcon") as? Bool ?? true
         showDockIcon = d.object(forKey: "showDockIcon") as? Bool ?? true

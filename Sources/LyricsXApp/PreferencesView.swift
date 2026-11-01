@@ -426,6 +426,15 @@ struct PreferencesView: View {
                 SettingToggle(title: "在 Flexbar 上显示歌词", detail: "通过 FlexDesigner 歌词插件显示当前歌词。", value: $p.flexbarEnabled)
                 Text(model.flexbar.status).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 14)
             }
+            SettingsCard(title: "MacBook Pro Touch Bar") {
+                SettingToggle(title: "在 Touch Bar 上显示歌词", detail: "在配备内置 Touch Bar 的 MacBook Pro 上显示歌词、封面和播放控制，无需安装插件。", value: $p.touchBarEnabled)
+                SettingToggle(title: "后台入口（实验性）", detail: "切到其他应用后，在控制条提供歌词入口，点按可展开。系统不支持时仍可使用前台歌词。", value: $p.touchBarBackgroundEnabled)
+                    .disabled(!p.touchBarEnabled)
+                Text(model.touchBar.status).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 14)
+                SettingRow(title: "Touch Bar 预览", detail: "用当前歌曲预览实际歌词控件；屏幕预览不能验证实体触控条。") {
+                    Button("打开预览") { model.touchBar.showPreview() }
+                }
+            }
             SettingsCard(title: "歌词文件夹") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("当前路径").font(.body.weight(.medium))

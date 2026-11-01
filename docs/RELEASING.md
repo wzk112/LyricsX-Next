@@ -19,6 +19,8 @@ Follow the same draft-upload-download-verification sequence. Publish with `--pre
 
 ## Local installation signing
 
+Public packages now include both Apple Silicon and Intel slices. Use `LYRICSX_ARCHS=universal scripts/build.sh release`; `LYRICSX_BUILD_PATH` may point to a fresh scratch directory for an isolated clean build. The packaging script verifies both slices in the executable and each bundled dynamic library. Native or Rosetta execution must still be reported separately from physical Intel/Touch Bar validation.
+
 For local repair builds use `scripts/build-local.sh release`. It uses the existing Apple Development / Developer ID Application certificate when exactly one is available, or an explicitly selected `LYRICSX_SIGN_IDENTITY`. It refuses an ad-hoc fallback. Keep the same bundle identifier and certificate identity across local updates so macOS can recognize existing audio recording permissions. The first migration from an ad-hoc app may require granting the existing system-audio-only permission again; never reset the entire privacy database or add screen recording access just to repair a waveform.
 
 This local signing workflow does not change the public distribution identity or imply notarization. `scripts/build.sh` remains the packaging entry point for the release checklist above.

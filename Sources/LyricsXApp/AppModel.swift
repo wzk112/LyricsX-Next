@@ -13,6 +13,7 @@ final class AppModel {
     let bridge = PlayerBridge()
     let dockVisibility: DockVisibilityController
     let flexbar: FlexbarController
+    let touchBar = TouchBarController()
     var playerError: String?
     var message: String?
     var showSearch = false
@@ -66,6 +67,7 @@ final class AppModel {
             self.ticker?.scheduleEarlier(self.lyricClockInterval())
             self.updateArtwork(self.session.track)
             self.flexbar.synchronizePlayback()
+            self.touchBar.synchronizePlayback()
         }
         bridge.onError = { [weak self] error in
             self?.playerError = error
@@ -114,16 +116,17 @@ final class AppModel {
         dockVisibility.start()
         observeDockVisibility()
         flexbar.start(model: self)
+        touchBar.start(model: self)
         overlay = OverlayController(model: self)
         bridge.mode = preferences.playerMode
         bridge.start()
         wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in guard let self, !self.presentationStopped else { return }; self.bridge.restart(); self.flexbar.wake(); self.overlay?.resumeWaveform(); self.overlay?.restoreOnScreen() }
+            Task { @MainActor in guard let self, !self.presentationStopped else { return }; self.bridge.restart(); self.flexbar.wake(); self.touchBar.wake(); self.overlay?.resumeWaveform(); self.overlay?.restoreOnScreen() }
         })
         wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self, !self.presentationStopped else { return }
-                self.overlay?.suspendWaveform(); self.flexbar.sleep(); self.bridge.stop(); self.session.freeze()
+                self.overlay?.suspendWaveform(); self.flexbar.sleep(); self.touchBar.sleep(); self.bridge.stop(); self.session.freeze()
             }
         })
         startLyricClock()
@@ -208,6 +211,7 @@ final class AppModel {
         mainLyricPresentation.stop()
         displays.stop()
         flexbar.stop()
+        touchBar.stop()
         dockVisibility.stop()
         overlay?.stop(); overlay = nil; bridge.stop(); session.stop()
         unloadLibrary()
@@ -230,6 +234,7 @@ final class AppModel {
         applyLocalSeek(time)
         bridge.send(.seek(time))
         flexbar.synchronizePlayback(force: true)
+        touchBar.synchronizePlayback()
     }
     func applyLocalSeek(_ time: Double) {
         session.seek(to: time)

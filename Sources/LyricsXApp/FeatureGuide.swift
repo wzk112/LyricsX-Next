@@ -47,8 +47,8 @@ struct GuidePage: Identifiable {
 
 enum GuideContent {
     // Changed only when the introduction itself is revised, never for a routine rebuild.
-    static let revision = "global-offset-42"
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.42"
+    static let revision = "touch-bar-43"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.43"
     static let displayVersion = Bundle.main.object(forInfoDictionaryKey: "LyricsXReleaseVersion") as? String ?? version
     static let tutorial: [GuidePage] = [
         .init(id: "start", title: "播放音乐，歌词自动出现", subtitle: "先播放一首歌", symbol: "play.circle", points: [
@@ -111,6 +111,10 @@ enum GuideContent {
             "需要另行安装并配置 FlexDesigner 歌词插件，然后在开发者选项中开启 Flexbar 连接。普通歌词和悬浮窗不需要此功能。",
             "插件可显示逐字歌词与翻译；这里展示插件渲染器生成的图片，不代表设备上的实际显示帧率或亮度。",
             "暂停、隐藏或没有歌词时会减少更新。设备与插件的实际表现可能不同。"], illustration: "releaseFlexbar38"),
+        .init(id: "touchbar", title: "MacBook Pro 的 Touch Bar 歌词", subtitle: "设置 → 开发者选项 → MacBook Pro Touch Bar", symbol: "rectangle.bottomthird.inset.filled", points: [
+            "配备内置 Touch Bar 的 MacBook Pro 可显示歌词、封面和播放控制，无需插件。默认关闭，下方可直接开启。",
+            "逐字高亮需要歌词本身带时间标记。长句会随播放滚动；暂停、跳转和单曲／通用偏移沿用当前歌词设置。",
+            "可单独开启实验性后台入口，切到其他应用后点按控制条中的歌词图标展开。“打开预览”可查看当前歌曲的正式控件，不能代替实体 Touch Bar 验证。"], illustration: "touchBar43"),
         .init(id: "privacy", title: "帮助与更新", subtitle: "设置 → 关于，可随时重看", symbol: "info.circle", points: [
             "搜索时会向启用的歌词来源发送歌名、歌手和时长。不需要的来源可在设置中关闭。",
             "实时波形需在“设置 → 悬浮窗”主动开启，首次使用可能请求系统音频录制权限；打开本指南不会采集音频。开发者选项包含文件管理、来源令牌、帧率与可选 Flexbar 连接。来源令牌保存在系统钥匙串中。",
@@ -118,7 +122,7 @@ enum GuideContent {
     ]
     // Add new release entries here; a version jump includes every intervening
     // entry, while a first upgrade from versions without receipts gets a recap.
-    static let releases: [(version: String, page: GuidePage)] = release42Pages.map { ("2.0.42", $0) } + release41Pages.map { ("2.0.41", $0) } + release40Pages.map { ("2.0.40", $0) } + release39Pages.map { ("2.0.39", $0) } + [
+    static let releases: [(version: String, page: GuidePage)] = release43Pages.map { ("2.0.43", $0) } + release42Pages.map { ("2.0.42", $0) } + release41Pages.map { ("2.0.41", $0) } + release40Pages.map { ("2.0.40", $0) } + release39Pages.map { ("2.0.39", $0) } + [
         ("2.0.38", .init(id: "waveform38", title: "悬浮窗音频波形", subtitle: "新增 · 设置 → 悬浮窗", symbol: "waveform", points: [
             "在“设置 → 悬浮窗”可开启实时音频波形，选择白色或封面彩色；默认关闭，不会因升级自动开始采集。",
             "首次开启时 macOS 可能请求系统音频录制权限。波形仅尝试读取当前识别播放器的音频，暂停、隐藏或减少动态效果时停止。",
@@ -196,6 +200,16 @@ enum GuideContent {
             "简繁体转换后仍能显示逐字进度。自定义颜色保留 EDR 辉光，改善窗口首次显示时的屏幕能力识别。",
             "改善部分 QQ 音乐歌词的读取、搜索与封面显示；修复缓存文件变化及异常设置值引起的显示问题。"], illustration: "conversion"))
     ]
+    static let release43Pages: [GuidePage] = [
+        .init(id: "touchBar43", title: "歌词来到 MacBook Pro Touch Bar", subtitle: "新增 · 设置 → 开发者选项 → MacBook Pro Touch Bar", symbol: "rectangle.bottomthird.inset.filled", points: [
+            "在内置 Touch Bar 上查看当前歌词、封面，并播放、暂停或切歌。默认关闭，不需要 FlexDesigner 插件；下方可直接开启。",
+            "带逐字时间的歌词会按演唱进度高亮，长句随播放滚动。暂停、跳转、繁简转换与单曲／通用合计偏移保持同步；无同步歌词时显示歌曲信息。",
+            "本次应用包同时包含 Intel 和 Apple Silicon 版本，最低系统仍为 macOS 26。已完成双架构构建和软件验证，实体 Touch Bar 的显示与触控仍需对应机器确认。"], illustration: "touchBar43"),
+        .init(id: "backgroundTouchBar43", title: "后台入口与屏幕预览", subtitle: "可选 · 设置 → 开发者选项 → MacBook Pro Touch Bar", symbol: "rectangle.on.rectangle", points: [
+            "“后台入口（实验性）”单独开启，默认关闭。切到其他应用后，点按 Touch Bar 控制条中的歌词图标展开；回到应用、关闭功能或睡眠时会撤销自己的后台入口。",
+            "后台入口依赖系统兼容性；不可用时仍可使用前台歌词。实际跨应用显示与唤醒恢复，需要在带 Touch Bar 的机器上测试。",
+            "下方“打开预览”使用当前歌曲和正式歌词控件，无 Touch Bar 也能查看。这里的固定示意帧不会控制播放器，屏幕预览不代表物理面板效果。"], illustration: "touchBar43")
+    ]
     static let release42Pages: [GuidePage] = [
         .init(id: "globalOffset42", title: "通用歌词偏移", subtitle: "新增 · 设置 → 歌词 → 同步", symbol: "slider.horizontal.3", points: [
             "为所有歌曲设置统一的歌词偏移，再用主窗口、悬浮窗“歌词同步”或菜单栏微调单曲；两者相加后生效。正值提前，负值延后。",
@@ -265,7 +279,7 @@ enum GuideContent {
         updates(after: previous)
     }
     // The previous public version defines the manual current-release introduction.
-    static let latestBaseline: String? = "2.0.41"
+    static let latestBaseline: String? = "2.0.42"
     static func updates(after previous: String?) -> [GuidePage] {
         let pages = releases.filter { entry in
             guard let previous else { return true }
@@ -450,6 +464,8 @@ struct FeatureGuideView: View {
                             } else if page.illustration == "releaseFlexbar38" {
                                 GuideReleaseVisual(kind: .performanceFlexbar38)
                                     .frame(height: min(230, max(185, guideSize.size.height * 0.36)))
+                            } else if page.illustration == "touchBar43" {
+                                GuideTouchBarVisual().frame(height: 136)
                             } else if page.illustration.hasPrefix("live") || ["style", "overlay"].contains(page.illustration) {
                                 GuideLiveDemo(kind: page.illustration, reduced: preferences?.reduceMotion == true, viewportHeight: scrollHeight,
                                     mainPosition: ["position39", "position40"].contains(page.id) ? preferences?.mainLyricPosition : nil,
@@ -501,7 +517,7 @@ private struct GuideQuickSettings: View {
     let page: String
     @Bindable var preferences: Preferences
     let model: AppModel?
-    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects", "waveform", "waveform38", "performanceFlexbar38", "flexbar", "position39", "position40", "spacing40", "globalOffset42", "colors39", "transitions39", "search41", "players41", "overlay41", "waveform41"].contains(page) }
+    private var available: Bool { ["main", "search", "overlay", "style", "text", "theme", "effects", "waveform", "waveform38", "performanceFlexbar38", "flexbar", "touchbar", "touchBar43", "backgroundTouchBar43", "position39", "position40", "spacing40", "globalOffset42", "colors39", "transitions39", "search41", "players41", "overlay41", "waveform41"].contains(page) }
     var body: some View {
         if available {
             VStack(alignment: .leading, spacing: 10) {
@@ -538,6 +554,13 @@ private struct GuideQuickSettings: View {
             SettingToggle(title: "减少动态效果", detail: "减少位移和模糊过渡，也遵循系统设置。", value: $preferences.reduceMotion)
         case "flexbar", "performanceFlexbar38":
             SettingToggle(title: "在 Flexbar 上显示歌词", detail: "需要另行安装和配置 FlexDesigner 歌词插件。入口在设置 → 开发者选项 → Flexbar。", value: $preferences.flexbarEnabled)
+        case "touchbar", "touchBar43", "backgroundTouchBar43":
+            SettingToggle(title: "在 Touch Bar 上显示歌词", detail: "在应用前台显示歌词、封面与播放控制，默认关闭。", value: $preferences.touchBarEnabled)
+            SettingToggle(title: "后台入口（实验性）", detail: "切到其他应用后，点按控制条的歌词图标展开。", value: $preferences.touchBarBackgroundEnabled)
+                .disabled(!preferences.touchBarEnabled)
+            SettingRow(title: "预览当前歌曲", detail: "使用实际歌词控件；屏幕预览不能验证实体触控条。") {
+                Button("打开预览") { model?.touchBar.showPreview() }.disabled(model == nil)
+            }
         case "position39", "position40":
             MainLyricPositionSettings(preferences: preferences)
         case "globalOffset42":
